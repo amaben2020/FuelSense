@@ -1076,6 +1076,9 @@ export interface SetFuelPriceResult extends BenchmarkPrice {
 export interface FuelPriceTrend {
   /** Oldest first, so it plots left to right without reversing. */
   series: { ngn_per_liter: number; effective_from: string }[];
+  /** What drivers were actually charged, oldest first. Absent from a backend
+   *  deployed before receipt prices joined the trend. */
+  receipts?: { ngn_per_liter: number; as_of: string }[];
   change_ngn: number;
   change_pct: number;
   direction: 'up' | 'down' | 'flat';

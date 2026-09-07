@@ -8,6 +8,7 @@ import {
   setBenchmarkPrice,
   undoBenchmarkPrice,
   latestReceiptPrice,
+  receiptPriceSeries,
 } from '../lib/fuel-price';
 import { serializeForApi } from '../lib/serialize';
 import { invalidate } from '../lib/redis';
@@ -26,10 +27,11 @@ const MAX_PRICE_NGN = 20_000;
 router.get('/', async (req: Request, res: Response) => {
   try {
     const customerId = req.user.customerId;
-    const [current, receipt, history] = await Promise.all([
+    const [current, receipt, history, receipts] = await Promise.all([
       currentBenchmarkPrice(customerId),
       latestReceiptPrice(customerId),
       benchmarkPriceHistory(customerId),
+      receiptPriceSeries(customerId),
     ]);
 
     // Fuel price drives every naira figure in the product, so which way it is
@@ -52,6 +54,12 @@ router.get('/', async (req: Request, res: Response) => {
           series: series.map((p) => ({
             ngnPerLiter: p.ngnPerLiter,
             effectiveFrom: p.effectiveFrom,
+          })),
+          /** What was actually paid, oldest first, so the chart can show the
+           *  declared benchmark against the pump prices it is meant to track. */
+          receipts: receipts.map((p) => ({
+            ngnPerLiter: p.ngnPerLiter,
+            asOf: p.asOf,
           })),
           changeNgn,
           changePct:

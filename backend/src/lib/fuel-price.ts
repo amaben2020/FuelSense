@@ -38,6 +38,39 @@ export async function latestReceiptPrice(customerId: string): Promise<FuelPrice 
   return { ngnPerLiter: Number(row.price), asOf: row.at };
 }
 
+/**
+ * Every distinct price actually paid, oldest first.
+ *
+ * The benchmark is what the manager declares; this is what drivers were
+ * charged at the pump. Plotting them together is the only way to see the
+ * declared figure drifting away from reality, which is the whole reason the
+ * benchmark is editable in the first place.
+ */
+export async function receiptPriceSeries(
+  customerId: string,
+  limit = 60
+): Promise<FuelPrice[]> {
+  const rows = await db
+    .select({
+      price: fuelPurchases.costPerLiterNgn,
+      at: fuelPurchases.purchasedAt,
+    })
+    .from(fuelPurchases)
+    .where(
+      and(
+        eq(fuelPurchases.customerId, customerId),
+        sql`${fuelPurchases.costPerLiterNgn} IS NOT NULL`,
+        sql`${fuelPurchases.costPerLiterNgn} > 0`
+      )
+    )
+    .orderBy(desc(fuelPurchases.purchasedAt))
+    .limit(limit);
+
+  return rows
+    .map((r) => ({ ngnPerLiter: Number(r.price), asOf: r.at }))
+    .reverse();
+}
+
 // ---------------------------------------------------------------------------
 // Benchmark prices
 //

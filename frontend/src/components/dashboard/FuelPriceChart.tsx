@@ -20,32 +20,61 @@ function moveFor(pct: number): PointMove {
   return 'flat';
 }
 
-const MOVE_COLOR: Record<PointMove, string> = {
+const MOVE_TEXT_CLASS: Record<PointMove, string> = {
   // Rising fuel cost is the warning colour; falling is good news; flat is
   // neither — same convention as FuelPriceTrend's sparkline.
-  up: 'var(--warn)',
-  down: 'var(--good)',
-  flat: 'var(--ink-dim)',
-};
-
-const MOVE_TEXT_CLASS: Record<PointMove, string> = {
   up: 'text-warn',
   down: 'text-good',
   flat: 'text-ink-dim',
 };
 
+// Plot geometry. The left gutter holds the price axis and the bottom strip
+// the dates, so the drawing area is what's left inside them.
+const W = 720;
+const H = 240;
+const PAD = { top: 18, right: 16, bottom: 30, left: 56 };
+const PLOT_W = W - PAD.left - PAD.right;
+const PLOT_H = H - PAD.top - PAD.bottom;
+
+const Y_TICKS = 4;
+
+/** Rounds a price span out to friendly ₦25 boundaries so the axis labels are
+ *  readable numbers rather than 1,273.4 / 1,291.8 / 1,310.2. */
+function niceBounds(min: number, max: number): { lo: number; hi: number } {
+  if (max === min) return { lo: min - 25, hi: max + 25 };
+  const step = 25;
+  const pad = (max - min) * 0.15;
+  return {
+    lo: Math.floor((min - pad) / step) * step,
+    hi: Math.ceil((max + pad) / step) * step,
+  };
+}
+
 /**
- * Full-width fuel price history — every declared benchmark price, oldest to
- * newest, plotted as a line with each segment coloured by whether that move
- * was a rise, a fall, or effectively flat. Every naira figure elsewhere on
- * this dashboard is this number times some litres, so its trend earns a
- * chart of its own rather than staying folded into the Settings price panel.
+ * Fuel price history — the declared benchmark against what was actually paid.
+ *
+ * Two things a single line could not say. The benchmark is a **step**: a
+ * declared price holds flat until the manager changes it, so drawing it as a
+ * diagonal ramp between declarations invents a gradual drift that never
+ * happened. And the benchmark is only half the story — it is a figure the
+ * manager sets, so it can drift away from the pump. Receipt prices are
+ * plotted alongside it as discrete observations, because that is what they
+ * are: one driver, one pump, one day.
+ *
+ * The x-axis is time-proportional. Evenly spacing the declarations drew a
+ * one-day gap and a three-week gap the same width, which is precisely the
+ * thing a price chart exists to show.
  */
 export function FuelPriceChart({ className = '' }: { className?: string }) {
   const [data, setData] = useState<FuelPriceResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  // The newest declared price is still in force, so the step has to run to
+  // "now" — captured once on mount rather than read during render, which is
+  // not a pure thing to do and would redraw the plot on every render anyway.
+  const [now, setNow] = useState<number | null>(null);
 
   useEffect(() => {
+    setNow(Date.now());
     api<FuelPriceResponse>('/fuel-price')
       .then(setData)
       .catch(() => setData(null))
@@ -53,8 +82,9 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
   }, []);
 
   const series = data?.trend?.series ?? [];
+  const receiptSeries = data?.trend?.receipts ?? [];
 
-  if (loading) {
+  if (loading || now === null) {
     return (
       <div className={`rounded-xl border border-edge bg-panel p-5 sm:p-6 ${className}`}>
         <p className="text-sm text-ink-dim">Loading fuel price trend…</p>
@@ -62,7 +92,7 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
     );
   }
 
-  if (series.length < 2) {
+  if (series.length === 0) {
     return (
       <div className={`rounded-xl border border-edge bg-panel p-5 sm:p-6 ${className}`}>
         <div className="flex items-center gap-2 text-ink-dim">
@@ -70,9 +100,7 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
           <span className="text-xs font-semibold uppercase tracking-[0.12em]">Fuel price trend</span>
         </div>
         <p className="mt-2 text-sm text-ink-dim">
-          {series.length === 0
-            ? 'No benchmark price declared yet — set one in Settings to start the trend.'
-            : 'One declared price is a fact, not a trend yet — set a second price to see movement.'}
+          No benchmark price declared yet — set one in Settings to start the trend.
         </p>
       </div>
     );
@@ -81,33 +109,56 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
   // Per-point move relative to the previous declared price, oldest first.
   const points = series.map((p, i) => {
     const prev = series[i - 1];
-    const pct = prev && prev.ngn_per_liter > 0 ? ((p.ngn_per_liter - prev.ngn_per_liter) / prev.ngn_per_liter) * 100 : 0;
+    const pct =
+      prev && prev.ngn_per_liter > 0
+        ? ((p.ngn_per_liter - prev.ngn_per_liter) / prev.ngn_per_liter) * 100
+        : 0;
     return {
       ngnPerLiter: p.ngn_per_liter,
       effectiveFrom: p.effective_from,
+      at: new Date(p.effective_from).getTime(),
       pct,
       move: i === 0 ? ('flat' as PointMove) : moveFor(pct),
     };
   });
 
-  const values = points.map((p) => p.ngnPerLiter);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
+  const receipts = receiptSeries.map((r) => ({
+    ngnPerLiter: r.ngn_per_liter,
+    at: new Date(r.as_of).getTime(),
+    asOf: r.as_of,
+  }));
 
-  const W = 640;
-  const H = 160;
-  const PAD_X = 12;
-  const PAD_Y = 20;
+  const times = [...points.map((p) => p.at), ...receipts.map((r) => r.at), now];
+  const tMin = Math.min(...times);
+  const tMax = Math.max(...times);
+  const tSpan = tMax - tMin || 1;
 
-  const coords = points.map((p, i) => {
-    const x = points.length > 1 ? (i / (points.length - 1)) * (W - PAD_X * 2) + PAD_X : W / 2;
-    const y = H - PAD_Y - ((p.ngnPerLiter - min) / span) * (H - PAD_Y * 2);
-    return { x, y, ...p };
-  });
+  const allPrices = [...points.map((p) => p.ngnPerLiter), ...receipts.map((r) => r.ngnPerLiter)];
+  const { lo, hi } = niceBounds(Math.min(...allPrices), Math.max(...allPrices));
+  const ySpan = hi - lo || 1;
+
+  const x = (t: number) => PAD.left + ((t - tMin) / tSpan) * PLOT_W;
+  const y = (v: number) => PAD.top + PLOT_H - ((v - lo) / ySpan) * PLOT_H;
+
+  // The step path: hold the price flat to the next declaration, then jump.
+  const stepPath = points
+    .map((p, i) => {
+      const nextAt = i + 1 < points.length ? points[i + 1].at : now;
+      const segment = `${i === 0 ? 'M' : 'L'} ${x(p.at).toFixed(1)} ${y(p.ngnPerLiter).toFixed(1)} L ${x(nextAt).toFixed(1)} ${y(p.ngnPerLiter).toFixed(1)}`;
+      return segment;
+    })
+    .join(' ');
+
+  const yTicks = Array.from({ length: Y_TICKS + 1 }, (_, i) => lo + (ySpan / Y_TICKS) * i);
 
   const trend = data!.trend!;
   const overallMove = moveFor(trend.change_pct);
+  const latestReceipt = data?.latest_receipt ?? null;
+  const currentBenchmark = points[points.length - 1];
+
+  // The gap that actually matters: what the fleet is charged versus what the
+  // manager has told the product to expect.
+  const gapNgn = latestReceipt ? latestReceipt.ngn_per_liter - currentBenchmark.ngnPerLiter : null;
 
   return (
     <div className={`rounded-xl border border-edge bg-panel p-5 sm:p-6 ${className}`}>
@@ -131,41 +182,134 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
         </span>
       </div>
 
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-dim">
+        <span className="flex items-center gap-1.5">
+          <svg width="18" height="8" aria-hidden className="shrink-0">
+            <path d="M0 6 H7 V2 H18" fill="none" stroke="var(--accent-y)" strokeWidth="2" />
+          </svg>
+          Declared benchmark
+        </span>
+        {receipts.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <svg width="18" height="8" aria-hidden className="shrink-0">
+              <circle cx="5" cy="4" r="3" fill="var(--warn)" />
+              <circle cx="14" cy="4" r="3" fill="var(--warn)" />
+            </svg>
+            Price paid on a receipt
+          </span>
+        )}
+      </div>
+
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="mt-4 w-full overflow-visible"
+        className="mt-3 w-full"
         role="img"
-        aria-label={`Fuel price ${trend.direction === 'flat' ? 'unchanged' : trend.direction === 'up' ? 'rising' : 'falling'}, from ${formatNgn(values[0])} to ${formatNgn(values[values.length - 1])} per litre`}
+        aria-label={`Declared fuel price ${trend.direction === 'flat' ? 'unchanged' : trend.direction === 'up' ? 'rising' : 'falling'}, from ${formatNgn(points[0].ngnPerLiter)} to ${formatNgn(currentBenchmark.ngnPerLiter)} per litre${latestReceipt ? `, against a latest receipt price of ${formatNgn(latestReceipt.ngn_per_liter)}` : ''}`}
       >
-        {coords.slice(1).map((pt, i) => {
-          const prev = coords[i];
-          return (
+        {/* Gridlines and the price axis. Not zero-based: Nigerian pump prices
+            move a few percent at a time, and a zero-based axis flattens every
+            one of those into the same horizontal line. */}
+        {yTicks.map((v) => (
+          <g key={`tick-${v}`}>
             <line
-              key={`seg-${i}`}
-              x1={prev.x}
-              y1={prev.y}
-              x2={pt.x}
-              y2={pt.y}
-              stroke={MOVE_COLOR[pt.move]}
-              strokeWidth={2.5}
-              strokeLinecap="round"
+              x1={PAD.left}
+              y1={y(v)}
+              x2={W - PAD.right}
+              y2={y(v)}
+              stroke="var(--edge)"
+              strokeWidth={1}
             />
-          );
-        })}
-        {coords.map((pt, i) => (
-          <g key={`pt-${i}`}>
-            <circle cx={pt.x} cy={pt.y} r={4} fill={MOVE_COLOR[pt.move]} />
             <text
-              x={pt.x}
-              y={pt.y - 10}
-              textAnchor={i === 0 ? 'start' : i === coords.length - 1 ? 'end' : 'middle'}
-              className="fill-ink text-[10px] font-mono"
+              x={PAD.left - 8}
+              y={y(v) + 3.5}
+              textAnchor="end"
+              className="fill-ink-dim font-mono text-[10px]"
             >
-              {formatNgn(pt.ngnPerLiter)}
+              {Math.round(v).toLocaleString()}
             </text>
           </g>
         ))}
+
+        {/* Date axis: first declaration, and today at the right edge. */}
+        <text x={PAD.left} y={H - 10} textAnchor="start" className="fill-ink-dim text-[10px]">
+          {formatDate(points[0].effectiveFrom)}
+        </text>
+        <text x={W - PAD.right} y={H - 10} textAnchor="end" className="fill-ink-dim text-[10px]">
+          Today
+        </text>
+
+        <path
+          d={stepPath}
+          fill="none"
+          stroke="var(--accent-y)"
+          strokeWidth={2.5}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+
+        {/* Each declaration marked where it took effect. */}
+        {points.map((p, i) => (
+          <circle
+            key={`decl-${i}`}
+            cx={x(p.at)}
+            cy={y(p.ngnPerLiter)}
+            r={3.5}
+            fill="var(--accent-y)"
+          >
+            <title>{`Declared ${formatNgn(p.ngnPerLiter)}/L on ${formatDate(p.effectiveFrom)}`}</title>
+          </circle>
+        ))}
+
+        {/* Receipts as discrete observations — deliberately not joined into a
+            line, because consecutive receipts are different drivers at
+            different pumps, not a series. */}
+        {receipts.map((r, i) => (
+          <circle
+            key={`rcpt-${i}`}
+            cx={x(r.at)}
+            cy={y(r.ngnPerLiter)}
+            r={3}
+            fill="var(--warn)"
+            fillOpacity={0.85}
+          >
+            <title>{`Paid ${formatNgn(r.ngnPerLiter)}/L on ${formatDate(r.asOf)}`}</title>
+          </circle>
+        ))}
+
+        {/* The newest receipt is the one a manager is looking for, so it is
+            the only point labelled on the plot. */}
+        {latestReceipt && (
+          <g>
+            <circle
+              cx={x(new Date(latestReceipt.as_of).getTime())}
+              cy={y(latestReceipt.ngn_per_liter)}
+              r={5}
+              fill="none"
+              stroke="var(--warn)"
+              strokeWidth={2}
+            />
+            <text
+              x={Math.min(x(new Date(latestReceipt.as_of).getTime()), W - PAD.right - 4)}
+              y={y(latestReceipt.ngn_per_liter) - 12}
+              textAnchor="end"
+              className="fill-warn font-mono text-[11px] font-semibold"
+            >
+              {formatNgn(latestReceipt.ngn_per_liter)}
+            </text>
+          </g>
+        )}
       </svg>
+
+      {gapNgn != null && Math.abs(gapNgn) >= 1 && (
+        <p className="mt-3 rounded-lg border border-edge bg-canvas px-3 py-2 text-xs text-ink-mid">
+          The latest receipt is{' '}
+          <span className={gapNgn > 0 ? 'font-semibold text-warn' : 'font-semibold text-good'}>
+            {formatNgn(Math.abs(gapNgn))}/L {gapNgn > 0 ? 'above' : 'below'}
+          </span>{' '}
+          the declared benchmark. Expected cost and cost per km use the benchmark, so a
+          persistent gap is worth closing in Settings.
+        </p>
+      )}
 
       <div className="mt-4 max-h-40 overflow-y-auto border-t border-edge pt-2">
         <ul className="space-y-1">
