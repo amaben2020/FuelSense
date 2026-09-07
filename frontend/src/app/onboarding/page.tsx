@@ -80,6 +80,7 @@ export default function OnboardingPage() {
             year: v.year,
             tankCapacityLiters: v.tankCapacityLiters,
             imei: v.imei,
+            deviceModel: v.deviceModel,
             odometerBaselineKm: odometerToKm(v),
           })),
         }),

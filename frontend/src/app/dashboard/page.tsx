@@ -1105,7 +1105,7 @@ export default function DashboardPage() {
                 onClick={() => setModalOpen(true)}
                 className="flex items-center gap-2 rounded-full bg-accent-y px-4 py-2 text-sm font-semibold text-accent-y-ink transition-opacity hover:opacity-90"
               >
-                <Plus className="h-4 w-4" /> Add device
+                <Plus className="h-4 w-4" /> Add vehicle
               </button>
             </div>
           </header>
@@ -1327,6 +1327,13 @@ export default function DashboardPage() {
                       title: 'Add vehicle + IMEI',
                       hint: 'Register a new tracker',
                       onClick: () => setModalOpen(true),
+                    },
+                    {
+                      key: 'bulk-add',
+                      icon: Truck,
+                      title: 'Add several vehicles at once',
+                      hint: 'One form for up to 20 — onboarding several trackers together',
+                      href: '/onboarding',
                     },
                     {
                       key: 'driver-portal',

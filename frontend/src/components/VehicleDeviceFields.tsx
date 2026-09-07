@@ -73,6 +73,11 @@ export interface VehicleFormData {
   year: string;
   tankCapacityLiters: string;
   imei: string;
+  /** Stamped onto the device row verbatim — matters because the AVL
+   *  catalogue and Configurator setup differ per model. Defaulting this
+   *  silently to one model mislabels every unit of any other kind added
+   *  through this form. */
+  deviceModel: string;
   odometerReading: string;
   /** Asked explicitly: imported vehicles run miles dashboards, local ones km,
    *  and guessing wrong silently skews every distance figure built on it. */
@@ -91,6 +96,7 @@ export const emptyVehicle = (): VehicleFormData => ({
   year: '',
   tankCapacityLiters: '',
   imei: '',
+  deviceModel: 'FMC150',
   odometerReading: '',
   odometerUnit: 'mi',
   economyReading: '',
@@ -368,20 +374,35 @@ export function VehicleDeviceFields({
         </p>
       </Field>
 
-      <Field label="IMEI (from device sticker)">
-        <input
-          required={imeiRequired}
-          pattern="\d{15}"
-          maxLength={15}
-          value={data.imei}
-          onChange={(e) => set('imei', e.target.value.replace(/\D/g, ''))}
-          className={`${inputClass} font-mono`}
-          placeholder="356307042441013"
-        />
-        <p className="mt-1 text-xs text-ink-dim">
-          Found on the device box or sticker — 15 digits
-        </p>
-      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="IMEI (from device sticker)">
+          <input
+            required={imeiRequired}
+            pattern="\d{15}"
+            maxLength={15}
+            value={data.imei}
+            onChange={(e) => set('imei', e.target.value.replace(/\D/g, ''))}
+            className={`${inputClass} font-mono`}
+            placeholder="356307042441013"
+          />
+          <p className="mt-1 text-xs text-ink-dim">
+            Found on the device box or sticker — 15 digits
+          </p>
+        </Field>
+        <Field label="Tracker model">
+          <select
+            value={data.deviceModel}
+            onChange={(e) => set('deviceModel', e.target.value)}
+            className={inputClass}
+          >
+            <option value="FMC150">FMC150</option>
+            <option value="FMC130">FMC130</option>
+          </select>
+          <p className="mt-1 text-xs text-ink-dim">
+            Same AVL IDs either way — this only labels the device record.
+          </p>
+        </Field>
+      </div>
     </div>
   );
 }

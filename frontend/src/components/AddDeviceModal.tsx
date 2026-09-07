@@ -39,7 +39,7 @@ export function AddDeviceModal({ isOpen, onClose, onAdded }: AddDeviceModalProps
           tankCapacityLiters: form.tankCapacityLiters,
           imei: form.imei,
           odometerBaselineKm: odometerToKm(form),
-          deviceModel: 'FMC150',
+          deviceModel: form.deviceModel,
         }),
       });
 
