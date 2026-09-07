@@ -680,10 +680,16 @@ function ReconciledReceiptRow({
           <ReceiptStatusBadge status={purchase.status} />
         </td>
         <td className="px-6 py-3">
-          <div className="flex items-center gap-1.5">
+          {/* Stacked, not side by side: "View event" plus two circular
+              accept/reject buttons squeezed into one row overflowed this
+              cell's width. The verdict buttons sit on their own row below
+              the view action instead. */}
+          <div className="flex flex-col items-start gap-1.5">
             <ViewEventButton onClick={() => onViewEvent(purchase)} />
             {isPending && onResolve && (
-              <ResolvePendingButtons id={purchase.id} onResolve={onResolve} />
+              <div className="flex items-center gap-1.5">
+                <ResolvePendingButtons id={purchase.id} onResolve={onResolve} />
+              </div>
             )}
           </div>
         </td>
@@ -712,10 +718,12 @@ function ReconciledReceiptRow({
         <ReceiptStatusBadge status={purchase.status} />
       </td>
       <td className="px-6 py-3">
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-col items-start gap-1.5">
           <ViewEventButton onClick={() => onViewEvent(purchase)} />
           {isPending && onResolve && (
-            <ResolvePendingButtons id={purchase.id} onResolve={onResolve} />
+            <div className="flex items-center gap-1.5">
+              <ResolvePendingButtons id={purchase.id} onResolve={onResolve} />
+            </div>
           )}
         </div>
       </td>
