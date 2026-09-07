@@ -471,7 +471,28 @@ export async function fetchStaticMap(
 export interface AddressSuggestion {
   description: string;
   place_id: string;
+  /** The establishment's own name, split off the comma-joined description so
+   *  a merchant field can be filled with "NNPC Wuse II" rather than the whole
+   *  postal string. Falls back to the full description when Google returns no
+   *  structured name. */
+  name: string;
+  /** True when Google typed the prediction as a filling station. Drives the
+   *  pump glyph in the picker; anything else stays a plain address row. */
+  fuel_station: boolean;
 }
+
+export interface SuggestOptions {
+  /** Bias results towards the driver's own position. A forecourt name like
+   *  "Total" matches hundreds of places nationally; the one 400 m away is
+   *  almost always the one being typed. */
+  lat?: number;
+  lng?: number;
+  /** Restrict to establishments rather than street addresses — what a
+   *  merchant field wants, and what an address field does not. */
+  establishmentsOnly?: boolean;
+}
+
+const BIAS_RADIUS_M = 25_000;
 
 /**
  * Address suggestions for a partial string, biased to Nigeria.
@@ -484,9 +505,21 @@ export interface AddressSuggestion {
 const autocompleteCache = new Map<string, { at: number; results: AddressSuggestion[] }>();
 const AUTOCOMPLETE_TTL_MS = 12 * 60 * 60 * 1000;
 
-export async function suggestAddresses(query: string): Promise<AddressSuggestion[]> {
-  const key = query.trim().toLowerCase();
-  if (key.length < 3) return [];
+export async function suggestAddresses(
+  query: string,
+  opts: SuggestOptions = {}
+): Promise<AddressSuggestion[]> {
+  const hasBias = Number.isFinite(opts.lat) && Number.isFinite(opts.lng);
+  // The bias and the type filter change the answer, so they have to be part
+  // of the cache key — otherwise an address lookup would serve a merchant
+  // lookup's establishment-only results, and a driver in Abuja would get
+  // whatever was cached for one in Lagos.
+  const key = [
+    query.trim().toLowerCase(),
+    opts.establishmentsOnly ? 'est' : 'any',
+    hasBias ? `${opts.lat!.toFixed(2)},${opts.lng!.toFixed(2)}` : 'nobias',
+  ].join('|');
+  if (query.trim().length < 3) return [];
 
   const cached = autocompleteCache.get(key);
   if (cached && Date.now() - cached.at < AUTOCOMPLETE_TTL_MS) return cached.results;
@@ -497,12 +530,22 @@ export async function suggestAddresses(query: string): Promise<AddressSuggestion
   url.searchParams.set('input', query);
   url.searchParams.set('components', 'country:ng');
   url.searchParams.set('key', GOOGLE_KEY);
+  if (opts.establishmentsOnly) url.searchParams.set('types', 'establishment');
+  if (hasBias) {
+    url.searchParams.set('location', `${opts.lat},${opts.lng}`);
+    url.searchParams.set('radius', String(BIAS_RADIUS_M));
+  }
 
   try {
     const response = await fetch(url.toString());
     const data = (await response.json()) as {
       status?: string;
-      predictions?: Array<{ description: string; place_id: string }>;
+      predictions?: Array<{
+        description: string;
+        place_id: string;
+        types?: string[];
+        structured_formatting?: { main_text?: string };
+      }>;
     };
 
     if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
@@ -510,9 +553,12 @@ export async function suggestAddresses(query: string): Promise<AddressSuggestion
       return [];
     }
 
-    const results = (data.predictions ?? [])
-      .slice(0, 6)
-      .map((p) => ({ description: p.description, place_id: p.place_id }));
+    const results = (data.predictions ?? []).slice(0, 6).map((p) => ({
+      description: p.description,
+      place_id: p.place_id,
+      name: p.structured_formatting?.main_text || p.description,
+      fuel_station: (p.types ?? []).includes('gas_station'),
+    }));
 
     autocompleteCache.set(key, { at: Date.now(), results });
     return results;

@@ -150,8 +150,20 @@ router.get('/autocomplete', authenticateEither, async (req: Request, res: Respon
   const query = String(req.query.q ?? '').trim().slice(0, 120);
   if (query.length < 3) return res.json([]);
 
+  // A merchant field wants forecourts near the driver; the address field
+  // below it wants street addresses anywhere. Same endpoint, same spend
+  // ceiling, told apart by these two optional parameters.
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  const hasBias = Number.isFinite(lat) && Number.isFinite(lng);
+
   try {
-    res.json(await suggestAddresses(query));
+    res.json(
+      await suggestAddresses(query, {
+        establishmentsOnly: req.query.type === 'establishment',
+        ...(hasBias ? { lat, lng } : {}),
+      })
+    );
   } catch (error) {
     console.error('[places] autocomplete route failed:', (error as Error).message);
     // A dead suggestion list must never block a driver from typing the

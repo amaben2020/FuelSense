@@ -5,6 +5,7 @@ import {
   Camera,
   CheckCircle,
   CloudOff,
+  Fuel,
   Loader2,
   MapPin,
   PenLine,
@@ -436,10 +437,17 @@ export function DriverFuelScreen({
             </p>
           )}
 
-          <Field
-            label="Merchant"
+          <MerchantField
             value={merchantName}
             onChange={setMerchantName}
+            near={location}
+            onPick={(suggestion) => {
+              // Picking a forecourt fills the address too — it is the same
+              // fact, and retyping it underneath is the tapping this was
+              // meant to remove.
+              setMerchantName(suggestion.name);
+              setMerchantAddress(suggestion.description);
+            }}
           />
           <AddressField
             value={merchantAddress}
@@ -700,6 +708,105 @@ function Field({
         className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2.5 text-sm text-ink"
       />
     </label>
+  );
+}
+
+/**
+ * The station picker.
+ *
+ * A free-text merchant name cannot group spend by forecourt — "NNPC", "nnpc
+ * wuse" and "NNPC Wuse II" are three merchants as far as any report is
+ * concerned. Suggestions are restricted to establishments and biased to where
+ * the driver is standing, because the forecourt they are parked on is almost
+ * always the one they are typing.
+ *
+ * The glyph is a generic pump, not a brand mark: the logos are trademarks we
+ * have no licence to ship, and a wrong logo next to a station name is worse
+ * than none. Google's own `gas_station` typing decides which rows earn it.
+ */
+function MerchantField({
+  value,
+  onChange,
+  onPick,
+  near,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onPick: (suggestion: AddressSuggestion) => void;
+  near: { lat: number; lng: number } | null;
+}) {
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [open, setOpen] = useState(false);
+  const chosen = useRef('');
+
+  useEffect(() => {
+    const query = value.trim();
+    if (query.length < 3 || query === chosen.current) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await fetchAddressSuggestions(query, {
+          establishmentsOnly: true,
+          near,
+        });
+        setSuggestions(results);
+        setOpen(results.length > 0);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [value, near]);
+
+  return (
+    <div className="relative">
+      <label className="block text-xs text-ink-dim">
+        Merchant
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setOpen(suggestions.length > 0)}
+          // Blur fires before the suggestion's click, so closing is deferred
+          // long enough for the tap to register.
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          autoComplete="off"
+          className="mt-1 w-full rounded-lg border border-edge bg-canvas px-3 py-2.5 text-sm text-ink"
+        />
+      </label>
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-edge bg-panel shadow-lg">
+          {suggestions.map((s) => (
+            <li key={s.place_id}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  chosen.current = s.name;
+                  onPick(s);
+                  setSuggestions([]);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left active:bg-canvas"
+              >
+                <Fuel
+                  className={`h-4 w-4 shrink-0 ${s.fuel_station ? 'text-brand' : 'text-ink-dim'}`}
+                  aria-hidden
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium text-ink">{s.name}</span>
+                  <span className="block truncate text-[11px] text-ink-dim">{s.description}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

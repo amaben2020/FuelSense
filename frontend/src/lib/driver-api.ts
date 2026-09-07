@@ -201,12 +201,32 @@ export async function parseDriverReceiptText(ocrText: string, merchantHint?: str
 export interface AddressSuggestion {
   description: string;
   place_id: string;
+  /** The establishment's own name, without the trailing postal string. */
+  name: string;
+  /** Google typed this prediction as a filling station. */
+  fuel_station: boolean;
 }
 
-export async function fetchAddressSuggestions(query: string) {
-  return driverApi<AddressSuggestion[]>(
-    `/places/autocomplete?q=${encodeURIComponent(query)}`
-  );
+export interface AddressSuggestionOptions {
+  /** Ask for establishments rather than street addresses — what the merchant
+   *  field wants, and what the address field below it does not. */
+  establishmentsOnly?: boolean;
+  /** Bias to where the driver is standing. "Total" matches hundreds of
+   *  forecourts nationally; the one they are parked at is the answer. */
+  near?: { lat: number; lng: number } | null;
+}
+
+export async function fetchAddressSuggestions(
+  query: string,
+  opts: AddressSuggestionOptions = {}
+) {
+  const params = new URLSearchParams({ q: query });
+  if (opts.establishmentsOnly) params.set('type', 'establishment');
+  if (opts.near) {
+    params.set('lat', String(opts.near.lat));
+    params.set('lng', String(opts.near.lng));
+  }
+  return driverApi<AddressSuggestion[]>(`/places/autocomplete?${params}`);
 }
 
 export interface StationCheck {
