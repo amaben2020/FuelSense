@@ -64,6 +64,7 @@ import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
 import { OdometerSettingsPanel } from '@/components/dashboard/OdometerSettingsPanel';
 import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
 import { PowerUnplugBanner } from '@/components/dashboard/PowerUnplugBanner';
+import { playNotificationChime } from '@/lib/notification-sound';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -249,6 +250,10 @@ export default function DashboardPage() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  // Every alert id ever seen this session, so a chime fires for a genuinely
+  // new alert and not for one that was resolved and re-fetched, or on the
+  // very first load of an account that already has a backlog.
+  const seenAlertIds = useRef<Set<number> | null>(null);
   const [anomalies, setAnomalies] = useState<FuelAnomaly[]>([]);
   const [efficiency, setEfficiency] = useState<FleetEfficiency[]>([]);
   const [efficiencySummary, setEfficiencySummary] = useState<FleetEfficiencySummary | null>(null);
@@ -498,6 +503,20 @@ export default function DashboardPage() {
     }, REFRESH_MS);
     return () => clearInterval(interval);
   }, [router]);
+
+  // A chime for an alert that is actually new, not for the first page load
+  // of an account that already has a backlog of open ones.
+  useEffect(() => {
+    if (alerts.length === 0) return;
+    const ids = new Set(alerts.map((a) => a.id));
+    if (seenAlertIds.current === null) {
+      seenAlertIds.current = ids;
+      return;
+    }
+    const hasNew = alerts.some((a) => !seenAlertIds.current!.has(a.id));
+    seenAlertIds.current = ids;
+    if (hasNew) playNotificationChime();
+  }, [alerts]);
 
   // Returning to the tab refreshes once, rather than waiting out the interval.
   useEffect(() => {
