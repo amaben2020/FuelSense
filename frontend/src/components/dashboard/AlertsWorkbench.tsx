@@ -60,6 +60,141 @@ const TYPE_LABEL: Record<string, string> = {
   receipt_uploaded: 'Receipt filed',
 };
 
+/**
+ * What resolving actually does, per type.
+ *
+ * "Resolve" is not one action — closing a theft flag is a judgement that the
+ * loss was explained, closing a tracker-offline is a statement that the unit
+ * is back. A manager clearing a queue deserves to be told which of those they
+ * are agreeing to, especially since nothing here stops the alert being raised
+ * again the moment the condition recurs.
+ */
+const RESOLVE_MEANING: Record<string, string> = {
+  fuel_theft:
+    'You are recording that this drop has been accounted for — a receipt found, a siphon ruled out, or the loss written off.',
+  receipt_fraud:
+    'You are recording that the mismatch between the receipt and the tank has been explained.',
+  device_offline:
+    'You are recording that the tracker is accounted for. If it is still not reporting, this will be raised again on the next check.',
+  immobilizer_engaged: 'You are acknowledging the immobiliser state. It does not release the vehicle.',
+  unlogged_fill: 'You are recording that this fill has been matched to a receipt, or accepted without one.',
+  excessive_idle: 'You are acknowledging the idling. The fuel it burned stays counted in the period totals.',
+  idle_fuel_waste: 'You are acknowledging the idling. The fuel it burned stays counted in the period totals.',
+  route_deviation: 'You are recording that the detour was authorised or explained.',
+  fuel_discrepancy:
+    'You are recording that the gap between the modelled tank and what was reported has been looked at. It does not correct the estimate.',
+  low_fuel: 'You are acknowledging the low tank. It will be raised again if the level stays low.',
+  overspeeding: 'You are recording that the speeding has been addressed with the driver.',
+  geofence_exit: 'You are acknowledging the zone exit.',
+  geofence_entry: 'You are acknowledging the zone entry.',
+  trip_start: 'You are clearing a routine notification. Nothing about the trip changes.',
+  receipt_uploaded: 'You are clearing a routine notification. The receipt itself is untouched.',
+  power_unplug:
+    'You are recording that the tracker power has been dealt with. If it is still unplugged, this will be raised again.',
+  fuel_discrepancy_reported:
+    "You are recording that the driver's report has been read. The estimate is modelled, so this neither confirms nor corrects it.",
+};
+
+const DEFAULT_RESOLVE_MEANING =
+  'You are recording that this has been dealt with. The alert stays in history and can be raised again if the condition recurs.';
+
+/**
+ * Confirmation for a resolve that just happened.
+ *
+ * The row simply disappeared before, which is indistinguishable from a
+ * misclick — and for a queue where one of the buttons closes a theft flag,
+ * "did that do what I thought" is a question worth answering outright.
+ */
+function ResolvedModal({
+  alerts,
+  onClose,
+}: {
+  alerts: Alert[];
+  onClose: () => void;
+}) {
+  // One alert gets its own explanation; a bulk clear gets the set of distinct
+  // meanings, because "12 resolved" spanning theft and trip-start is two very
+  // different agreements in one gesture.
+  const meanings = [...new Set(alerts.map((a) => RESOLVE_MEANING[a.alert_type] ?? DEFAULT_RESOLVE_MEANING))];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Alert resolved"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-edge bg-panel p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-center">
+          <div className="relative flex h-16 w-16 items-center justify-center">
+            <span className="resolve-halo absolute inset-0 rounded-full bg-good/30" aria-hidden />
+            <span className="resolve-ring relative flex h-16 w-16 items-center justify-center rounded-full border-2 border-good/60 bg-good/10">
+              <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden>
+                <path
+                  d="M8 16.5 L14 22 L24 10"
+                  fill="none"
+                  stroke="var(--good)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="resolve-tick"
+                />
+              </svg>
+            </span>
+          </div>
+        </div>
+
+        <h3 className="mt-4 text-center text-lg font-bold text-ink">
+          {alerts.length === 1
+            ? `${TYPE_LABEL[alerts[0].alert_type] ?? alerts[0].alert_type.replace(/_/g, ' ')} resolved`
+            : `${alerts.length} alerts resolved`}
+        </h3>
+
+        <ul className="mt-4 max-h-44 space-y-1.5 overflow-y-auto rounded-lg border border-edge bg-canvas p-3">
+          {alerts.map((a) => (
+            <li key={a.id} className="flex items-baseline justify-between gap-3 text-xs">
+              <span className="min-w-0 truncate text-ink-mid">
+                {TYPE_LABEL[a.alert_type] ?? a.alert_type.replace(/_/g, ' ')}
+                {a.license_plate ? (
+                  <span className="ml-1.5 font-mono text-[11px] text-ink-dim">{a.license_plate}</span>
+                ) : null}
+              </span>
+              <span className="shrink-0 text-[11px] text-ink-dim">
+                {new Date(a.created_at).toLocaleDateString([], { day: 'numeric', month: 'short' })}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        <div className="mt-4 space-y-2">
+          {meanings.map((m) => (
+            <p key={m} className="text-xs leading-relaxed text-ink-mid">
+              {m}
+            </p>
+          ))}
+        </div>
+
+        <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+          Resolving never deletes anything — these stay in the alert history, and the
+          underlying telemetry is untouched.
+        </p>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-lg bg-good py-2.5 text-sm font-semibold text-accent-y-ink"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const severityOf = (a: Alert): Severity => SEVERITY[a.alert_type] ?? 'warning';
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; rail: string; icon: typeof AlertOctagon }> = {
@@ -113,6 +248,8 @@ export function AlertsWorkbench({
   const [vehicle, setVehicle] = useState<string>('all');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
+  /** The alerts the last resolve actually cleared, driving the confirmation. */
+  const [justResolved, setJustResolved] = useState<Alert[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const counts = useMemo(() => {
@@ -188,7 +325,12 @@ export function AlertsWorkbench({
       // Reconciled against what the server confirmed, not against what was
       // asked for — another session may have cleared some of these already.
       const res = await resolveAlerts(ids);
+      // Captured before onResolved drops them from the parent's list —
+      // afterwards there is nothing left to describe.
+      const confirmed = new Set(res.ids);
+      const cleared = alerts.filter((a) => confirmed.has(a.id));
       onResolved(res.ids);
+      if (cleared.length) setJustResolved(cleared);
       setSelected((prev) => {
         const next = new Set(prev);
         res.ids.forEach((id) => next.delete(id));
@@ -427,6 +569,10 @@ export function AlertsWorkbench({
             </div>
           ))}
         </div>
+      )}
+
+      {justResolved && (
+        <ResolvedModal alerts={justResolved} onClose={() => setJustResolved(null)} />
       )}
     </div>
   );

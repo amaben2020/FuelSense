@@ -567,3 +567,68 @@ input[type='time']::-webkit-calendar-picker-indicator {
     display: none;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Resolving an alert
+   
+   Clearing an alert used to be silent — the row vanished and nothing said
+   what had just been agreed to. The confirmation draws its tick rather than
+   cutting to it, so the gesture reads as the system acknowledging the
+   decision rather than a dialog that was already open.
+   -------------------------------------------------------------------------- */
+
+@keyframes resolve-ring-in {
+  from {
+    opacity: 0;
+    transform: scale(0.62);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes resolve-tick-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes resolve-halo {
+  from {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.65);
+  }
+}
+
+.resolve-ring {
+  animation: resolve-ring-in 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+.resolve-halo {
+  animation: resolve-halo 0.9s ease-out 0.12s both;
+}
+
+.resolve-tick {
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: resolve-tick-draw 0.45s cubic-bezier(0.65, 0, 0.35, 1) 0.26s both;
+}
+
+/* A confirmation is not worth making anyone motion-sick over: the tick is
+   simply present from the start when the viewer has asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .resolve-ring,
+  .resolve-halo {
+    animation: none;
+  }
+
+  .resolve-tick {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
