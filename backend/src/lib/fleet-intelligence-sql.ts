@@ -131,6 +131,8 @@ export function drivingStretchesCte({
         v.license_plate,
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
         t.recorded_at,
+        t.latitude,
+        t.longitude,
         LAG(t.recorded_at) OVER w AS prev_at
       FROM telemetry t
       JOIN vehicles v ON v.id = t.vehicle_id
@@ -168,7 +170,15 @@ export function drivingStretchesCte({
         -- Night driving carries a materially higher risk profile and is worth
         -- separating from total hours rather than burying in an average.
         BOOL_OR(EXTRACT(HOUR FROM recorded_at) >= 22 OR EXTRACT(HOUR FROM recorded_at) < 5)
-          AS touched_night
+          AS touched_night,
+        -- Where the stretch actually ran, so "16 stretches" can answer "where
+        -- to where" instead of just a count. Cheap to carry — the position was
+        -- already on every row — and resolving it into a place name is left to
+        -- the client, lazily, per fetchStopPlace's own cost discipline.
+        (ARRAY_AGG(latitude ORDER BY recorded_at))[1] AS start_lat,
+        (ARRAY_AGG(longitude ORDER BY recorded_at))[1] AS start_lng,
+        (ARRAY_AGG(latitude ORDER BY recorded_at DESC))[1] AS end_lat,
+        (ARRAY_AGG(longitude ORDER BY recorded_at DESC))[1] AS end_lng
       FROM grouped
       GROUP BY vehicle_id, license_plate, driver_name, stretch_id
       HAVING EXTRACT(EPOCH FROM (MAX(recorded_at) - MIN(recorded_at))) > 300

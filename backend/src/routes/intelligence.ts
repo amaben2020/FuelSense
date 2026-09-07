@@ -129,6 +129,37 @@ router.get('/hours', async (req: Request, res: Response) => {
           LIMIT 20
         `);
 
+        // Every stretch, not just the fatigue-flagged ones — "16 stretches" on
+        // its own says nothing about where the driving happened, and a night
+        // badge with no date is a count with the useful half removed. Kept
+        // separate from `flagged` (fatigue-only) rather than replacing it.
+        const allStretches = await db.execute(sql`
+          WITH ${drivingStretchesCte({ customerId, days, breakMinutes: BREAK_MINUTES })}
+          SELECT
+            vehicle_id, started_at, ended_at, hours, touched_night,
+            start_lat, start_lng, end_lat, end_lng
+          FROM stretches
+          ORDER BY vehicle_id, started_at DESC
+          LIMIT 300
+        `);
+        const stretchesByVehicle = new Map<string, unknown[]>();
+        for (const r of allStretches.rows) {
+          const row = r as Record<string, unknown>;
+          const key = String(row.vehicle_id);
+          const list = stretchesByVehicle.get(key) ?? [];
+          list.push({
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+            hours: round1(Number(row.hours)),
+            night: Boolean(row.touched_night),
+            start_lat: row.start_lat != null ? Number(row.start_lat) : null,
+            start_lng: row.start_lng != null ? Number(row.start_lng) : null,
+            end_lat: row.end_lat != null ? Number(row.end_lat) : null,
+            end_lng: row.end_lng != null ? Number(row.end_lng) : null,
+          });
+          stretchesByVehicle.set(key, list);
+        }
+
         return {
           period_days: days,
           thresholds: {
@@ -146,6 +177,7 @@ router.get('/hours', async (req: Request, res: Response) => {
               longest_hours: round1(Number(row.longest_hours)),
               long_stretches: Number(row.long_stretches),
               night_stretches: Number(row.night_stretches),
+              stretch_detail: stretchesByVehicle.get(String(row.vehicle_id)) ?? [],
             };
           }),
           flagged: longest.rows.map((r) => {

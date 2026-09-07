@@ -1694,6 +1694,17 @@ export interface SecurityResponse {
   events: SecurityEvent[];
 }
 
+export interface StretchDetail {
+  started_at: string;
+  ended_at: string;
+  hours: number;
+  night: boolean;
+  start_lat: number | null;
+  start_lng: number | null;
+  end_lat: number | null;
+  end_lng: number | null;
+}
+
 export interface HoursVehicle {
   vehicle_id: string;
   license_plate: string;
@@ -1703,6 +1714,8 @@ export interface HoursVehicle {
   longest_hours: number;
   long_stretches: number;
   night_stretches: number;
+  /** Every stretch in the window, newest first — the "where to where" behind the count above. */
+  stretch_detail: StretchDetail[];
 }
 
 export interface HoursResponse {

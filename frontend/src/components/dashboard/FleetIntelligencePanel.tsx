@@ -18,11 +18,14 @@ import {
   GeofenceEvent,
   HoursResponse,
   SecurityResponse,
+  StopPlace,
+  StretchDetail,
   UtilisationResponse,
   fetchDrivingHours,
   fetchGeofenceEvents,
   fetchGeofences,
   fetchSecuritySignals,
+  fetchStopPlace,
   fetchUtilisation,
 } from '@/lib/api';
 import { HatchBar, Panel, StatusChip, TabRow } from '@/components/ui/chrome';
@@ -77,6 +80,90 @@ function Metric({
 
 const relTime = (iso: string) => new Date(iso).toLocaleString();
 
+/** Resolves one coordinate to a name, on mount — reuses the same cached
+ *  lookup the live map uses, so a depot resolved once there or here is not
+ *  billed twice. */
+function StretchPlace({ lat, lng }: { lat: number | null; lng: number | null }) {
+  const [place, setPlace] = useState<StopPlace | null | 'pending' | 'failed'>('pending');
+
+  useEffect(() => {
+    if (lat == null || lng == null) {
+      setPlace(null);
+      return;
+    }
+    let cancelled = false;
+    setPlace('pending');
+    fetchStopPlace(lat, lng)
+      .then((p) => {
+        if (!cancelled) setPlace(p);
+      })
+      .catch(() => {
+        if (!cancelled) setPlace('failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [lat, lng]);
+
+  if (lat == null || lng == null) return <span className="text-ink-dim">no fix</span>;
+  if (place === 'pending') return <span className="text-ink-dim">resolving…</span>;
+  if (place === 'failed' || place == null) {
+    return (
+      <span className="font-mono text-ink-dim">
+        {lat.toFixed(4)}, {lng.toFixed(4)}
+      </span>
+    );
+  }
+  return <span>{place.place_name ?? place.formatted_address ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`}</span>;
+}
+
+/** One vehicle's individual stretches — the detail behind the summary
+ *  metrics above it. Capped and paged rather than dumped in full, so
+ *  expanding a busy vehicle does not fire dozens of place lookups at once. */
+function StretchList({ stretches }: { stretches: StretchDetail[] }) {
+  const [visible, setVisible] = useState(5);
+  const shown = stretches.slice(0, visible);
+
+  return (
+    <div className="mt-2 space-y-1.5 border-t border-divider pt-2">
+      {shown.map((s, i) => (
+        <div
+          key={`${s.started_at}-${i}`}
+          className="rounded-lg bg-panel-deep px-2.5 py-2 text-[11px] leading-relaxed"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
+            <span className="text-ink">
+              {relTime(s.started_at)} – {new Date(s.ended_at).toLocaleTimeString()}
+            </span>
+            <span className="flex items-center gap-2 text-ink-dim">
+              <span>{s.hours}h</span>
+              {s.night && (
+                <span className="flex items-center gap-1 text-accent-y-dim">
+                  <Moon className="h-3 w-3" /> night
+                </span>
+              )}
+            </span>
+          </div>
+          <p className="mt-1 flex flex-wrap items-center gap-1 text-ink-dim">
+            <StretchPlace lat={s.start_lat} lng={s.start_lng} />
+            <span>→</span>
+            <StretchPlace lat={s.end_lat} lng={s.end_lng} />
+          </p>
+        </div>
+      ))}
+      {visible < stretches.length && (
+        <button
+          type="button"
+          onClick={() => setVisible((v) => v + 5)}
+          className="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2"
+        >
+          Show {Math.min(5, stretches.length - visible)} more
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function FleetIntelligencePanel() {
   const [tab, setTab] = useState<Tab>('security');
   const [security, setSecurity] = useState<SecurityResponse | null>(null);
@@ -86,6 +173,7 @@ export function FleetIntelligencePanel() {
   const [zoneEvents, setZoneEvents] = useState<GeofenceEvent[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+  const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
 
   const runFetch = useCallback(() => {
     Promise.all([
@@ -195,38 +283,60 @@ export function FleetIntelligencePanel() {
               ) : (
                 <>
                   <ul className="divide-y divide-divider">
-                    {hours.vehicles.map((v) => (
-                      <li key={v.vehicle_id} className="py-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-medium text-ink">
-                            {v.driver_name ?? v.license_plate}
-                          </span>
-                          <span className="flex items-center gap-2">
-                            {v.long_stretches > 0 && (
-                              <StatusChip tone="warn">
-                                {v.long_stretches} over {hours.thresholds.fatigue_hours}h
-                              </StatusChip>
-                            )}
-                            {v.night_stretches > 0 && (
-                              <StatusChip tone="info">
-                                <Moon className="h-3 w-3" /> {v.night_stretches} night
-                              </StatusChip>
-                            )}
-                          </span>
-                        </div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          <Metric icon={Clock} label="Total" value={`${v.total_hours}h`} />
-                          <Metric icon={Clock} label="Longest run" value={`${v.longest_hours}h`} />
-                          <Metric icon={Gauge} label="Stretches" value={String(v.stretches)} />
-                          <Metric
-                            icon={AlertTriangle}
-                            label="Over limit"
-                            value={String(v.long_stretches)}
-                            tone={v.long_stretches > 0 ? 'warn' : undefined}
-                          />
-                        </div>
-                      </li>
-                    ))}
+                    {hours.vehicles.map((v) => {
+                      // Most recent night stretch's own date — a count on its
+                      // own doesn't say whether it was last night or three
+                      // weeks ago, which is most of what makes it actionable.
+                      const lastNight = v.stretch_detail.find((s) => s.night);
+                      const expanded = expandedVehicleId === v.vehicle_id;
+                      return (
+                        <li key={v.vehicle_id} className="py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-medium text-ink">
+                              {v.driver_name ?? v.license_plate}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              {v.long_stretches > 0 && (
+                                <StatusChip tone="warn">
+                                  {v.long_stretches} over {hours.thresholds.fatigue_hours}h
+                                </StatusChip>
+                              )}
+                              {v.night_stretches > 0 && (
+                                <StatusChip tone="info">
+                                  <Moon className="h-3 w-3" />
+                                  {v.night_stretches} night
+                                  {lastNight ? ` · last ${relTime(lastNight.started_at)}` : ''}
+                                </StatusChip>
+                              )}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedVehicleId(expanded ? null : v.vehicle_id)
+                            }
+                            className="mt-2 grid w-full grid-cols-2 gap-2 text-left sm:grid-cols-4"
+                          >
+                            <Metric icon={Clock} label="Total" value={`${v.total_hours}h`} />
+                            <Metric icon={Clock} label="Longest run" value={`${v.longest_hours}h`} />
+                            <Metric
+                              icon={Gauge}
+                              label={expanded ? 'Stretches (tap to hide)' : 'Stretches (tap for detail)'}
+                              value={String(v.stretches)}
+                            />
+                            <Metric
+                              icon={AlertTriangle}
+                              label="Over limit"
+                              value={String(v.long_stretches)}
+                              tone={v.long_stretches > 0 ? 'warn' : undefined}
+                            />
+                          </button>
+                          {expanded && v.stretch_detail.length > 0 && (
+                            <StretchList stretches={v.stretch_detail} />
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                   <p className="text-[11px] text-ink-dim">
                     A stretch ends after {hours.thresholds.break_minutes} minutes stationary.
