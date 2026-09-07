@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Fuel, MapPin, Route } from 'lucide-react';
+import { Bell, Fuel, Gauge, Route } from 'lucide-react';
 
 export type DriverTab = 'fuel' | 'vehicle' | 'trips' | 'alerts';
 
@@ -18,7 +18,7 @@ export function DriverTabBar({
 }) {
   const tabs: { id: DriverTab; label: string; icon: typeof Fuel; badge: number }[] = [
     { id: 'fuel', label: 'Fuel', icon: Fuel, badge: pendingCount },
-    { id: 'vehicle', label: 'Vehicle', icon: MapPin, badge: 0 },
+    { id: 'vehicle', label: 'Dashboard', icon: Gauge, badge: 0 },
     { id: 'trips', label: 'Trips', icon: Route, badge: 0 },
     { id: 'alerts', label: 'Alerts', icon: Bell, badge: alertCount },
   ];

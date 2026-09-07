@@ -35,6 +35,16 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: true,
   },
   {
+    type: 'fuel_discrepancy_reported',
+    label: 'Driver reported a fuel discrepancy',
+    severity: 'info',
+    meaning:
+      "A driver flagged that the dashboard's estimated fuel level looks wrong against what they can see in the tank. The estimate is modelled from distance and idle time, not read from a sensor, so this is a driver's on-the-ground observation, not a confirmed fault.",
+    trigger: 'The driver taps "Report a discrepancy" on their Dashboard tab and submits a note.',
+    source: 'analysis',
+    emailable: false,
+  },
+  {
     type: 'trip_start',
     label: 'Vehicle started a trip',
     severity: 'info',

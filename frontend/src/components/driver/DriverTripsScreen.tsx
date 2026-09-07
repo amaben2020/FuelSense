@@ -1,9 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { Calendar, Loader2, MapPin, Route } from 'lucide-react';
 import { DriverTripsResponse, fetchDriverTrips } from '@/lib/driver-api';
 import { formatOdometerMiles } from '@/lib/api';
+
+// Vanilla three.js, loaded client-only — matches Vehicle3D's own dynamic
+// import. Rendering it during SSR (or under React Three Fiber) is what broke
+// the vehicle showcase before; this stays consistent with that fix.
+const TripStartFlourish = dynamic(
+  () => import('./TripStartFlourish').then((m) => m.TripStartFlourish),
+  { ssr: false }
+);
 
 export function DriverTripsScreen() {
   const [data, setData] = useState<DriverTripsResponse | null>(null);
@@ -33,11 +42,14 @@ export function DriverTripsScreen() {
 
   return (
     <div className="space-y-4">
+      {/* The plate isn't repeated here — the app header above every tab
+          already names the vehicle, and this driver has exactly one. */}
       <div className="rounded-2xl border border-edge bg-panel p-4">
         <p className="text-xs uppercase tracking-wider text-ink-dim">Last 14 days</p>
-        <p className="mt-1 text-lg font-semibold text-ink">{data.license_plate}</p>
+        <p className="mt-1 text-lg font-semibold text-ink">
+          {data.daily_history.reduce((s, d) => s + d.trip_count, 0)} trips
+        </p>
         <p className="text-xs text-ink-dim">
-          {data.daily_history.reduce((s, d) => s + d.trip_count, 0)} trips ·{' '}
           {Math.round(data.daily_history.reduce((s, d) => s + d.distance_km, 0))} km ·{' '}
           {Math.round(data.daily_history.reduce((s, d) => s + d.fuel_used_liters, 0) * 10) / 10} L
           fuel
@@ -87,6 +99,11 @@ export function DriverTripsScreen() {
         <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
           <Route className="h-3.5 w-3.5" /> Recent trip starts
         </h3>
+        {data.recent_starts.length > 0 && (
+          <div className="mb-2 overflow-hidden rounded-2xl border border-edge bg-panel">
+            <TripStartFlourish />
+          </div>
+        )}
         <div className="space-y-2">
           {data.recent_starts.length === 0 ? (
             <p className="text-sm text-ink-dim">No ignition-on events recorded.</p>

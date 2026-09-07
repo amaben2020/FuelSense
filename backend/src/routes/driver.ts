@@ -29,6 +29,13 @@ import { dailyActivitySql } from '../lib/daily-activity-sql';
 import { alertDefinition, DRIVER_RESOLVABLE_ALERTS } from '../lib/alert-catalogue';
 import { notifyDriverExplanation } from '../lib/driver-explanation-notifier';
 import { logAndRespond } from '../lib/errors';
+import { getSerializedIoValue } from '../lib/avl-io';
+import { decodeSignal } from '../lib/avl-catalogue';
+
+/** The handful of AVL elements worth a driver's attention — the same set
+ *  PowerDiagnostics shows a manager. Anything else in io_raw is left out
+ *  rather than dumping the full signal catalogue on a phone screen. */
+const DRIVER_AVL_IDS = [66, 67, 68, 113] as const;
 
 const router = express.Router();
 
@@ -110,6 +117,7 @@ router.get('/me', async (req: Request, res: Response) => {
         name: drivers.fullName,
         driver_code: drivers.driverCode,
         phone: drivers.phone,
+        photo_url: drivers.photoUrl,
       })
       .from(drivers)
       .where(eq(drivers.id, req.driver.driverId));
@@ -172,6 +180,30 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
     const online =
       lastSeen != null && Date.now() - lastSeen.getTime() < 3 * 60 * 1000;
 
+    // Voltage/battery figures live only in the raw AVL frame, not as columns
+    // on `telemetry` — same source PowerDiagnostics reads for a manager, so
+    // a driver sees the same numbers rather than a second derivation of them.
+    let signals: ReturnType<typeof decodeSignal>[] = [];
+    if (dev?.imei) {
+      const frame = await db.execute(sql`
+        SELECT io_raw
+        FROM device_frames
+        WHERE imei = ${dev.imei}
+        ORDER BY received_at DESC
+        LIMIT 1
+      `);
+      const ioRaw = (frame.rows[0] as Record<string, unknown> | undefined)?.io_raw as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      if (ioRaw) {
+        signals = DRIVER_AVL_IDS.flatMap((id) => {
+          const raw = getSerializedIoValue(ioRaw, id);
+          return raw == null ? [] : [decodeSignal(id, raw)];
+        });
+      }
+    }
+
     res.json({
       vehicle_id: assignment.vehicle_id,
       license_plate: assignment.license_plate,
@@ -190,7 +222,59 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
       /** Whole percent (94 = 94%); null before the tank is calibrated. */
       fuel_confidence: tankRow?.confidence != null ? Number(tankRow.confidence) : null,
       fuel_calibrated_at: tankRow?.calibrated_at ?? null,
+      signals,
     });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * A driver's own read that the estimated fuel level looks wrong.
+ *
+ * The tank has no sensor — every litre shown is modelled from distance and
+ * idle time — so this cannot confirm or refute the estimate. It exists to
+ * give a manager a data point ("three drivers have flagged this vehicle
+ * running lower than shown") without pretending to be a measurement.
+ */
+router.post('/report-discrepancy', async (req: Request, res: Response) => {
+  const note = String((req.body ?? {}).note ?? '').trim();
+  if (!note) {
+    res.status(400).json({ error: 'Say what looks off before sending.' });
+    return;
+  }
+  if (note.length > 500) {
+    res.status(400).json({ error: 'Keep it under 500 characters.' });
+    return;
+  }
+
+  try {
+    const assignment = await getDriverAssignment(req.driver.driverId, req.driver.customerId);
+    if (!assignment?.vehicle_id) {
+      res.status(404).json({ error: 'No vehicle assigned' });
+      return;
+    }
+
+    const [driverRow] = await db
+      .select({ name: drivers.fullName })
+      .from(drivers)
+      .where(eq(drivers.id, req.driver.driverId));
+
+    const estimatedLiters = req.body?.estimated_liters;
+    const estimateNote =
+      typeof estimatedLiters === 'number' && Number.isFinite(estimatedLiters)
+        ? ` Dashboard showed ~${estimatedLiters.toFixed(1)} L at the time.`
+        : '';
+
+    await db.insert(alerts).values({
+      customerId: req.driver.customerId,
+      vehicleId: assignment.vehicle_id,
+      alertType: 'fuel_discrepancy_reported',
+      message: `${driverRow?.name ?? 'Driver'} on ${assignment.license_plate}: "${note}".${estimateNote}`,
+      driverId: req.driver.driverId,
+    });
+
+    res.status(201).json({ success: true });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
@@ -680,6 +764,19 @@ router.get('/alerts', async (req: Request, res: Response) => {
     }
 
     const days = Math.min(Number(req.query.days) || 14, 30);
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+    const offset = (page - 1) * limit;
+
+    const countResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS total
+      FROM alerts
+      WHERE vehicle_id = ${assignment.vehicle_id}
+        AND customer_id = ${req.driver.customerId}
+        AND created_at > NOW() - (${days} || ' days')::INTERVAL
+    `);
+    const total = Number((countResult.rows[0] as Record<string, unknown>)?.total) || 0;
+
     const rows = await db.execute(sql`
       SELECT id, alert_type, message, created_at, is_resolved, resolved_at,
              driver_note, driver_note_at, latitude, longitude
@@ -688,7 +785,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
         AND customer_id = ${req.driver.customerId}
         AND created_at > NOW() - (${days} || ' days')::INTERVAL
       ORDER BY created_at DESC
-      LIMIT 50
+      LIMIT ${limit} OFFSET ${offset}
     `);
 
     const items = rows.rows.map((r) => {
@@ -709,9 +806,27 @@ router.get('/alerts', async (req: Request, res: Response) => {
       };
     });
 
+    // Counted across every page, not just this one — the tab badge would
+    // otherwise undercount once alerts moved past the first page.
+    const unansweredResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS unanswered
+      FROM alerts
+      WHERE vehicle_id = ${assignment.vehicle_id}
+        AND customer_id = ${req.driver.customerId}
+        AND created_at > NOW() - (${days} || ' days')::INTERVAL
+        AND is_resolved = false
+        AND driver_note IS NULL
+    `);
+    const unanswered =
+      Number((unansweredResult.rows[0] as Record<string, unknown>)?.unanswered) || 0;
+
     res.json({
       period_days: days,
-      unanswered: items.filter((i) => i.can_explain).length,
+      unanswered,
+      page,
+      limit,
+      total,
+      has_more: offset + items.length < total,
       alerts: items,
     });
   } catch (error) {

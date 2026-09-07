@@ -1,14 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, BellOff, CheckCircle2, Info, Send, ShieldAlert } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, BellOff, CheckCircle2, Info, Loader2, Send, ShieldAlert } from 'lucide-react';
 import {
   DriverAlert,
-  DriverAlertsResponse,
   explainDriverAlert,
   fetchDriverAlerts,
 } from '@/lib/driver-api';
 import { useLatest } from '@/lib/use-latest';
+
+const PAGE_SIZE = 20;
 
 const SEVERITY_ICON = {
   critical: ShieldAlert,
@@ -44,7 +45,11 @@ function when(iso: string) {
  * before anyone has to ask.
  */
 export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: number) => void }) {
-  const [data, setData] = useState<DriverAlertsResponse | null>(null);
+  const [alerts, setAlerts] = useState<DriverAlert[] | null>(null);
+  const [periodDays, setPeriodDays] = useState(14);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [note, setNote] = useState('');
@@ -56,10 +61,15 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
   // an inline function.
   const notify = useLatest(onCountChange);
 
-  const load = useCallback(async () => {
+  /** Resets to page 1 — used on mount and after answering an alert changes
+   *  which ones are still unanswered. */
+  const reload = useCallback(async () => {
     try {
-      const d = await fetchDriverAlerts();
-      setData(d);
+      const d = await fetchDriverAlerts(14, 1, PAGE_SIZE);
+      setAlerts(d.alerts);
+      setPeriodDays(d.period_days);
+      setPage(1);
+      setHasMore(d.has_more);
       setError(null);
       notify.current?.(d.unanswered);
     } catch (err) {
@@ -68,8 +78,43 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
   }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void reload();
+  }, [reload]);
+
+  // IntersectionObserver drives "load more" instead of a scroll listener: it
+  // only fires when the sentinel actually enters the viewport, so there is no
+  // per-scroll-event work and nothing to throttle by hand.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useLatest(loadingMore);
+  const hasMoreRef = useLatest(hasMore);
+  const pageRef = useLatest(page);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        if (loadingMoreRef.current || !hasMoreRef.current) return;
+
+        const nextPage = pageRef.current + 1;
+        setLoadingMore(true);
+        fetchDriverAlerts(periodDays, nextPage, PAGE_SIZE)
+          .then((d) => {
+            setAlerts((prev) => [...(prev ?? []), ...d.alerts]);
+            setPage(nextPage);
+            setHasMore(d.has_more);
+          })
+          .catch((err) => setError((err as Error).message))
+          .finally(() => setLoadingMore(false));
+      },
+      { rootMargin: '200px' }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [periodDays, loadingMoreRef, hasMoreRef, pageRef]);
 
   const send = async (alert: DriverAlert) => {
     const text = note.trim();
@@ -80,7 +125,7 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
       setFlash(res.message);
       setOpenId(null);
       setNote('');
-      await load();
+      await reload();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -94,7 +139,7 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
         {error}
         <button
           type="button"
-          onClick={load}
+          onClick={reload}
           className="mt-3 block w-full rounded-xl border border-bad/40 py-2.5 text-sm font-semibold"
         >
           Try again
@@ -102,8 +147,6 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
       </div>
     );
   }
-
-  const alerts = data?.alerts ?? [];
 
   return (
     <div className="space-y-3">
@@ -113,7 +156,7 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
         </p>
       )}
 
-      {data == null ? (
+      {alerts == null ? (
         <p className="py-10 text-center text-sm text-ink-dim">Loading…</p>
       ) : alerts.length === 0 ? (
         <div className="rounded-2xl border border-edge bg-panel px-4 py-10 text-center">
@@ -121,7 +164,7 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
           <p className="text-sm text-ink-mid">Nothing flagged</p>
           <p className="mt-1 text-xs text-ink-dim">
             Nothing on your vehicle has needed an explanation in the last{' '}
-            {data.period_days} days.
+            {periodDays} days.
           </p>
         </div>
       ) : (
@@ -208,6 +251,18 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
             </div>
           );
         })
+      )}
+
+      {/* Invisible trigger for the next page. Placed after the list rather
+          than wrapped around a "Load more" button, so scrolling near the
+          bottom is the only gesture needed. */}
+      {alerts != null && alerts.length > 0 && hasMore && (
+        <div ref={sentinelRef} className="h-1" aria-hidden="true" />
+      )}
+      {loadingMore && (
+        <p className="flex items-center justify-center gap-2 py-4 text-xs text-ink-dim">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading more…
+        </p>
       )}
     </div>
   );

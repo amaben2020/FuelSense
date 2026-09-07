@@ -17,6 +17,37 @@ import { DriverVehicleScreen } from '@/components/driver/DriverVehicleScreen';
 import { DriverTripsScreen } from '@/components/driver/DriverTripsScreen';
 import { DriverAlertsScreen } from '@/components/driver/DriverAlertsScreen';
 
+/** A photo when the manager has uploaded one, initials otherwise — never a
+ *  broken image icon or a blank circle. */
+function DriverAvatar({ name, photoUrl }: { name?: string; photoUrl?: string | null }) {
+  const initials =
+    name
+      ?.trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || '?';
+
+  if (photoUrl) {
+    // eslint-disable-next-line @next/next/no-img-element -- driver photos are
+    // uploaded, arbitrary-origin URLs; next/image's remotePatterns would need
+    // updating per customer's storage host.
+    return (
+      <img
+        src={photoUrl}
+        alt={name ?? 'Driver'}
+        className="h-11 w-11 shrink-0 rounded-full border border-edge object-cover"
+      />
+    );
+  }
+
+  return (
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-edge bg-accent/15 text-sm font-semibold text-brand">
+      {initials}
+    </span>
+  );
+}
+
 export default function DriverPortalPage() {
   const [authed, setAuthed] = useState(false);
   const [tab, setTab] = useState<DriverTab>('fuel');
@@ -122,12 +153,15 @@ export default function DriverPortalPage() {
     <div className="min-h-screen bg-canvas pb-24">
       <header className="sticky top-0 z-30 border-b border-edge bg-canvas/95 px-4 py-4 backdrop-blur-md">
         <div className="mx-auto flex max-w-lg items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-good">Driver</p>
-            <p className="font-semibold text-ink">{driver?.name}</p>
-            <p className="text-xs text-ink-dim">
-              {driver?.license_plate ?? 'No vehicle'} · {driver?.driver_code}
-            </p>
+          <div className="flex items-center gap-3">
+            <DriverAvatar name={driver?.name} photoUrl={driver?.photo_url} />
+            <div>
+              <p className="text-xs uppercase tracking-wider text-good">Driver</p>
+              <p className="font-semibold text-ink">{driver?.name}</p>
+              <p className="text-xs text-ink-dim">
+                {driver?.license_plate ?? 'No vehicle'} · {driver?.driver_code}
+              </p>
+            </div>
           </div>
           {/* Padded to a real tap target. At text size alone this was 47x16 —
               a finger cannot reliably hit 16 pixels. */}

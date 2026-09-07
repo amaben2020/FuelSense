@@ -21,6 +21,7 @@ export interface DriverSession {
   vehicle_id: string | null;
   license_plate: string | null;
   model: string | null;
+  photo_url?: string | null;
 }
 
 export interface ReceiptCheck {
@@ -72,6 +73,28 @@ export interface DriverVehicleStatus {
    *  tank has been calibrated. */
   fuel_confidence: number | null;
   fuel_calibrated_at: string | null;
+  /** External/backup voltage and battery current — same signals a manager
+   *  sees in Power Diagnostics, decoded from whichever of them the device
+   *  actually sends. Empty array, not missing fields, when none arrive. */
+  signals: DriverSignal[];
+}
+
+export interface DriverSignal {
+  avl_id: number;
+  label: string;
+  unit: string | null;
+  display: string;
+  known: boolean;
+}
+
+export async function reportFuelDiscrepancy(
+  note: string,
+  estimatedLiters?: number | null
+): Promise<{ success: boolean }> {
+  return driverApi<{ success: boolean }>('/driver/report-discrepancy', {
+    method: 'POST',
+    body: JSON.stringify({ note, estimated_liters: estimatedLiters ?? undefined }),
+  });
 }
 
 export interface DriverTripsResponse {
@@ -227,11 +250,17 @@ export interface DriverAlert {
 export interface DriverAlertsResponse {
   period_days: number;
   unanswered: number;
+  page: number;
+  limit: number;
+  total: number;
+  has_more: boolean;
   alerts: DriverAlert[];
 }
 
-export async function fetchDriverAlerts(days = 14) {
-  return driverApi<DriverAlertsResponse>(`/driver/alerts?days=${days}`);
+export async function fetchDriverAlerts(days = 14, page = 1, limit = 20) {
+  return driverApi<DriverAlertsResponse>(
+    `/driver/alerts?days=${days}&page=${page}&limit=${limit}`
+  );
 }
 
 /**
