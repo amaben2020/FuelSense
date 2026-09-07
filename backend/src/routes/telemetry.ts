@@ -18,6 +18,7 @@ import {
   REFUEL_THRESHOLD_LITERS,
   DEFAULT_FUEL_PRICE_NGN_LITER,
   IDLE_BURN_LITERS_PER_HOUR,
+  HARSH_EVENT_ESTIMATED_LITERS,
   speedBucketMultiplier,
   speedBucketLabel,
 } from '../lib/fuel-metrics';
@@ -967,6 +968,9 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       const idleExcessLiters = Math.min(idleLiters, excessLiters);
       const unexplainedLiters = Math.max(0, excessLiters - idleExcessLiters);
       const harshEvents = harshByVehicle.get(r.vehicle_id as string) || 0;
+      // Rough, clearly-labelled estimate — see HARSH_EVENT_ESTIMATED_LITERS.
+      const harshEstimatedLiters = round1(harshEvents * HARSH_EVENT_ESTIMATED_LITERS);
+      const harshEstimatedCostNgn = Math.round(harshEstimatedLiters * periodPriceNgn);
 
       const co2EmissionsKg = Math.round(fuelUsed * CO2_KG_PER_LITER);
 
@@ -1000,6 +1004,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
         idle_fuel_liters: round1(idleLiters),
         idle_cost_ngn: Math.round(idleLiters * periodPriceNgn),
         harsh_event_count: harshEvents,
+        harsh_event_estimated_liters: harshEstimatedLiters,
+        harsh_event_estimated_cost_ngn: harshEstimatedCostNgn,
         loss_reason: {
           excess_liters: round1(excessLiters),
           idle_liters: round1(idleExcessLiters),
@@ -1008,6 +1014,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           unexplained_liters: round1(unexplainedLiters),
           unexplained_cost_ngn: Math.round(unexplainedLiters * periodPriceNgn),
           harsh_event_count: harshEvents,
+          harsh_event_estimated_liters: harshEstimatedLiters,
+          harsh_event_estimated_cost_ngn: harshEstimatedCostNgn,
         },
         actual_cost_ngn: actualCostNgn,
         telemetry_cost_ngn: telemetryCostNgn,
@@ -1054,6 +1062,13 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           0
         ),
         harsh_event_count: rows.reduce((s, r) => s + r.harsh_event_count, 0),
+        harsh_event_estimated_liters: round1(
+          rows.reduce((s, r) => s + r.loss_reason.harsh_event_estimated_liters, 0)
+        ),
+        harsh_event_estimated_cost_ngn: rows.reduce(
+          (s, r) => s + r.loss_reason.harsh_event_estimated_cost_ngn,
+          0
+        ),
       },
       total_actual_cost_ngn: rows.reduce((s, r) => s + r.actual_cost_ngn, 0),
       total_telemetry_cost_ngn: rows.reduce((s, r) => s + r.telemetry_cost_ngn, 0),
@@ -1225,10 +1240,24 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
   const offset = (page - 1) * limit;
   const customerId = req.user.customerId;
   const includeSummary = req.query.include_summary === 'true';
+  // Lets a caller ask for "fuel inputs in this window" to match whatever
+  // period a dashboard card is showing, rather than always paging through
+  // all-time history. Absent or non-positive means no filter — every
+  // existing caller keeps its current behaviour.
+  const days = Number(req.query.days);
+  const periodFilter =
+    Number.isFinite(days) && days > 0
+      ? sql`AND fp.purchased_at > NOW() - (${days} || ' days')::interval`
+      : sql``;
+  const periodFilterUnaliased =
+    Number.isFinite(days) && days > 0
+      ? sql`AND purchased_at > NOW() - (${days} || ' days')::interval`
+      : sql``;
 
   try {
     const countResult = await db.execute(sql`
-      SELECT COUNT(*)::int AS total FROM fuel_purchases WHERE customer_id = ${customerId}
+      SELECT COUNT(*)::int AS total FROM fuel_purchases
+      WHERE customer_id = ${customerId} ${periodFilterUnaliased}
     `);
     const total = (countResult.rows[0] as Record<string, unknown>)?.total ?? 0;
 
@@ -1286,7 +1315,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
       LEFT JOIN fuel_receipts fr ON fp.source = 'driver_upload'
         AND fp.receipt_reference = 'DRV-' || upper(substr(fr.id::text, 1, 8))
       LEFT JOIN drivers submit_dr ON submit_dr.id = fr.driver_id
-      WHERE fp.customer_id = ${customerId}
+      WHERE fp.customer_id = ${customerId} ${periodFilter}
       ORDER BY fp.purchased_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `);
@@ -1381,7 +1410,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
         LEFT JOIN fuel_receipts fr ON fp.source = 'driver_upload'
           AND fp.receipt_reference = 'DRV-' || upper(substr(fr.id::text, 1, 8))
         LEFT JOIN drivers submit_dr ON submit_dr.id = fr.driver_id
-        WHERE fp.customer_id = ${customerId}
+        WHERE fp.customer_id = ${customerId} ${periodFilter}
         GROUP BY 1, 2
         ORDER BY 1 DESC, 2 ASC
       `);
@@ -1393,7 +1422,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
           SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
           COUNT(*)::int AS receipt_count
         FROM fuel_purchases fp
-        WHERE fp.customer_id = ${customerId}
+        WHERE fp.customer_id = ${customerId} ${periodFilter}
       `);
 
       const grand = (grandResult.rows[0] ?? {}) as Record<string, unknown>;

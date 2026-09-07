@@ -1169,6 +1169,7 @@ export default function DashboardPage() {
                   setSelectedVehicleId(vehicleId);
                   switchView('live');
                 }}
+                onOpenAlerts={() => switchView('alerts')}
               />
             </div>
           )}

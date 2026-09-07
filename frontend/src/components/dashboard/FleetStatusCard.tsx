@@ -44,7 +44,9 @@ export function FleetStatusCard({
   periodDays,
   causeParts,
   harshEventCount = 0,
+  harshEventEstimatedNgn,
   onOpenDetail,
+  onOpenAlerts,
 }: {
   score: number | null;
   concerningAlerts: number;
@@ -53,9 +55,15 @@ export function FleetStatusCard({
   periodDays: number;
   /** Each cause with what it cost, biggest first. */
   causeParts: Array<{ label: string; ngn: number }>;
-  /** Counted, never costed — there is no honest litres-per-harsh-brake rate. */
+  /** There is no honest litres-per-harsh-brake rate, so this is a rough
+   *  rule-of-thumb estimate — see HARSH_EVENT_ESTIMATED_LITERS on the backend.
+   *  Undefined/0 falls back to the old "not costed" wording. */
   harshEventCount?: number;
+  harshEventEstimatedNgn?: number;
   onOpenDetail?: () => void;
+  /** Takes the manager straight to the alerts behind the score — the actual
+   *  answer to "what needs attention", not just the loss breakdown. */
+  onOpenAlerts?: () => void;
 }) {
   const { word, tone } = fleetStatusWord(score);
 
@@ -99,9 +107,24 @@ export function FleetStatusCard({
                   <span className="font-mono font-semibold tabular-nums text-ink">
                     {score}/100
                   </span>{' '}
-                  · driven by {concerningAlerts} open alert
-                  {concerningAlerts === 1 ? '' : 's'}, {theftAlerts} theft flag
-                  {theftAlerts === 1 ? '' : 's'}
+                  · driven by{' '}
+                  {onOpenAlerts && (concerningAlerts > 0 || theftAlerts > 0) ? (
+                    <button
+                      type="button"
+                      onClick={onOpenAlerts}
+                      className="font-medium text-accent underline decoration-dotted underline-offset-2"
+                    >
+                      {concerningAlerts} open alert
+                      {concerningAlerts === 1 ? '' : 's'}, {theftAlerts} theft flag
+                      {theftAlerts === 1 ? '' : 's'}
+                    </button>
+                  ) : (
+                    <>
+                      {concerningAlerts} open alert
+                      {concerningAlerts === 1 ? '' : 's'}, {theftAlerts} theft flag
+                      {theftAlerts === 1 ? '' : 's'}
+                    </>
+                  )}
                 </>
               ) : (
                 'Not enough data to score this fleet yet'
@@ -141,7 +164,10 @@ export function FleetStatusCard({
                 <li className="flex items-baseline justify-between gap-3 text-xs">
                   <span className="text-ink-dim">harsh events</span>
                   <span className="font-mono tabular-nums text-ink-dim">
-                    {harshEventCount} · not costed
+                    {harshEventCount}
+                    {harshEventEstimatedNgn
+                      ? ` · ~${formatNgn(harshEventEstimatedNgn)} est.`
+                      : ' · not costed'}
                   </span>
                 </li>
               )}

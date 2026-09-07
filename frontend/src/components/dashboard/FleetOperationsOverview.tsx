@@ -26,6 +26,8 @@ import {
 import { DistanceBreakdownCard } from '@/components/dashboard/DistanceBreakdownCard';
 import { DetailSection } from '@/components/dashboard/DetailSection';
 import { FleetStatusCard } from '@/components/dashboard/FleetStatusCard';
+import { FuelInputsDrillDown } from '@/components/dashboard/FuelInputsDrillDown';
+import { FuelPriceChart } from '@/components/dashboard/FuelPriceChart';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
 import {
@@ -157,6 +159,7 @@ export function FleetOperationsOverview({
   onOpenLive,
   onOpenAnomalies,
   onViewOnMap,
+  onOpenAlerts,
 }: {
   summary: DashboardSummary | null;
   todaySummary: DashboardSummary | null;
@@ -172,11 +175,14 @@ export function FleetOperationsOverview({
   onOpenLive: (vehicleId?: string) => void;
   onOpenAnomalies: () => void;
   onViewOnMap: (vehicleId: string) => void;
+  /** Takes the manager to the alerts list behind the fleet-status score. */
+  onOpenAlerts?: () => void;
 }) {
   const [expandedVehicle, setExpandedVehicle] = useState<string | null>(null);
   const [replayTarget, setReplayTarget] = useState<ReplayTarget | null>(null);
   /** The row whose full evidence is open. Null = queue view. */
   const [detailItem, setDetailItem] = useState<AttentionItem | null>(null);
+  const [showFuelInputs, setShowFuelInputs] = useState(false);
 
   // Prefer what the API actually aggregated over what was asked for, so the
   // label never claims a window the data does not cover.
@@ -337,6 +343,8 @@ export function FleetOperationsOverview({
   }, [efficiencySummary]);
 
   const harshEventCount = efficiencySummary?.loss_reason?.harsh_event_count ?? 0;
+  const harshEventEstimatedNgn =
+    efficiencySummary?.loss_reason?.harsh_event_estimated_cost_ngn ?? 0;
 
   const lossLines = useMemo(
     () => lossReasonLines(efficiencySummary?.loss_reason),
@@ -576,6 +584,17 @@ export function FleetOperationsOverview({
         <EventReplayPanel target={replayTarget} onClose={() => setReplayTarget(null)} />
       )}
 
+      {fuelContext && (
+        <FuelInputsDrillDown
+          open={showFuelInputs}
+          onClose={() => setShowFuelInputs(false)}
+          periodDays={periodDays}
+          liters={fuelContext.liters}
+          burnedCost={fuelContext.burnedCost}
+          blendedPricePerLiter={fuelContext.blendedPricePerLiter}
+        />
+      )}
+
       {/* Full evidence for one queue row. Everything the compact row omits
           lives here, so the queue stays scannable without losing the detail a
           manager needs before putting anything to a driver. */}
@@ -725,6 +744,8 @@ export function FleetOperationsOverview({
           periodDays={periodDays}
           causeParts={lossCauseParts}
           harshEventCount={harshEventCount}
+          harshEventEstimatedNgn={harshEventEstimatedNgn}
+          onOpenAlerts={onOpenAlerts}
         />
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
@@ -757,7 +778,21 @@ export function FleetOperationsOverview({
                 price in force when it burned, so quoting today's figure
                 misrepresented the total above it: a week spanning ₦1,300 and
                 ₦1,275 cost ₦1,290.73/L and the caption claimed ₦1,275. */}
-            <p className="mt-2.5 text-sm text-ink-mid">
+            <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
+                Efficiency metrics
+              </p>
+              {fuelContext && (
+                <button
+                  type="button"
+                  onClick={() => setShowFuelInputs(true)}
+                  className="text-xs font-medium text-accent underline decoration-dotted underline-offset-2"
+                >
+                  View all fuel inputs
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-sm text-ink-mid">
               {fuelContext
                 ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
                     fuelContext.distanceKm
@@ -872,6 +907,11 @@ export function FleetOperationsOverview({
             className="sm:col-span-2 lg:col-span-6"
           />
         </div>
+
+        {/* Every naira figure on this page is this price times some litres, so
+            its own trend earns a full-width look rather than the small
+            sparkline tucked into the price-setting panel in Settings. */}
+        <FuelPriceChart className="mt-3" />
       </section>
 
       {/* Level 3 — detail, collapsed by default and independently openable.

@@ -530,6 +530,9 @@ export interface LossReason {
   unexplained_liters: number;
   unexplained_cost_ngn: number;
   harsh_event_count: number;
+  /** Rough rule-of-thumb figure, not measured on this fleet — see backend HARSH_EVENT_ESTIMATED_LITERS. */
+  harsh_event_estimated_liters?: number;
+  harsh_event_estimated_cost_ngn?: number;
 }
 
 export interface FleetEfficiency {
@@ -556,6 +559,8 @@ export interface FleetEfficiency {
   idle_fuel_liters?: number;
   idle_cost_ngn?: number;
   harsh_event_count?: number;
+  harsh_event_estimated_liters?: number;
+  harsh_event_estimated_cost_ngn?: number;
   loss_reason?: LossReason;
   actual_cost_ngn: number;
   fuel_cost_ngn: number;

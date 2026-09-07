@@ -20,8 +20,11 @@ export function lossReasonLines(reason: LossReason | undefined | null): string[]
     );
   }
   if (reason.harsh_event_count > 0) {
+    const estimate = reason.harsh_event_estimated_cost_ngn;
     lines.push(
-      `${reason.harsh_event_count} harsh acceleration, braking or speeding events — these burn more than the baseline allows for`
+      estimate
+        ? `${reason.harsh_event_count} harsh acceleration, braking or speeding events — roughly ${formatNgn(estimate)} (estimated, not a measured rate)`
+        : `${reason.harsh_event_count} harsh acceleration, braking or speeding events — these burn more than the baseline allows for`
     );
   }
   return lines;

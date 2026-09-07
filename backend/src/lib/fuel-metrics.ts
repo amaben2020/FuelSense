@@ -110,6 +110,18 @@ export const THEFT_DROP_THRESHOLD_LITERS = 12;
 export const IDLE_BURN_LITERS_PER_HOUR = 0.9;
 export const DEFAULT_FUEL_PRICE_NGN_LITER = 1300;
 
+/**
+ * Rough extra fuel one harsh acceleration, braking, cornering or overspeeding
+ * event costs — a rule-of-thumb figure from telematics fuel-economy studies,
+ * not a rate measured on this fleet. There is no honest way to derive a
+ * per-event litre cost from GPS alone (no accelerometer-to-fuel-flow
+ * telemetry exists for this hardware), so this is deliberately an estimate
+ * and every figure it produces must say so.
+ */
+export const HARSH_EVENT_ESTIMATED_LITERS = Number(
+  process.env.HARSH_EVENT_ESTIMATED_LITERS || 0.12
+);
+
 export function efficiencyProfileForModel(model: string): { min: number; max: number; avg: number } {
   return VEHICLE_EFFICIENCY[model] || DEFAULT_EFFICIENCY;
 }
