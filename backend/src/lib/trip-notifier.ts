@@ -76,7 +76,13 @@ export async function handleIgnitionForTripStart(
     occurredAt: ctx.occurredAt,
   });
 
-  const [open] = await db
+  // The in-memory debounce above resets on every server restart, which let a
+  // restart mid-trip re-announce a start that had already fired and been
+  // resolved seconds earlier — two "Vehicle started a trip" alerts a driver
+  // could not tell apart. Falling back to "already resolved" isn't enough on
+  // its own, so this also catches one raised within the debounce window
+  // regardless of resolution state.
+  const [recent] = await db
     .select({ id: alerts.id })
     .from(alerts)
     .where(
@@ -84,12 +90,12 @@ export async function handleIgnitionForTripStart(
         eq(alerts.customerId, ctx.customerId),
         eq(alerts.vehicleId, ctx.vehicleId),
         eq(alerts.alertType, 'trip_start'),
-        eq(alerts.isResolved, false)
+        sql`(${alerts.isResolved} = false OR ${alerts.createdAt} > NOW() - (${TRIP_START_DEBOUNCE_MS} || ' milliseconds')::interval)`
       )
     )
     .limit(1);
 
-  if (!open) {
+  if (!recent) {
     await db.insert(alerts).values({
       imei: ctx.imei,
       customerId: ctx.customerId,
