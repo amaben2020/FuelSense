@@ -92,7 +92,6 @@ export function DriverFuelScreen({
    * actually charged.
    */
   const derivedLiters = useMemo(() => {
-    if (declaredLiters.trim()) return null;
     const total = Number(totalAmount);
     const price = Number(pricePerLiter);
     if (!Number.isFinite(total) || !Number.isFinite(price)) return null;
@@ -100,7 +99,27 @@ export function DriverFuelScreen({
     const litres = Math.round((total / price) * 100) / 100;
     // A tank is not 400 litres and a pump does not sell 0.05 of one.
     return litres >= 0.5 && litres <= 400 ? litres : null;
-  }, [declaredLiters, totalAmount, pricePerLiter]);
+  }, [totalAmount, pricePerLiter]);
+
+  /** The exact string this calculation last wrote into the litres box, so it
+   *  can tell its own output apart from something a driver or the scan put
+   *  there. State rather than a ref because the note below the field reads it
+   *  during render. */
+  const [autoFilledLiters, setAutoFilledLiters] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (derivedLiters == null) return;
+    const next = String(derivedLiters);
+    if (declaredLiters === next) return;
+    // Fills an empty box, and updates a figure it wrote itself when the total
+    // or price changes underneath it. A litre count the driver typed, or one
+    // the scan read off the paper, is never overwritten — those are evidence,
+    // this is arithmetic.
+    if (declaredLiters.trim() === '' || declaredLiters === autoFilledLiters) {
+      setAutoFilledLiters(next);
+      setDeclaredLiters(next);
+    }
+  }, [derivedLiters, declaredLiters, autoFilledLiters]);
   const [transactionDate, setTransactionDate] = useState('');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
     null,
@@ -236,6 +255,7 @@ export function DriverFuelScreen({
     setParseConfidence(null);
     setMerchantName('');
     setMerchantAddress('');
+    setAutoFilledLiters(null);
     setDeclaredLiters('');
     setPricePerLiter('1300');
     setTotalAmount('');
@@ -476,18 +496,19 @@ export function DriverFuelScreen({
 
           {/* Litres is the field everything downstream is built on, and most
               Nigerian pump slips are POS transfer receipts that never print
-              it. Total and price are almost always there, and litres is just
-              their quotient, so it is offered rather than demanded. */}
-          {derivedLiters != null && (
-            <button
-              type="button"
-              onClick={() => setDeclaredLiters(String(derivedLiters))}
-              className="w-full rounded-xl border border-brand/40 bg-brand/10 px-3 py-2 text-left text-xs leading-relaxed text-brand"
-            >
-              No litres on this receipt. From ₦{Number(totalAmount).toLocaleString()} at ₦
-              {Number(pricePerLiter).toLocaleString()}/L that is{' '}
-              <span className="font-semibold">{derivedLiters} L</span>. Tap to use it.
-            </button>
+              it. Total and price are almost always there and litres is just
+              their quotient, so it is filled in rather than asked for — a
+              driver at a pump should not have to tap to accept arithmetic the
+              form has already done. It stays editable, and says where the
+              number came from so it is never mistaken for one read off the
+              paper. */}
+          {declaredLiters === autoFilledLiters && derivedLiters != null && (
+            <p className="rounded-xl border border-brand/40 bg-brand/10 px-3 py-2 text-xs leading-relaxed text-brand">
+              Litres worked out for you: ₦{Number(totalAmount).toLocaleString()} at ₦
+              {Number(pricePerLiter).toLocaleString()}/L is{' '}
+              <span className="font-semibold">{derivedLiters} L</span>. Change it if the
+              slip says otherwise.
+            </p>
           )}
           {!declaredLiters.trim() && derivedLiters == null && (
             <p className="rounded-xl border border-warn/40 bg-warn-deep/10 px-3 py-2 text-xs leading-relaxed text-warn">
