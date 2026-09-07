@@ -56,7 +56,9 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
         WHEN d.imei IS NULL THEN 'no_device'
         WHEN d.last_seen_at > NOW() - INTERVAL '15 minutes' THEN 'online'
         ELSE 'offline'
-      END AS connection_status
+      END AS connection_status,
+      unplug.created_at IS NOT NULL AS power_unplugged,
+      unplug.created_at AS power_unplugged_since
     FROM vehicles v
     LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
     LEFT JOIN devices d ON d.vehicle_id = v.id AND d.customer_id = v.customer_id
@@ -87,6 +89,20 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       ORDER BY recorded_at ASC
       LIMIT 1
     ) firstodo ON true
+    -- A deliberate unplug (external voltage collapses to ~0, see
+    -- power-monitor.ts) is a different fact from a flat car battery, and a
+    -- manager needs to see it the moment it's still true, not go find it in
+    -- an events feed. Whichever alert opened it — voltage-derived or the
+    -- device's own AVL 252 scenario when enabled — both write the same
+    -- 'power_unplug' alert type, so this one join covers either path.
+    LEFT JOIN LATERAL (
+      SELECT created_at
+      FROM alerts
+      WHERE vehicle_id = v.id AND customer_id = v.customer_id
+        AND alert_type = 'power_unplug' AND is_resolved = false
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) unplug ON true
     WHERE v.customer_id = ${customerId}
     ORDER BY v.license_plate ASC
   `);

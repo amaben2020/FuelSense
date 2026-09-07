@@ -252,6 +252,11 @@ export interface FleetVehicle {
   speed_kph: number | null;
   last_telemetry_at: string | null;
   connection_status: 'online' | 'offline' | 'no_device';
+  /** True while the tracker has no external supply at all — a deliberate
+   *  unplug or physical tamper, not a weak/flat car battery (see
+   *  power-monitor.ts: those still read well above the cutoff). */
+  power_unplugged?: boolean;
+  power_unplugged_since?: string | null;
   virtual_tank_capacity_liters?: number | string | null;
   virtual_tank_liters?: number | string | null;
   virtual_tank_confidence?: number | null;

@@ -63,6 +63,7 @@ import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel'
 import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
 import { OdometerSettingsPanel } from '@/components/dashboard/OdometerSettingsPanel';
 import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
+import { PowerUnplugBanner } from '@/components/dashboard/PowerUnplugBanner';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -1025,8 +1026,17 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Above the page header so it reads as a condition of the fleet
-              rather than of whichever view happens to be open. */}
+          {/* Above the page header so both read as a condition of the fleet
+              rather than of whichever view happens to be open. Unplug leads —
+              it outranks a low tank, because it can mean the evidence stream
+              itself is about to stop. */}
+          <PowerUnplugBanner
+            fleet={fleet}
+            onSelectVehicle={(id) => {
+              setSelectedVehicleId(id);
+              switchView('live');
+            }}
+          />
           <LowFuelBanner
             fleet={fleet}
             onSelectVehicle={(id) => {
