@@ -1,8 +1,17 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Fuel, MapPin, Route, Timer } from 'lucide-react';
-import { api, formatNgn, ServerTrip, TripsResponse, TripsVehicle } from '@/lib/api';
+import { ChevronDown, ChevronRight, Download, Fuel, MapPin, Route, Timer } from 'lucide-react';
+import {
+  api,
+  formatNgn,
+  fetchStopPlace,
+  ServerTrip,
+  StopPlace,
+  TripStop,
+  TripsResponse,
+  TripsVehicle,
+} from '@/lib/api';
 import { tripColor, tripInk } from '@/lib/map-utils';
 import { TripHistoryChart, type TripDay } from './TripHistoryChart';
 import { TableSkeleton } from '@/components/ui/chrome';
@@ -34,6 +43,59 @@ function formatDayHeading(date: string): string {
     day: 'numeric',
     month: 'short',
   });
+}
+
+const KIND_LABEL: Record<TripStop['kind'], string> = {
+  origin: 'Started at',
+  stop: 'Stopped at',
+  pause: 'Paused at',
+  traffic: 'Held in traffic at',
+  destination: 'Ended at',
+};
+
+/** One row of the stop-by-stop breakdown. Uses the cached `place_label` when
+ *  the trip already carries one; only calls out for a name when it doesn't,
+ *  so opening a trip nobody has looked at yet is the only time this bills a
+ *  geocode. */
+function StopTimeRow({ stop }: { stop: TripStop }) {
+  const [resolved, setResolved] = useState<StopPlace | null | 'pending'>(
+    stop.place_label ? null : 'pending'
+  );
+
+  useEffect(() => {
+    if (stop.place_label) return;
+    let cancelled = false;
+    fetchStopPlace(stop.lat, stop.lng)
+      .then((p) => {
+        if (!cancelled) setResolved(p);
+      })
+      .catch(() => {
+        if (!cancelled) setResolved(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stop.lat, stop.lng, stop.place_label]);
+
+  const label =
+    stop.place_label ??
+    (resolved === 'pending'
+      ? 'resolving…'
+      : (resolved?.place_name ?? resolved?.formatted_address ?? `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`));
+
+  return (
+    <tr className="text-xs text-ink-mid">
+      <td />
+      <td className="px-6 py-1.5 text-ink-dim">{KIND_LABEL[stop.kind]}</td>
+      <td className="px-6 py-1.5 font-mono">
+        {formatTime(stop.arrived_at)}–{formatTime(stop.departed_at)}
+      </td>
+      <td className="px-6 py-1.5 font-mono">{formatDuration(stop.duration_minutes)}</td>
+      <td className="px-6 py-1.5" colSpan={6}>
+        {label}
+      </td>
+    </tr>
+  );
 }
 
 function StatCard({
@@ -121,6 +183,7 @@ export function TripHistoryPanel({
   // they arrive inside the trips payload.
   const [fromInput, setFromInput] = useState('');
   const [toInput, setToInput] = useState('');
+  const [expandedTripKey, setExpandedTripKey] = useState<string | null>(null);
   const range =
     fromInput && toInput && new Date(fromInput) < new Date(toInput)
       ? { from: new Date(fromInput).toISOString(), to: new Date(toInput).toISOString() }
@@ -554,10 +617,28 @@ export function TripHistoryPanel({
                       </td>
                       <td className="px-6 py-2" />
                     </tr>,
-                    ...items.map(({ trip, tripIndex, vehicle }) => (
-                      <tr key={`${vehicle.vehicle_id}-${trip.start_at}`}>
+                    ...items.flatMap(({ trip, tripIndex, vehicle }) => {
+                      const tripKey = `${vehicle.vehicle_id}-${trip.start_at}`;
+                      const expanded = expandedTripKey === tripKey;
+                      const hasStops = trip.stops.length > 0;
+                      return [
+                      <tr key={tripKey}>
                         <td className="px-6 py-2.5">
                           <span className="flex items-center gap-2">
+                            {hasStops && (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedTripKey(expanded ? null : tripKey)}
+                                aria-label={expanded ? 'Hide stops' : 'Show stops'}
+                                className="text-ink-dim hover:text-ink"
+                              >
+                                {expanded ? (
+                                  <ChevronDown className="h-3.5 w-3.5" />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            )}
                             <span
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
                               style={{ backgroundColor: tripColor(tripIndex), color: tripInk(tripIndex) }}
@@ -633,8 +714,14 @@ export function TripHistoryPanel({
                             Map
                           </button>
                         </td>
-                      </tr>
-                    )),
+                      </tr>,
+                      ...(expanded
+                        ? trip.stops.map((stop, i) => (
+                            <StopTimeRow key={`${tripKey}-stop-${i}`} stop={stop} />
+                          ))
+                        : []),
+                      ];
+                    }),
                   ];
                 })}
               </tbody>
