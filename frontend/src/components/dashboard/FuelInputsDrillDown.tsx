@@ -15,12 +15,17 @@ const formatDate = (iso: string): string =>
   new Date(iso).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
 
 /**
- * "How did we get ₦1,307/L" — the arithmetic behind the Fuel burned card's
- * blended average, plus the two kinds of evidence that feed it: what was
- * actually paid at the pump (receipts) and what the manager has declared the
- * benchmark price to be over time (price periods). Neither list alone answers
- * the question — receipts without periods hide unpurchased litres already in
- * the tank; periods without receipts hide what was really paid.
+ * The two kinds of evidence behind the Fuel burned card: what was actually
+ * paid at the pump (receipts) and what the manager has declared the benchmark
+ * price to be over time (price periods). Neither list alone answers the
+ * question — receipts without periods hide unpurchased litres already in the
+ * tank; periods without receipts hide what was really paid.
+ *
+ * This used to lead with "how the ₦X/L average was derived" and show that
+ * arithmetic. Both are hidden as of 2026-09-08: the average divides a
+ * full-precision cost by a litre total rounded to 0.1 L twice, so it can land
+ * outside the range of prices actually declared. See the note in
+ * FleetOperationsOverview for the trace and what restoring it needs.
  */
 export function FuelInputsDrillDown({
   open,
@@ -28,6 +33,9 @@ export function FuelInputsDrillDown({
   periodDays,
   liters,
   burnedCost,
+  // Still plumbed through while the average itself is hidden, so restoring it
+  // is a matter of putting the caption back rather than re-threading the prop.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   blendedPricePerLiter,
 }: {
   open: boolean;
@@ -94,18 +102,18 @@ export function FuelInputsDrillDown({
 
         <div className="flex items-center gap-2">
           <Fuel className="h-4 w-4 text-accent-y" />
-          <h3 className="text-lg font-bold text-ink">How the {formatNgn(blendedPricePerLiter)}/L average was derived</h3>
+          <h3 className="text-lg font-bold text-ink">What the fuel figures are built on</h3>
         </div>
         <p className="mt-1 text-xs text-ink-dim">Last {periodDays} days</p>
 
         <div className="mt-4 rounded-lg border border-edge bg-canvas p-3">
-          <p className="text-xs text-ink-dim">The arithmetic</p>
+          <p className="text-xs text-ink-dim">This period</p>
           <code className="mt-1.5 block rounded bg-panel-deep p-3 font-mono text-xs text-ink-mid">
-            {formatNgn(burnedCost)} total cost ÷ {liters.toFixed(1)} L burned = {formatNgn(blendedPricePerLiter)}/L
+            {liters.toFixed(1)} L burned · {formatNgn(burnedCost)} total cost
           </code>
           <p className="mt-1.5 text-[11px] text-ink-dim">
-            Every litre is valued at whichever benchmark price was in force the day it burned, then
-            averaged — not today&apos;s declared price applied to the whole period.
+            Every litre is valued at whichever benchmark price was in force the day it burned —
+            not today&apos;s declared price applied to the whole period.
           </p>
         </div>
 

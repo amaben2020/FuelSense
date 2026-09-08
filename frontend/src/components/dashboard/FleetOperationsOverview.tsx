@@ -773,11 +773,22 @@ export function FleetOperationsOverview({
               {(fuelContext?.liters ?? 0).toFixed(1)} L burned ·{' '}
               {Math.round(fuelContext?.distanceKm ?? 0).toLocaleString()} km driven
             </p>
-            {/* The blended rate this period actually worked out at, not the
-                latest declared price. Every litre is already valued at the
-                price in force when it burned, so quoting today's figure
-                misrepresented the total above it: a week spanning ₦1,300 and
-                ₦1,275 cost ₦1,290.73/L and the caption claimed ₦1,275. */}
+            {/* HIDDEN (2026-09-08): the blended ₦/L average is suppressed
+                until the rounding mismatch behind it is fixed.
+                
+                It divides `total_telemetry_cost_ngn` — priced in SQL off
+                unrounded litres — by `total_fuel_used_liters`, which has been
+                quantised to 0.1 L twice (telemetry.ts round1 at the vehicle
+                row and again on the total). The quotient is therefore not
+                bounded by the declared price range, and on a fleet burning
+                single-digit litres the 0.05 L per-vehicle loss is ~0.5%, or
+                ±₦7 at ₦1,310/L — which is how an average of ₦1,300/₦1,275/
+                ₦1,310 displayed as ₦1,312.
+                
+                The costing itself is correct; only this derived rate is
+                wrong. To restore: have /fleet-efficiency return the blended
+                price computed in SQL from the unrounded quantities, then put
+                the caption back. */}
             <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
                 Efficiency metrics
@@ -796,7 +807,7 @@ export function FleetOperationsOverview({
               {fuelContext
                 ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
                     fuelContext.distanceKm
-                  )} km at ${formatNgn(fuelContext.blendedPricePerLiter)}/L average`
+                  )} km`
                 : 'No distance in this window, so this is idling'}
             </p>
             {/* Bought and burned are different questions. Keeping the receipt
