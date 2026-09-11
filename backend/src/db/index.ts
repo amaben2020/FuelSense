@@ -639,6 +639,18 @@ export const initDatabase = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_telemetry_imei_recorded
       ON telemetry (imei, recorded_at DESC)
   `);
+  // Fully covered by idx_telemetry_vehicle_recorded above, whose leading column
+  // is the same. A legacy index from an early schema push, it earned nothing on
+  // reads and cost a fourth index write on the hottest table in the database.
+  await db.execute(sql`DROP INDEX IF EXISTS idx_telemetry`);
+  // `routes/driver.ts` and `routes/telemetry.ts` both read the newest frame for
+  // one device with `WHERE imei = ? ORDER BY received_at DESC LIMIT 1`. The
+  // table carried no index but its primary key, so each of those was a full
+  // scan — survivable at a few thousand rows, not at a fleet's worth.
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS idx_device_frames_imei_received
+      ON device_frames (imei, received_at DESC)
+  `);
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_alerts_customer_created
       ON alerts (customer_id, created_at DESC)
