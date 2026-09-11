@@ -36,6 +36,7 @@ import { startDrivingEventSweep } from './lib/driving-events-sweep';
 import { startDailyReportScheduler } from './lib/daily-report-mailer';
 import { startDeviceOfflineWatchdog } from './lib/device-offline-watchdog';
 import { startAlertRetentionSweep } from './lib/alert-retention';
+import { startDeviceFrameRetentionSweep } from './lib/frame-retention';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -215,6 +216,11 @@ const start = async () => {
   // accumulated and dragged the health score down over time rather than in
   // response to how the fleet was actually driven.
   startAlertRetentionSweep();
+
+  // Expires raw AVL frames past the window anything still reads. The widest
+  // row the platform writes, and nothing was ever deleting it — one vehicle
+  // made 21 MB a month, so a fleet would grow this unbounded.
+  startDeviceFrameRetentionSweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {
