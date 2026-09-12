@@ -56,6 +56,7 @@ class VehicleSimulator {
     this.securityEventsFired = new Set();
     this.targetSpeed = null;
     this.crawlTicks = 0;
+    this.cycleTarget = null;
     // [startHourUtc, endHourUtc): outside it the car sits parked. Null means
     // it never stops, which is what the development fleet has always done.
     this.workHoursUtc = profile.workHoursUtc ?? null;
@@ -376,9 +377,11 @@ class VehicleSimulator {
     const p = this.profile;
 
     if (p.theftTarget && !this.theftDone) {
-      if (this.phase === 'theft' || this.phase === 'pre_theft_park') return;
-
-      if (this.phaseTicks >= (p.theftAfterTicks ?? 10)) {
+      // 'theft' resolves in nextRecord; 'pre_theft_park' must fall through
+      // to the transition below, or the car parks for the theft and never
+      // leaves — two demo cars sat out a whole week that way.
+      if (this.phase === 'theft') return;
+      if (this.phase !== 'pre_theft_park' && this.phaseTicks >= (p.theftAfterTicks ?? 10)) {
         this.phase = 'pre_theft_park';
         this.phaseTicks = 0;
         this.ignitionOn = false;
@@ -399,10 +402,21 @@ class VehicleSimulator {
     // A parked or idle phase can run longer than a driving one: a delivery
     // van spends more of its day at the kerb than on the road, and the
     // driving-hours figure should say so.
-    const cycle =
-      (p.driveCycleTicks ?? 20) * (this.phase === 'driving' ? 1 : p.restCycleFactor ?? 1);
-    if (this.phaseTicks >= cycle) {
+    // The length of the current phase is drawn once, when it starts, and
+    // varies ±30% around the profile's figure — a fleet whose every car
+    // drove for exactly twelve minutes and parked for exactly fourteen read
+    // as a metronome, and put a "P" on the map every ten minutes.
+    if (this.cycleTarget == null) {
+      // Minutes where the profile gives them, so the rhythm is the same
+      // whatever the tick — the seeder steps 30 s, the live fleet 12 s.
+      const driveTicks =
+        p.driveMinutes != null ? (p.driveMinutes * 60_000) / this.tickIntervalMs : (p.driveCycleTicks ?? 20);
+      const base = driveTicks * (this.phase === 'driving' ? 1 : p.restCycleFactor ?? 1);
+      this.cycleTarget = Math.max(2, Math.round(base * (0.7 + Math.random() * 0.6)));
+    }
+    if (this.phaseTicks >= this.cycleTarget) {
       this.phaseTicks = 0;
+      this.cycleTarget = null;
       if (this.phase === 'driving') {
         const idleChance = p.idleRatio ?? 0.2;
         if (p.idleTarget || idleChance > Math.random()) {

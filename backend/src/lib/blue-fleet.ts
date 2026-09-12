@@ -57,7 +57,8 @@ export interface BlueFleetProfile {
   initialFuel: number;
   tankCapacity: number;
   initialOdometer: number;
-  driveCycleTicks: number;
+  /** Minutes of driving between stops; rests run restCycleFactor × this. */
+  driveMinutes: number;
   idleRatio?: number;
   idleTarget?: boolean;
   theftTarget?: boolean;
@@ -70,62 +71,62 @@ export interface BlueFleetProfile {
 export const BLUE_FLEET_PROFILES: BlueFleetProfile[] = [
   {
     imei: '990000000000101', label: 'ABJ-412-BF', make: 'Toyota', model: 'Hiace', year: 2021,
-    vehicleType: 'van', routeLoop: 'idu', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 14, initialFuel: 41, tankCapacity: 60, initialOdometer: 58210,
-    driveCycleTicks: 16, refuelEvery: 90,
+    vehicleType: 'van', routeLoop: 'idu', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 14, initialFuel: 41, tankCapacity: 60, initialOdometer: 58210,
+    driveMinutes: 36, refuelEvery: 90,
     driver: { name: 'Adebayo Okonkwo', phone: '+234 803 210 0101', licence: 'LAG/2022/40101', code: 'BF-101' },
   },
   {
     imei: '990000000000102', label: 'KUJ-778-BF', make: 'Toyota', model: 'Hilux', year: 2022,
-    vehicleType: 'pickup', routeLoop: 'mabushi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 15, initialFuel: 47, tankCapacity: 60, initialOdometer: 31440,
-    driveCycleTicks: 18, idleTarget: true, idleRatio: 0.4,
+    vehicleType: 'pickup', routeLoop: 'mabushi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 15, initialFuel: 47, tankCapacity: 60, initialOdometer: 31440,
+    driveMinutes: 40, idleTarget: true, idleRatio: 0.4,
     driver: { name: 'Ezekiel Danwa', phone: '+234 805 210 0102', licence: 'LAG/2023/40102', code: 'BF-102' },
   },
   {
     imei: '990000000000103', label: 'ABC-903-BF', make: 'Mercedes-Benz', model: 'Sprinter', year: 2020,
-    vehicleType: 'van', routeLoop: 'durumi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 16, initialFuel: 38, tankCapacity: 56, initialOdometer: 112870,
-    driveCycleTicks: 20, refuelEvery: 110,
+    vehicleType: 'van', routeLoop: 'durumi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 16, initialFuel: 38, tankCapacity: 56, initialOdometer: 112870,
+    driveMinutes: 45, refuelEvery: 110,
     driver: { name: 'Ibrahim Musa', phone: '+234 806 210 0103', licence: 'ABJ/2021/40103', code: 'BF-103' },
   },
   {
     imei: '990000000000104', label: 'GWA-215-BF', make: 'Toyota', model: 'Camry', year: 2023,
-    vehicleType: 'sedan', routeLoop: 'aso', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 14, initialFuel: 29, tankCapacity: 43, initialOdometer: 9120,
-    driveCycleTicks: 14,
+    vehicleType: 'sedan', routeLoop: 'aso', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 14, initialFuel: 29, tankCapacity: 43, initialOdometer: 9120,
+    driveMinutes: 32,
     driver: { name: 'Adeboye Adeyemi', phone: '+234 807 210 0104', licence: 'LAG/2024/40104', code: 'BF-104' },
   },
   {
     imei: '990000000000105', label: 'BWR-661-BF', make: 'Toyota', model: 'RAV4', year: 2022,
-    vehicleType: 'suv', routeLoop: 'ring', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 16, initialFuel: 31, tankCapacity: 43, initialOdometer: 27650,
-    driveCycleTicks: 16, theftTarget: true, theftAfterTicks: 40, theftDropLiters: 19,
+    vehicleType: 'suv', routeLoop: 'ring', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 16, initialFuel: 31, tankCapacity: 43, initialOdometer: 27650,
+    driveMinutes: 35, theftTarget: true, theftAfterTicks: 40, theftDropLiters: 19,
     driver: { name: 'Emeka Nwachukwu', phone: '+234 808 210 0105', licence: 'LAG/2022/40105', code: 'BF-105' },
   },
   {
     imei: '990000000000106', label: 'KWL-338-BF', make: 'Toyota', model: 'Hiace', year: 2019,
-    vehicleType: 'van', routeLoop: 'idu', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 15, initialFuel: 24, tankCapacity: 60, initialOdometer: 143900,
-    driveCycleTicks: 18, refuelEvery: 85,
+    vehicleType: 'van', routeLoop: 'idu', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 15, initialFuel: 24, tankCapacity: 60, initialOdometer: 143900,
+    driveMinutes: 40, refuelEvery: 85,
     driver: { name: 'Segun Bello', phone: '+234 809 210 0106', licence: 'LAG/2020/40106', code: 'BF-106' },
   },
   {
     imei: '990000000000107', label: 'ABJ-047-BF', make: 'Isuzu', model: 'NPR', year: 2021,
-    vehicleType: 'truck', routeLoop: 'mabushi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 14, initialFuel: 52, tankCapacity: 60, initialOdometer: 76340,
-    driveCycleTicks: 22, idleRatio: 0.35,
+    vehicleType: 'truck', routeLoop: 'mabushi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 14, initialFuel: 52, tankCapacity: 60, initialOdometer: 76340,
+    driveMinutes: 48, idleRatio: 0.35,
     driver: { name: 'Tunde Olawale', phone: '+234 810 210 0107', licence: 'LAG/2021/40107', code: 'BF-107' },
   },
   {
     imei: '990000000000108', label: 'KUJ-529-BF', make: 'Toyota', model: 'Hilux', year: 2023,
-    vehicleType: 'pickup', routeLoop: 'durumi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 16, initialFuel: 44, tankCapacity: 60, initialOdometer: 14780,
-    driveCycleTicks: 16,
+    vehicleType: 'pickup', routeLoop: 'durumi', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 16, initialFuel: 44, tankCapacity: 60, initialOdometer: 14780,
+    driveMinutes: 35,
     driver: { name: 'Amina Yusuf', phone: '+234 811 210 0108', licence: 'ABJ/2023/40108', code: 'BF-108' },
   },
   {
     imei: '990000000000109', label: 'GWA-184-BF', make: 'Honda', model: 'Accord', year: 2020,
-    vehicleType: 'sedan', routeLoop: 'aso', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 15, initialFuel: 23, tankCapacity: 38, initialOdometer: 64210,
-    driveCycleTicks: 14, theftTarget: true, theftAfterTicks: 70, theftDropLiters: 15,
+    vehicleType: 'sedan', routeLoop: 'aso', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 15, initialFuel: 23, tankCapacity: 38, initialOdometer: 64210,
+    driveMinutes: 32, theftTarget: true, theftAfterTicks: 70, theftDropLiters: 15,
     driver: { name: 'Oluwaseun Ajayi', phone: '+234 812 210 0109', licence: 'LAG/2021/40109', code: 'BF-109' },
   },
   {
     imei: '990000000000110', label: 'ABC-756-BF', make: 'Toyota', model: 'Coaster', year: 2018,
-    vehicleType: 'bus', routeLoop: 'ring', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 1.8, returnHourUtc: 14, initialFuel: 49, tankCapacity: 60, initialOdometer: 201560,
-    driveCycleTicks: 24, idleRatio: 0.3, refuelEvery: 100,
+    vehicleType: 'bus', routeLoop: 'ring', workHoursUtc: BLUE_FLEET_WORK_HOURS_UTC, cruiseKph: [22, 50], restCycleFactor: 0.9, returnHourUtc: 14, initialFuel: 49, tankCapacity: 60, initialOdometer: 201560,
+    driveMinutes: 50, idleRatio: 0.3, refuelEvery: 100,
     driver: { name: 'Kelechi Obi', phone: '+234 813 210 0110', licence: 'LAG/2019/40110', code: 'BF-110' },
   },
 ];
