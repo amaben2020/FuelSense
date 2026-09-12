@@ -1,3 +1,5 @@
+import { loadAbujaLoops } from './abuja-routes';
+
 /** Lagos corridor waypoints for Uber-style continuous fleet simulation */
 export const LAGOS_LOOPS: Record<string, Array<{ lat: number; lng: number }>> = {
   island: [
@@ -40,7 +42,16 @@ interface Profile {
   routeLoop?: string;
 }
 
+/**
+ * The Lagos loops are a handful of corners apart; the Abuja ones are road
+ * geometry from the Directions API, hundreds of points each, so a car on them
+ * follows the carriageway rather than cutting across the city. See
+ * abuja-routes.ts.
+ */
 export function loopForProfile(profile: Profile): Array<{ lat: number; lng: number }> {
-  if (profile.routeLoop) return LAGOS_LOOPS[profile.routeLoop] ?? LAGOS_LOOPS.island;
+  if (!profile.routeLoop) return LAGOS_LOOPS.island;
+  if (LAGOS_LOOPS[profile.routeLoop]) return LAGOS_LOOPS[profile.routeLoop];
+  const abuja = loadAbujaLoops()[profile.routeLoop];
+  if (abuja && abuja.length > 1) return abuja;
   return LAGOS_LOOPS.island;
 }

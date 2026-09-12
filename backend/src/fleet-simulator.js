@@ -3,13 +3,14 @@ require('dotenv').config();
 const net = require('net');
 const { encodeCodec8ePacket } = require('./codec8e-encoder');
 const { VehicleSimulator, DEFAULT_FLEET_PROFILES } = require('./lib/simulator');
-const { lastKnownPosition } = require('./lib/last-known-position');
+const { lastKnownPosition, lastKnownReadings } = require('./lib/last-known-position');
 const { resolveOrigin, envOrigin } = require('./lib/sim-origin');
 
 const TCP_SERVER_PORT = Number(process.env.TCP_PORT || 5027);
 const TCP_SERVER_HOST = process.env.TCP_SERVER_HOST || 'localhost';
 const SEND_INTERVAL_MS = Number(process.env.MOCK_INTERVAL_MS || 4000);
 const STAGGER_MS = Number(process.env.MOCK_STAGGER_MS || 800);
+const OFF_SHIFT_HEARTBEAT_MS = Number(process.env.MOCK_OFF_SHIFT_HEARTBEAT_MS || 10 * 60_000);
 
 const startVirtualDevice = (profile) => {
   const simulator = new VehicleSimulator(profile);
@@ -35,6 +36,7 @@ const startVirtualDevice = (profile) => {
         imeiAccepted = true;
         console.log(`[${profile.label}] IMEI accepted — Uber-style route active`);
 
+        let lastHeartbeatAt = 0;
         intervalId = setInterval(() => {
           const record = simulator.nextRecord();
           if (!record) {
@@ -42,6 +44,13 @@ const startVirtualDevice = (profile) => {
             console.log(`[${profile.label}] stopped`);
             client.end();
             return;
+          }
+
+          // Off shift a real tracker throttles to an occasional heartbeat; a
+          // packet every tick from a parked car is rows for nothing.
+          if (record.meta.offShift) {
+            if (Date.now() - lastHeartbeatAt < OFF_SHIFT_HEARTBEAT_MS) return;
+            lastHeartbeatAt = Date.now();
           }
 
           client.write(encodeCodec8ePacket([record]));
@@ -107,7 +116,20 @@ const withResolvedOrigins = async (profiles) => {
     console.log(
       `[${profile.label}] origin ${origin.lat.toFixed(5)}, ${origin.lng.toFixed(5)} (from ${source})`,
     );
-    resolved.push({ ...profile, origin });
+    // Pick the odometer and tank up where the history left them, or the
+    // first live packet reads thousands of kilometres behind the last one.
+    let readings = null;
+    try {
+      readings = await lastKnownReadings(profile.imei);
+    } catch (err) {
+      console.warn(`[${profile.label}] last-known readings lookup failed: ${err.message}`);
+    }
+    resolved.push({
+      ...profile,
+      origin,
+      ...(readings?.odometerKm != null ? { initialOdometer: readings.odometerKm } : {}),
+      ...(readings?.fuelLevel != null ? { initialFuel: readings.fuelLevel } : {}),
+    });
   }
   return resolved;
 };

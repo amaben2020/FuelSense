@@ -28,3 +28,25 @@ export async function lastKnownPosition(imei: string): Promise<LatLng | null> {
   // pg returns NUMERIC as a string — toLatLng coerces and validates.
   return toLatLng(row.latitude, row.longitude)
 }
+
+/**
+ * The last odometer and fuel-level readings a device sent, so a simulated
+ * car resumes from them rather than from its profile's starting figures.
+ */
+export async function lastKnownReadings(
+  imei: string,
+): Promise<{ odometerKm: number | null; fuelLevel: number | null } | null> {
+  const rows = await db
+    .select({ odometerKm: telemetry.odometerKm, fuelLevel: telemetry.fuelLevelLiters })
+    .from(telemetry)
+    .where(eq(telemetry.imei, imei))
+    .orderBy(desc(telemetry.recordedAt))
+    .limit(1)
+
+  const row = rows[0]
+  if (!row) return null
+  return {
+    odometerKm: row.odometerKm != null ? Number(row.odometerKm) : null,
+    fuelLevel: row.fuelLevel != null ? Number(row.fuelLevel) : null,
+  }
+}

@@ -20,6 +20,24 @@ class VehicleSimulator {
     const start = this.waypoints[0];
     this.lat = profile.startLat ?? start.lat;
     this.lng = profile.startLng ?? start.lng;
+    // A resolved origin — where the device last actually reported — takes
+    // over from the loop's first corner, and the car rejoins the loop at the
+    // point nearest to it. Without the snap a car resumed mid-loop drove a
+    // straight line back to waypoint zero, through whatever lay between.
+    if (profile.origin) {
+      this.lat = profile.origin.lat;
+      this.lng = profile.origin.lng;
+      let best = 0;
+      let bestD = Infinity;
+      this.waypoints.forEach((w, i) => {
+        const d = Math.hypot(w.lat - this.lat, w.lng - this.lng);
+        if (d < bestD) {
+          bestD = d;
+          best = i;
+        }
+      });
+      this.waypointIndex = best;
+    }
     this.heading = profile.heading ?? 0;
     this.ignitionOn = profile.startIgnition ?? true;
     this.speedKph = 0;
@@ -36,6 +54,19 @@ class VehicleSimulator {
     this.prevIdle = false;
     this.pendingEvents = [];
     this.securityEventsFired = new Set();
+    this.targetSpeed = null;
+    this.crawlTicks = 0;
+    // [startHourUtc, endHourUtc): outside it the car sits parked. Null means
+    // it never stops, which is what the development fleet has always done.
+    this.workHoursUtc = profile.workHoursUtc ?? null;
+  }
+
+  /** Whether `nowMs` falls inside the profile's working day. */
+  onShift(nowMs) {
+    if (!this.workHoursUtc) return true;
+    const d = new Date(nowMs);
+    const hour = d.getUTCHours() + d.getUTCMinutes() / 60;
+    return hour >= this.workHoursUtc[0] && hour < this.workHoursUtc[1];
   }
 
   // FMC150 scenario events ride on eventful records: the AVL event field names
@@ -93,39 +124,83 @@ class VehicleSimulator {
     this.prevIdle = isIdle;
   }
 
+  // Walks the route, spending the tick's distance across as many points as it
+  // covers. The earlier version stepped one waypoint per tick whenever the
+  // next was within 150 m — fine for a six-corner Lagos loop, but on road
+  // geometry with points every 30 m a car hopped a point a tick whatever its
+  // speed, and the odometer counted distance it had not drawn.
   _moveTowardWaypoint(distanceKm) {
-    const target = this.waypoints[this.waypointIndex];
-    const dLat = target.lat - this.lat;
-    const dLng = target.lng - this.lng;
-    const distDeg = Math.sqrt(dLat * dLat + dLng * dLng);
     const kmPerDegLat = 111;
-    const distKm = distDeg * kmPerDegLat;
-
-    if (distKm < 0.15) {
-      this.waypointIndex = (this.waypointIndex + 1) % this.waypoints.length;
-      return distanceKm;
+    const kmPerDegLng = 111 * Math.cos((this.lat * Math.PI) / 180);
+    let remaining = distanceKm;
+    let moved = 0;
+    // Bounded so a zero-length loop cannot spin forever.
+    for (let guard = 0; remaining > 1e-6 && guard < this.waypoints.length + 2; guard += 1) {
+      const target = this.waypoints[this.waypointIndex];
+      const dLat = target.lat - this.lat;
+      const dLng = target.lng - this.lng;
+      const distKm = Math.hypot(dLat * kmPerDegLat, dLng * kmPerDegLng);
+      if (distKm <= remaining) {
+        this.lat = target.lat;
+        this.lng = target.lng;
+        if (distKm > 0) this.heading = Math.atan2(dLng * kmPerDegLng, dLat * kmPerDegLat);
+        this.waypointIndex = (this.waypointIndex + 1) % this.waypoints.length;
+        remaining -= distKm;
+        moved += distKm;
+        continue;
+      }
+      const ratio = remaining / distKm;
+      this.lat += dLat * ratio;
+      this.lng += dLng * ratio;
+      this.heading = Math.atan2(dLng * kmPerDegLng, dLat * kmPerDegLat);
+      moved += remaining;
+      remaining = 0;
     }
-
-    const stepKm = Math.min(distanceKm, distKm);
-    const ratio = stepKm / distKm;
-    this.lat += dLat * ratio;
-    this.lng += dLng * ratio;
-    this.heading = Math.atan2(dLng, dLat);
-    return stepKm;
+    return moved;
   }
 
-  nextRecord() {
+  nextRecord(nowMs = Date.now()) {
     if (this.stopped) return null;
 
     this.tick += 1;
     this.phaseTicks += 1;
-    this._advancePhase();
+
+    const offShift = !this.onShift(nowMs);
+    if (offShift) {
+      // Parked for the night. Held in 'parked' with the phase clock at zero
+      // so the first on-shift tick starts a fresh driving phase.
+      this.phase = 'parked';
+      this.phaseTicks = 0;
+      this.ignitionOn = false;
+      this.speedKph = 0;
+    } else {
+      if (this.phase === 'parked' && !this.ignitionOn && this.phaseTicks <= 1 && this.tick > 1) {
+        this.phase = 'driving';
+        this.ignitionOn = true;
+      }
+      this._advancePhase();
+    }
 
     let theftSimulated = false;
     const intervalHours = this.tickIntervalMs / 3600000;
 
     if (this.phase === 'driving' && this.ignitionOn) {
-      this.speedKph = Math.round(35 + Math.random() * 40);
+      // A real car does not pick a fresh 35–75 every tick. It eases toward a
+      // cruising speed, and every so often meets traffic and crawls for a
+      // few minutes — which is also what the trail's "slow traffic" marker
+      // and the idle model need to have something to show.
+      if (this.crawlTicks > 0) {
+        this.crawlTicks -= 1;
+        this.targetSpeed = 6 + Math.random() * 8;
+      } else if (Math.random() < 0.03) {
+        this.crawlTicks = 8 + Math.floor(Math.random() * 15);
+      } else if (this.tick % 6 === 0 || this.targetSpeed == null) {
+        this.targetSpeed = 30 + Math.random() * 40;
+      }
+      this.speedKph = Math.round(
+        this.speedKph + (this.targetSpeed - this.speedKph) * 0.45 + (Math.random() - 0.5) * 6
+      );
+      this.speedKph = Math.max(3, Math.min(this.speedKph, 95));
       let distanceKm = this.speedKph * intervalHours;
       distanceKm = this._moveTowardWaypoint(distanceKm);
       this.odometerKm += distanceKm;
@@ -174,7 +249,7 @@ class VehicleSimulator {
       headingDeg: (this.heading * 180) / Math.PI,
       eventId: scenarioEvent?.eventId ?? 0,
       extraIo: scenarioEvent?.ioElements ?? [],
-      meta: { theftSimulated, scenarioEventId: scenarioEvent?.eventId },
+      meta: { theftSimulated, scenarioEventId: scenarioEvent?.eventId, offShift },
     });
   }
 
