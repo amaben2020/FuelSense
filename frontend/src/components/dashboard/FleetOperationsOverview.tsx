@@ -30,6 +30,7 @@ import { FuelInputsDrillDown } from '@/components/dashboard/FuelInputsDrillDown'
 import { FuelPriceChart } from '@/components/dashboard/FuelPriceChart';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
+import { MerchantLabel } from '@/components/StationLogo';
 import {
   TRUST_COPY,
   anomalyContextLines,
@@ -1419,7 +1420,8 @@ export function FleetOperationsOverview({
                               </li>
                               {row.last_purchase_merchant && (
                                 <li>
-                                  Last refuel: {row.last_purchase_merchant} (
+                                  Last refuel:{' '}
+                                  <MerchantLabel merchant={row.last_purchase_merchant} size={16} /> (
                                   {row.last_receipt_liters}L)
                                 </li>
                               )}

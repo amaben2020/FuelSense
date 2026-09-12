@@ -15,6 +15,7 @@ import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
 import { IconTile, TableSkeleton } from '@/components/ui/chrome';
+import { MerchantLabel } from '@/components/StationLogo';
 
 
 function formatReceiptDate(iso: string) {
@@ -703,7 +704,7 @@ function ReconciledReceiptRow({
       <td className="px-6 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
       <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
       <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
-      <td className="px-6 py-3">{purchase.merchant}</td>
+      <td className="px-6 py-3"><MerchantLabel merchant={purchase.merchant} /></td>
       <td className="px-6 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
       <td className="px-6 py-3">
         <TrackerCheckCell verification={purchase.verification} />

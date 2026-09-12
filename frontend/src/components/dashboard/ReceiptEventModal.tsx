@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Check, HelpCircle, Key, Receipt, Shield, X, Zap } from 'lucide-react';
 import { FuelPurchase, ReceiptVerification, formatNgn, placePhotoSrc } from '@/lib/api';
+import { MerchantLabel } from '@/components/StationLogo';
 
 function formatReceiptDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-NG', {
@@ -150,7 +151,8 @@ export function ReceiptEventModal({
             <p className="text-xs uppercase tracking-wider text-good">Receipt event</p>
             <h2 id="receipt-event-title" className="mt-1 text-xl font-semibold text-ink">
               {purchase.license_plate}
-              {purchase.merchant ? ` · ${purchase.merchant}` : ''}
+              {purchase.merchant ? ' · ' : ''}
+              {purchase.merchant && <MerchantLabel merchant={purchase.merchant} size={24} />}
             </h2>
             <p className="mt-1 text-sm text-ink-dim">
               {purchase.driver_name ?? 'Unassigned driver'} ·{' '}

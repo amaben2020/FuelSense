@@ -6,6 +6,7 @@ import { api, formatNgn, FuelPurchase, FuelPurchasesResponse } from '@/lib/api';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { TableSkeleton } from '@/components/ui/chrome';
+import { MerchantLabel } from '@/components/StationLogo';
 
 const PAGE_SIZE = 25;
 // The on-screen table pages at 25; export pulls the whole history in as few
@@ -411,7 +412,7 @@ export function AccountingLedgerPanel() {
                       <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-ink-mid">
                         {p.distance_km != null ? `${p.distance_km.toFixed(1)} km` : '—'}
                       </td>
-                      <td className="py-2.5 pr-4 text-ink-mid">{p.merchant || '—'}</td>
+                      <td className="py-2.5 pr-4 text-ink-mid"><MerchantLabel merchant={p.merchant} size={18} /></td>
                       <td className="py-2.5 capitalize text-ink-mid">{p.status.replace(/_/g, ' ')}</td>
                     </tr>
                   ))}

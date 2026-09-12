@@ -17,6 +17,7 @@ import {
 } from '@/lib/api';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
+import { MerchantLabel } from '@/components/StationLogo';
 import {
   TRUST_COPY,
   receiptMismatchContextLines,
@@ -319,7 +320,7 @@ function ReceiptFlagCard({
         </span>
       </div>
       <p className="text-xs text-ink-dim">
-        {flag.vehicle_plate} · {flag.driver_name} · {flag.merchant_name}
+        {flag.vehicle_plate} · {flag.driver_name} · <MerchantLabel merchant={flag.merchant_name} size={16} />
       </p>
       <ul className="mt-2 space-y-0.5">
         {reasons.map((line) => (

@@ -35,6 +35,7 @@ import {
 } from '@/lib/driver-offline-queue';
 import { scanReceiptImage } from '@/lib/receipt-ocr';
 import { compressReceiptImage } from '@/lib/receipt-image';
+import { MerchantLabel } from '@/components/StationLogo';
 
 type FuelMode = 'home' | 'scanning' | 'form' | 'success' | 'history';
 
@@ -596,7 +597,7 @@ export function DriverFuelScreen({
                 className="rounded-xl border border-edge bg-panel/80 px-3 py-2.5"
               >
                 <p className="text-sm font-medium text-ink">
-                  {r.merchant_name}
+                  <MerchantLabel merchant={r.merchant_name} size={18} />
                 </p>
                 <p className="text-xs text-ink-dim">
                   {new Date(r.transaction_date).toLocaleString('en-NG', {
@@ -692,7 +693,7 @@ export function DriverFuelScreen({
                           })}
                         </span>
                       </td>
-                      <td className="py-2.5 pr-2 text-ink">{r.merchant_name}</td>
+                      <td className="py-2.5 pr-2 text-ink"><MerchantLabel merchant={r.merchant_name} size={18} /></td>
                       <td className="py-2.5 pr-1 text-right font-medium tabular-nums text-ink">
                         {Number(r.declared_liters)} L
                       </td>
