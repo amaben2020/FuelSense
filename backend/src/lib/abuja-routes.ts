@@ -71,12 +71,36 @@ export const ABUJA_LOOP_DEFINITIONS: Record<string, { home: string; stops: GeoPo
   },
 };
 
-/** Road-following geometry per loop; empty until build-abuja-routes.ts has run. */
-export function loadAbujaLoops(): Record<string, GeoPoint[]> {
+/**
+ * Where the fleet sleeps. Every car leaves here in the morning, works its
+ * district, and is back by its return hour. TRT's office is on the fourth
+ * floor of the Kojo Motors building on Shehu Yar'adua Way, so the pin is
+ * Kojo Motors — the one Google knows.
+ */
+export const TRT_OFFICE: GeoPoint & { name: string } = {
+  name: 'TRT office (Kojo Motors), Mabushi',
+  lat: 9.077736,
+  lng: 7.44469,
+};
+
+export interface AbujaRoutes {
+  loops: Record<string, GeoPoint[]>;
+  /** Office → district hub, and hub → office, per loop. */
+  commutes: Record<string, { out: GeoPoint[]; back: GeoPoint[] }>;
+}
+
+/** Road-following geometry; empty until build-abuja-routes.ts has run. */
+export function loadAbujaRoutes(): AbujaRoutes {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('./abuja-routes.json') as Record<string, GeoPoint[]>;
+    const raw = require('./abuja-routes.json') as Partial<AbujaRoutes> & Record<string, unknown>;
+    if (raw.loops) return { loops: raw.loops, commutes: raw.commutes ?? {} };
+    return { loops: {}, commutes: {} };
   } catch {
-    return {};
+    return { loops: {}, commutes: {} };
   }
+}
+
+export function loadAbujaLoops(): Record<string, GeoPoint[]> {
+  return loadAbujaRoutes().loops;
 }

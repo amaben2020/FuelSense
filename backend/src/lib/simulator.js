@@ -59,6 +59,66 @@ class VehicleSimulator {
     // [startHourUtc, endHourUtc): outside it the car sits parked. Null means
     // it never stops, which is what the development fleet has always done.
     this.workHoursUtc = profile.workHoursUtc ?? null;
+    this.offShiftParked = false;
+    // A day with a depot: out from the office in the morning, the district
+    // loop through the day, back to the office from `returnHourUtc`, parked
+    // there until the next shift. Profiles without a depot just loop.
+    this.depot = profile.depot ?? null;
+    this.loopWaypoints = this.waypoints;
+    this.mode = 'loop';
+    this.lapDone = false;
+    if (this.depot) {
+      const hour = this.workHoursUtc ? this.workHoursUtc[0] : 0;
+      void hour;
+      // Where the car is decides how the day resumes: at the office it waits
+      // for the commute; anywhere else it is mid-loop.
+      const atOffice = this._distanceKm(this.depot.office) < 0.4;
+      if (atOffice) this._enterMode('at_base');
+    }
+  }
+
+  _distanceKm(point) {
+    const kmPerDegLng = 111 * Math.cos((this.lat * Math.PI) / 180);
+    return Math.hypot((point.lat - this.lat) * 111, (point.lng - this.lng) * kmPerDegLng);
+  }
+
+  _nearestIndex(waypoints) {
+    let best = 0;
+    let bestD = Infinity;
+    waypoints.forEach((w, i) => {
+      const d = Math.hypot(w.lat - this.lat, w.lng - this.lng);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  _enterMode(mode) {
+    this.mode = mode;
+    this.lapDone = false;
+    if (mode === 'commute_out') {
+      this.waypoints = this.depot.out;
+      this.waypointIndex = this._nearestIndex(this.waypoints);
+      this.phase = 'driving';
+      this.ignitionOn = true;
+      this.phaseTicks = 0;
+    } else if (mode === 'returning') {
+      this.waypoints = this.depot.back;
+      this.waypointIndex = this._nearestIndex(this.waypoints);
+      this.phase = 'driving';
+      this.ignitionOn = true;
+      this.phaseTicks = 0;
+    } else if (mode === 'loop') {
+      this.waypoints = this.loopWaypoints;
+      this.waypointIndex = this._nearestIndex(this.waypoints);
+    } else if (mode === 'at_base') {
+      this.phase = 'parked';
+      this.ignitionOn = false;
+      this.speedKph = 0;
+      this.phaseTicks = 0;
+    }
   }
 
   /** Whether `nowMs` falls inside the profile's working day. */
@@ -144,9 +204,17 @@ class VehicleSimulator {
         this.lat = target.lat;
         this.lng = target.lng;
         if (distKm > 0) this.heading = Math.atan2(dLng * kmPerDegLng, dLat * kmPerDegLat);
-        this.waypointIndex = (this.waypointIndex + 1) % this.waypoints.length;
         remaining -= distKm;
         moved += distKm;
+        if (this.waypointIndex === this.waypoints.length - 1) {
+          // End of the path. A loop starts over; a commute is finished and
+          // the car holds at its end until the mode changes.
+          this.lapDone = true;
+          if (this.mode === 'commute_out' || this.mode === 'returning') break;
+          this.waypointIndex = 0;
+        } else {
+          this.waypointIndex += 1;
+        }
         continue;
       }
       const ratio = remaining / distKm;
@@ -167,18 +235,29 @@ class VehicleSimulator {
 
     const offShift = !this.onShift(nowMs);
     if (offShift) {
-      // Parked for the night. Held in 'parked' with the phase clock at zero
-      // so the first on-shift tick starts a fresh driving phase.
+      // Parked for the night.
       this.phase = 'parked';
       this.phaseTicks = 0;
       this.ignitionOn = false;
       this.speedKph = 0;
+      this.offShiftParked = true;
     } else {
-      if (this.phase === 'parked' && !this.ignitionOn && this.phaseTicks <= 1 && this.tick > 1) {
-        this.phase = 'driving';
-        this.ignitionOn = true;
+      // Only the overnight park is cut short by the start of the shift. An
+      // earlier check keyed on "parked with the clock at zero" and matched
+      // every rest between runs too, so no car ever stayed stopped for more
+      // than one tick — 75 hours of ignition in an 88-hour week.
+      if (this.offShiftParked) {
+        this.offShiftParked = false;
+        if (this.depot) this._enterMode('commute_out');
+        else {
+          this.phase = 'driving';
+          this.ignitionOn = true;
+          this.phaseTicks = 0;
+        }
       }
-      this._advancePhase();
+      if (this.depot) this._advanceDay(nowMs);
+      // Commutes drive straight through; rests belong to the district loop.
+      if (this.mode === 'loop') this._advancePhase();
     }
 
     let theftSimulated = false;
@@ -195,7 +274,8 @@ class VehicleSimulator {
       } else if (Math.random() < 0.03) {
         this.crawlTicks = 8 + Math.floor(Math.random() * 15);
       } else if (this.tick % 6 === 0 || this.targetSpeed == null) {
-        this.targetSpeed = 30 + Math.random() * 40;
+        const [lo, hi] = this.profile.cruiseKph ?? [30, 70];
+        this.targetSpeed = lo + Math.random() * (hi - lo);
       }
       this.speedKph = Math.round(
         this.speedKph + (this.targetSpeed - this.speedKph) * 0.45 + (Math.random() - 0.5) * 6
@@ -253,6 +333,45 @@ class VehicleSimulator {
     });
   }
 
+  _advanceDay(nowMs) {
+    const d = new Date(nowMs);
+    const hour = d.getUTCHours() + d.getUTCMinutes() / 60;
+    if (this.mode === 'at_base') {
+      // Waiting at the office for the shift to start is handled by the
+      // off-shift wake; a car at base during the shift has finished its day.
+      return;
+    }
+    if (this.mode === 'commute_out' && this.lapDone) {
+      this._enterMode('loop');
+      return;
+    }
+    if (this.mode === 'loop' && hour >= this.depot.returnHourUtc) {
+      // Past the return hour the car turns for the office at the next hub it
+      // reaches — its own, or on the ring whichever comes first — rather
+      // than finishing a lap that can run past the end of the shift. Already
+      // at the office (the Mabushi loop passes the door) it simply parks.
+      if (this._distanceKm(this.depot.office) < 0.3) {
+        this._enterMode('at_base');
+        return;
+      }
+      const hub = (this.depot.homeFrom ?? []).find((h) => this._distanceKm(h.hub) < 0.3);
+      if (hub) {
+        this.waypoints = hub.back;
+        this.mode = 'returning';
+        this.lapDone = false;
+        this.waypointIndex = this._nearestIndex(this.waypoints);
+        this.phase = 'driving';
+        this.ignitionOn = true;
+        this.phaseTicks = 0;
+        return;
+      }
+    }
+    if (this.mode === 'loop' && this.lapDone) this.lapDone = false;
+    if (this.mode === 'returning' && this.lapDone) {
+      this._enterMode('at_base');
+    }
+  }
+
   _advancePhase() {
     const p = this.profile;
 
@@ -277,7 +396,11 @@ class VehicleSimulator {
       return;
     }
 
-    const cycle = p.driveCycleTicks ?? 20;
+    // A parked or idle phase can run longer than a driving one: a delivery
+    // van spends more of its day at the kerb than on the road, and the
+    // driving-hours figure should say so.
+    const cycle =
+      (p.driveCycleTicks ?? 20) * (this.phase === 'driving' ? 1 : p.restCycleFactor ?? 1);
     if (this.phaseTicks >= cycle) {
       this.phaseTicks = 0;
       if (this.phase === 'driving') {

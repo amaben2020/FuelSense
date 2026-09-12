@@ -253,8 +253,8 @@ const start = async () => {
           // each device's last seeded fix, so the cars start where the week
           // of history left them.
           if (process.env.FLEET_SIM_PROFILES === 'blue-fleet') {
-            const { BLUE_FLEET_PROFILES } = await import('./lib/blue-fleet');
-            const profiles = await withResolvedOrigins(BLUE_FLEET_PROFILES);
+            const { BLUE_FLEET_PROFILES, simulatorProfile } = await import('./lib/blue-fleet');
+            const profiles = await withResolvedOrigins(BLUE_FLEET_PROFILES.map(simulatorProfile));
             runFleetSimulator(profiles);
           } else {
             runFleetSimulator();
