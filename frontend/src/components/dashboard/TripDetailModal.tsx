@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, Clock, Droplet, Gauge, MapPin, Route, X } from 'lucide-react';
 import { IdleStretch, ServerTrip, TripStop, formatNgn } from '@/lib/api';
 import { StopDetailModal } from './StopDetailModal';
+import { Avatar } from '@/components/ui/chrome';
+import { VehicleBodyPreview, type BodyClass } from '@/components/VehicleBodyPreview';
 
 const HHMM: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
 
@@ -86,6 +88,16 @@ const STOP_VERB: Record<TripStop['kind'], string> = {
   destination: 'Ended',
 };
 
+/** The schematic to turn for a vehicle record's type. Unknown reads as a sedan. */
+function bodyClassFor(type: string | null | undefined): BodyClass {
+  const t = (type ?? '').toLowerCase();
+  if (/bus|van|minibus/.test(t)) return 'van_bus';
+  if (/pickup|suv|4x4|jeep/.test(t)) return 'suv_pickup';
+  if (/truck|lorry|tipper/.test(t)) return /heavy|trailer|tanker/.test(t) ? 'heavy_truck' : 'medium_truck';
+  if (/bike|motor/.test(t)) return 'motorcycle';
+  return 'sedan';
+}
+
 /** Full breakdown of every trip in the window — distance, idling, estimated
  *  fuel and cost, plus each stop the driver made, openable for its address. */
 /**
@@ -118,6 +130,9 @@ export function TripDetailModal({
   trips,
   licensePlate,
   driverName,
+  vehicleType,
+  accentColor,
+  driverPhotoUrl,
   totals,
   onClose,
   onFocusTrip,
@@ -125,6 +140,11 @@ export function TripDetailModal({
   trips: ServerTrip[];
   licensePlate?: string;
   driverName?: string | null;
+  /** From the vehicle record; picks which schematic the 3D preview shows. */
+  vehicleType?: string | null;
+  /** The car's map colour, so the avatar matches its dot and trail. */
+  accentColor?: string;
+  driverPhotoUrl?: string | null;
   totals?: { distance_km: number; fuel_liters: number; cost_ngn: number };
   onClose: () => void;
   onFocusTrip?: (index: number) => void;
@@ -177,13 +197,22 @@ export function TripDetailModal({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-3 border-b border-edge px-6 py-4">
-            <div>
-              <h3 className="font-semibold text-ink">Trip details</h3>
-              <p className="text-xs text-ink-dim">
-                {licensePlate}
-                {driverName ? ` · ${driverName}` : ''} · {trips.length} trip
-                {trips.length === 1 ? '' : 's'}
-              </p>
+            {/* Who and what: the driver's face and the vehicle turning slowly
+                beside it. A plate and a name identify the pair; a face and a
+                body shape make them recognisable across a fleet of ten. */}
+            <div className="flex items-center gap-3">
+              <div className="h-16 w-24 shrink-0 overflow-hidden rounded-xl bg-canvas">
+                <VehicleBodyPreview bodyClass={bodyClassFor(vehicleType)} className="h-full w-full" />
+              </div>
+              <Avatar name={driverName ?? licensePlate ?? '?'} size={44} color={accentColor} photoUrl={driverPhotoUrl} />
+              <div>
+                <h3 className="font-semibold text-ink">Trip details</h3>
+                <p className="text-xs text-ink-dim">
+                  {licensePlate}
+                  {driverName ? ` · ${driverName}` : ''} · {trips.length} trip
+                  {trips.length === 1 ? '' : 's'}
+                </p>
+              </div>
             </div>
             <button
               type="button"

@@ -292,11 +292,29 @@ export function Avatar({
   name,
   size = 44,
   className = '',
+  color,
+  photoUrl,
 }: {
   name: string;
   size?: number;
   className?: string;
+  /** A hex to build the gradient from — the vehicle's map colour, so the
+   *  avatar and the point on the map read as the same car. */
+  color?: string;
+  /** A real photo, shown in place of the initials when supplied. */
+  photoUrl?: string | null;
 }) {
+  if (photoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={photoUrl}
+        alt={name}
+        className={`inline-block shrink-0 rounded-2xl object-cover ${className}`}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   const initials = name
     .split(/\s+/)
     .slice(0, 2)
@@ -304,9 +322,25 @@ export function Avatar({
     .join('')
     .toUpperCase();
 
-  // Cheap string hash -> hue. Stable across reloads and machines.
+  // Cheap string hash -> hue. Stable across reloads and machines. A supplied
+  // colour overrides it so the avatar matches the car's dot and trail.
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) % 360;
+  if (color && /^#[0-9a-f]{6}$/i.test(color)) {
+    const r = parseInt(color.slice(1, 3), 16) / 255;
+    const g = parseInt(color.slice(3, 5), 16) / 255;
+    const b = parseInt(color.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    if (d > 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+    }
+    hash = Math.round(((h * 60) + 360) % 360);
+  }
 
   return (
     <span

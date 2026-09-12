@@ -226,6 +226,8 @@ export interface FleetVehicle {
   license_plate: string;
   make: string | null;
   model: string | null;
+  /** sedan | suv | pickup | van | bus | truck — what the 3D preview draws. */
+  vehicle_type?: string | null;
   year: number | null;
   tank_capacity_liters: number | null;
   driver_name?: string | null;

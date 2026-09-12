@@ -36,6 +36,7 @@ import {
 } from '@/components/maps/SharedMapLayers';
 import { Circle as CircleIcon, Crosshair, Minus, Pentagon, Plus, Square } from 'lucide-react';
 import { Compass } from '@/components/maps/Compass';
+import { Avatar } from '@/components/ui/chrome';
 import { ZONE_PURPOSE_LABEL } from '@/lib/trust-language';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
@@ -1675,9 +1676,12 @@ export function LiveMonitoringMap({
                 }`}
               >
                 <span className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: track.color }}
+                  <Avatar
+                    name={meta?.driver ?? track.licensePlate}
+                    size={22}
+                    color={track.color}
+                    photoUrl={meta?.driverPhotoUrl}
+                    className="!rounded-lg"
                   />
                   <span
                     className={`min-w-0 truncate font-mono text-xs text-ink ${selected ? 'font-bold' : 'font-medium'}`}
@@ -1691,7 +1695,7 @@ export function LiveMonitoringMap({
                   </span>
                 </span>
                 <span
-                  className={`truncate pl-[18px] text-[10px] ${selected ? 'font-semibold text-ink' : 'text-ink-dim'}`}
+                  className={`truncate pl-[30px] text-[10px] ${selected ? 'font-semibold text-ink' : 'text-ink-dim'}`}
                 >
                   {meta?.driver ?? 'No driver'}
                 </span>
@@ -1703,7 +1707,7 @@ export function LiveMonitoringMap({
 
       {/* Selected vehicle info panel */}
       {selectedTrack && (
-        <div className="glass pointer-events-none absolute right-4 top-16 z-10 w-64 rounded-xl p-4">
+        <div className="glass pointer-events-auto absolute bottom-4 right-4 top-16 z-10 w-72 overflow-y-auto rounded-xl p-4 [scrollbar-width:thin]">
           {/* Ignition and speed describe the last packet, not the vehicle, once
               the tracker has gone quiet. Both are reported as last-known rather
               than current — a stale "Ignition on · 6 km/h" said the car was
@@ -1891,7 +1895,7 @@ export function LiveMonitoringMap({
                 )}
               </div>
             ) : (
-              <ul className="mt-1.5 max-h-44 space-y-1 overflow-y-auto pr-1">
+              <ul className="mt-1.5 space-y-1 pr-1">
                 {selectedTrips
                   .map((trip, i) => ({ trip, i }))
                   .reverse()
@@ -1965,6 +1969,9 @@ export function LiveMonitoringMap({
           trips={selectedTrips}
           licensePlate={selectedTrack.licensePlate}
           driverName={fleetMeta.get(selectedTrack.vehicleId)?.driver}
+          vehicleType={fleet.find((v) => v.id === selectedTrack.vehicleId)?.vehicle_type}
+          accentColor={selectedTrack.color}
+          driverPhotoUrl={fleetMeta.get(selectedTrack.vehicleId)?.driverPhotoUrl}
           totals={{
             distance_km: tripsByVehicle.get(selectedTrack.vehicleId)?.total_distance_km ?? 0,
             fuel_liters: tripsByVehicle.get(selectedTrack.vehicleId)?.total_fuel_liters ?? 0,

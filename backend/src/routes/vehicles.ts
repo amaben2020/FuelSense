@@ -53,6 +53,7 @@ router.get('/', async (req: Request, res: Response) => {
         license_plate: vehicles.licensePlate,
         make: vehicles.make,
         model: vehicles.model,
+        vehicle_type: vehicles.vehicleType,
         year: vehicles.year,
         tank_capacity_liters: vehicles.tankCapacityLiters,
         created_at: vehicles.createdAt,
