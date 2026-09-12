@@ -805,9 +805,15 @@ export function LiveMonitoringMap({
                 : v.virtual_tank_liters != null
                   ? Number(v.virtual_tank_liters)
                   : null,
-            tankCapacity: v.virtual_tank_capacity_liters != null
-              ? Number(v.virtual_tank_capacity_liters)
-              : null,
+            // The modelled tank's capacity where the vehicle has one; the
+            // vehicle's own otherwise. A car with a CAN or OBD level has no
+            // virtual tank, and without this its gauge drew 60 L as empty.
+            tankCapacity:
+              v.virtual_tank_capacity_liters != null
+                ? Number(v.virtual_tank_capacity_liters)
+                : v.tank_capacity_liters != null
+                  ? Number(v.tank_capacity_liters)
+                  : null,
             tankConfidence: v.virtual_tank_confidence ?? null,
             tankCalibratedAt: v.virtual_tank_calibrated_at ?? null,
             driverPhotoUrl: v.driver_photo_url ?? null,
