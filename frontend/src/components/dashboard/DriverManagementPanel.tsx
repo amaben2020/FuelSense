@@ -8,6 +8,7 @@ import {
   Gauge,
   Info,
   MapPin,
+  Trophy,
   Route as RouteIcon,
   TrendingDown,
   TrendingUp,
@@ -106,15 +107,39 @@ function Metric({
   );
 }
 
+/**
+ * The three questions a manager asks of a driver list, each a way to order
+ * it. "Most active" is hours with the engine on and moving; "furthest" is
+ * distance; "most efficient" is km per litre, and only counts a driver whose
+ * fuel record is complete enough for the figure to mean anything.
+ */
+type Ranking = 'active' | 'distance' | 'efficient';
+
+const RANKINGS: Array<{ id: Ranking; label: string; hint: string }> = [
+  { id: 'distance', label: 'Furthest', hint: 'Most distance covered' },
+  { id: 'active', label: 'Most active', hint: 'Most hours on the road' },
+  { id: 'efficient', label: 'Most efficient', hint: 'Best km per litre, on a complete fuel record' },
+];
+
+function rankValue(row: DriverPeriod | null, ranking: Ranking): number {
+  if (!row) return -Infinity;
+  if (ranking === 'distance') return row.distance_km;
+  if (ranking === 'active') return row.moving_hours;
+  return row.fuel_complete && row.efficiency_km_l != null ? row.efficiency_km_l : -Infinity;
+}
+
 function DriverCard({
   report,
   period,
   bucket,
+  leader,
   onViewVehicle,
 }: {
   report: DriverReport;
   period: string;
   bucket: ReportBucket;
+  /** Set when this driver tops the chosen ranking; the label says which. */
+  leader?: string;
   onViewVehicle?: () => void;
 }) {
   const row = report.periods.find((p) => p.period === period) ?? null;
@@ -142,8 +167,17 @@ function DriverCard({
         <div className="flex min-w-0 items-center gap-3">
           <Avatar name={report.driver_name} size={56} />
           <div className="min-w-0">
-            <p className="truncate text-lg font-bold tracking-tight text-ink">
+            <p className="flex items-center gap-2 truncate text-lg font-bold tracking-tight text-ink">
               {report.driver_name}
+              {leader && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent-y/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-accent-y"
+                  title={leader}
+                >
+                  <Trophy className="h-3 w-3" />
+                  {leader}
+                </span>
+              )}
             </p>
             <p className="truncate text-xs text-ink-dim">
               {row ? `${row.vehicles} vehicle${row.vehicles === 1 ? '' : 's'}` : 'No activity'}
@@ -278,6 +312,7 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
   const [fromInput, setFromInput] = useState('');
   const [toInput, setToInput] = useState('');
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
+  const [ranking, setRanking] = useState<Ranking>('distance');
 
   // `loading` starts true, so the first fetch does not set it synchronously
   // inside the effect — that cascades an extra render for no benefit. Only the
@@ -502,17 +537,50 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
       </Panel>
 
       {activePeriod && data && data.drivers.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {data.drivers.map((d) => (
-            <DriverCard
-              key={d.driver_name}
-              report={d}
-              period={activePeriod}
-              bucket={bucket}
-              onViewVehicle={onViewVehicle}
-            />
-          ))}
-        </div>
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-ink-dim">Rank by</span>
+            <div className="flex overflow-hidden rounded-lg border border-edge text-xs">
+              {RANKINGS.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setRanking(r.id)}
+                  title={r.hint}
+                  className={`px-3 py-1.5 transition-colors ${
+                    ranking === r.id
+                      ? 'bg-accent-y text-accent-y-ink'
+                      : 'text-ink-dim hover:text-ink'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {(() => {
+              const scored = data.drivers
+                .map((d) => ({
+                  d,
+                  score: rankValue(d.periods.find((p) => p.period === activePeriod) ?? null, ranking),
+                }))
+                .sort((a, b) => b.score - a.score);
+              const top = scored[0]?.score;
+              const label = RANKINGS.find((r) => r.id === ranking)?.label ?? '';
+              return scored.map(({ d, score }) => (
+                <DriverCard
+                  key={d.driver_name}
+                  report={d}
+                  period={activePeriod}
+                  bucket={bucket}
+                  leader={Number.isFinite(score) && score === top ? label : undefined}
+                  onViewVehicle={onViewVehicle}
+                />
+              ));
+            })()}
+          </div>
+        </>
       )}
     </div>
   );
