@@ -182,6 +182,7 @@ export const customerPublicSelect = {
   // FuelSense branding when a customer has not supplied their own.
   logo_url: customers.logoUrl,
   brand_color: customers.brandColor,
+  white_label: customers.whiteLabel,
   subscription_status: customers.subscriptionStatus,
   onboarding_completed: customers.onboardingCompleted,
   created_at: customers.createdAt,

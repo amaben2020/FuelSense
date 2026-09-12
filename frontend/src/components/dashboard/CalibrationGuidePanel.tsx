@@ -1,5 +1,7 @@
 'use client';
 
+import { useProductName } from '@/lib/product-name';
+
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useState } from 'react';
@@ -98,6 +100,7 @@ function SpecTable({ rows }: { rows: { field: string; value: string; note: strin
  * evidence than that guess, so this replaces it when one is entered.
  */
 function EconomyCalibration({ fleet }: { fleet: FleetVehicle[] }) {
+  const productName = useProductName();
   const [vehicleId, setVehicleId] = useState<string>(fleet[0]?.id ?? '');
   const [value, setValue] = useState('');
   const [unit, setUnit] = useState<EconomyUnit>('mpg_us');
@@ -183,7 +186,7 @@ function EconomyCalibration({ fleet }: { fleet: FleetVehicle[] }) {
       chip={<StatusChip tone="accent">Optional</StatusChip>}
     >
       <p className="text-sm leading-relaxed text-ink-mid">
-        Without this, FuelSense benchmarks the vehicle against a figure for its model — a guess
+        Without this, {productName} benchmarks the vehicle against a figure for its model — a guess
         that ignores age, engine and condition. If the dashboard shows a long-term average, put it
         in and it becomes the benchmark instead.
       </p>
@@ -329,6 +332,7 @@ function EconomyCalibration({ fleet }: { fleet: FleetVehicle[] }) {
  * limit on the fleet's behalf.
  */
 function SpeedLimitSetting({ fleet }: { fleet: FleetVehicle[] }) {
+  const productName = useProductName();
   const [vehicleId, setVehicleId] = useState<string>('');
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -372,11 +376,11 @@ function SpeedLimitSetting({ fleet }: { fleet: FleetVehicle[] }) {
       chip={<StatusChip tone="accent">Optional</StatusChip>}
     >
       <p className="text-sm leading-relaxed text-ink-mid">
-        Set this to the same limit you configured on the tracker. FuelSense then
+        Set this to the same limit you configured on the tracker. {productName} then
         finds overspeeding in the GPS speed it already records — so it works
         whether or not the device&apos;s Overspeeding scenario is switched on,
         and it can scan drives that already happened. Leave it empty and no
-        overspeeding is reported; FuelSense will not invent a limit for you.
+        overspeeding is reported; {productName} will not invent a limit for you.
       </p>
 
       <div className="mt-4 flex flex-wrap items-end gap-2">
@@ -451,6 +455,7 @@ function SpeedLimitSetting({ fleet }: { fleet: FleetVehicle[] }) {
 }
 
 export function CalibrationGuidePanel({ fleet = [] }: { fleet?: FleetVehicle[] }) {
+  const productName = useProductName();
   const [tab, setTab] = useState<'tank' | 'economy' | 'limits' | 'device'>('tank');
 
   return (
@@ -503,7 +508,7 @@ export function CalibrationGuidePanel({ fleet = [] }: { fleet?: FleetVehicle[] }
           <Panel
             icon={Fuel}
             title="Tank calibration"
-            subtitle="Tells FuelSense how much fuel is in the tank right now"
+            subtitle={`Tells ${productName} how much fuel is in the tank right now`}
             chip={<StatusChip tone="accent">Do second</StatusChip>}
           >
             <div>

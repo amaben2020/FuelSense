@@ -1,5 +1,7 @@
 'use client';
 
+import { useProductName } from '@/lib/product-name';
+
 import { BrandMark } from '@/components/BrandMark';
 
 /**
@@ -24,6 +26,7 @@ export function FleetCommandLoader({
 }: {
   label?: string;
 }) {
+  const productName = useProductName();
   return (
     <div
       className="flex min-h-screen flex-col items-center justify-center bg-canvas px-6"
@@ -33,7 +36,7 @@ export function FleetCommandLoader({
       <div className="flex w-full max-w-[280px] flex-col items-center">
         <BrandMark className="h-9 w-9 text-brand" strokeWidth={4} />
 
-        <p className="mt-4 text-sm font-semibold tracking-tight text-ink">FuelSense</p>
+        <p className="mt-4 text-sm font-semibold tracking-tight text-ink">{productName}</p>
 
         {/* A single hairline sweep. Reads as progress without claiming a
             percentage we do not know. */}

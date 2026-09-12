@@ -108,13 +108,16 @@ async function upsertAccount() {
         passwordHash: await bcrypt.hash(BLUE_FLEET_PASSWORD, 12),
         companyName: BLUE_FLEET_COMPANY,
         onboardingCompleted: true,
+        // The product calls itself Blue Fleet for this account — the demo
+        // is shown as the prospect's own tool.
+        whiteLabel: true,
       })
       .returning({ id: customers.id });
     console.log(`created customer ${BLUE_FLEET_COMPANY}`);
   } else if (FRESH) {
     await db
       .update(customers)
-      .set({ passwordHash: await bcrypt.hash(BLUE_FLEET_PASSWORD, 12), onboardingCompleted: true })
+      .set({ passwordHash: await bcrypt.hash(BLUE_FLEET_PASSWORD, 12), onboardingCompleted: true, whiteLabel: true })
       .where(eq(customers.id, customer.id));
     console.log(`customer ${BLUE_FLEET_COMPANY} exists — password reset to the documented one (--fresh)`);
   } else {
@@ -175,7 +178,15 @@ async function upsertVehicle(customerId: string, p: BlueFleetProfile) {
   } else if (FRESH) {
     await db
       .update(vehicles)
-      .set({ driverId: driver.id, driverName: p.driver.name })
+      .set({
+        driverId: driver.id,
+        driverName: p.driver.name,
+        make: p.make,
+        model: p.model,
+        year: p.year,
+        vehicleType: p.vehicleType,
+        tankCapacityLiters: p.tankCapacity,
+      })
       .where(eq(vehicles.id, vehicle.id));
   }
 

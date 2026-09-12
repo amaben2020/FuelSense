@@ -28,6 +28,13 @@ export const customers = pgTable('customers', {
   logoUrl: text('logo_url'),
   /** Accent colour, hex. Falls back to the FuelSense green when unset. */
   brandColor: varchar('brand_color', { length: 9 }),
+  /**
+   * When set, the product calls itself by the company's name everywhere a
+   * signed-in person sees it — tab title, loading screen, driver app, the
+   * copy that says who worked a figure out. A logo and a colour make the
+   * dashboard look like the customer's; this makes it read as theirs.
+   */
+  whiteLabel: boolean('white_label').default(false),
   subscriptionStatus: varchar('subscription_status', { length: 50 }).default('active'),
   onboardingCompleted: boolean('onboarding_completed').default(false),
   createdAt: timestamp('created_at').defaultNow(),

@@ -1,5 +1,7 @@
 'use client';
 
+import { useProductName } from '@/lib/product-name';
+
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Leaf, X } from 'lucide-react';
@@ -20,6 +22,7 @@ import { getGreenDrivingStatus, getToken, type GreenDrivingStatus } from '@/lib/
  * that covers the thing it is explaining is worse than no explanation.
  */
 export function GreenDrivingBadge() {
+  const productName = useProductName();
   const [status, setStatus] = useState<GreenDrivingStatus | null>(null);
   const [open, setOpen] = useState(false);
   // This component lives in the root layout, which does not remount when the
@@ -120,7 +123,7 @@ export function GreenDrivingBadge() {
 
             <p className="mt-3 text-sm text-ink-mid">
               Your {status.devices_reporting === 1 ? 'tracker judges' : 'trackers judge'} harsh
-              driving using their own motion sensor, and send those events to FuelSense directly.
+              driving using their own motion sensor, and send those events to {productName} directly.
             </p>
 
             <div className="mt-4 rounded-lg border border-edge bg-panel-deep/40 p-4">
@@ -133,7 +136,7 @@ export function GreenDrivingBadge() {
                   <dd className="font-mono tabular-nums text-ink">{status.device_events}</dd>
                 </div>
                 <div className="flex items-baseline justify-between gap-4">
-                  <dt className="text-ink-mid">Worked out by FuelSense from GPS</dt>
+                  <dt className="text-ink-mid">Worked out by {productName} from GPS</dt>
                   <dd className="font-mono tabular-nums text-ink">{status.derived_events}</dd>
                 </div>
               </dl>
@@ -143,7 +146,7 @@ export function GreenDrivingBadge() {
               Why this matters for your score
             </h4>
             <p className="mt-2 text-sm text-ink-mid">
-              FuelSense works out harsh acceleration, braking and cornering from GPS on its own,
+              {productName} works out harsh acceleration, braking and cornering from GPS on its own,
               because many trackers have Eco Driving switched off. Yours does not, so both
               measurements are running — and <strong className="text-ink">both count toward your
               safety score</strong>. Your fleet is therefore being marked more strictly than

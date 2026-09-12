@@ -87,6 +87,7 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('customers', 'onboarding_completed', 'BOOLEAN DEFAULT false');
   await ensureColumn('customers', 'logo_url', 'TEXT');
   await ensureColumn('customers', 'brand_color', 'VARCHAR(9)');
+  await ensureColumn('customers', 'white_label', 'BOOLEAN NOT NULL DEFAULT false');
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS vehicles (

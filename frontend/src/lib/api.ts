@@ -198,6 +198,8 @@ export interface Customer {
   /** White-label branding; null falls back to the FuelSense mark. */
   logo_url?: string | null;
   brand_color?: string | null;
+  /** The product wears the company's name for this account. */
+  white_label?: boolean | null;
   subscription_status: string;
   onboarding_completed?: boolean;
   created_at: string;

@@ -1,5 +1,7 @@
 'use client';
 
+import { useProductName } from '@/lib/product-name';
+
 import {
   AlertTriangle,
   Battery,
@@ -19,6 +21,7 @@ export function FuelAnomalyModal({
   isOpen: boolean;
   onClose: () => void;
 }) {
+  const productName = useProductName();
   if (!isOpen) return null;
 
   return (
@@ -52,7 +55,7 @@ export function FuelAnomalyModal({
         <div className="space-y-6 p-6">
           <div className="rounded-lg border border-edge bg-canvas p-4">
             <p className="leading-relaxed text-ink">
-              FuelSense detects{' '}
+              {productName} detects{' '}
               <span className="font-semibold text-bad">fuel anomalies</span> in real-time by
               comparing OBD fuel level and GPS data against expected consumption. When something
               does not add up, you get an instant alert via TCP telemetry.

@@ -67,6 +67,7 @@ import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
 import { PowerUnplugBanner } from '@/components/dashboard/PowerUnplugBanner';
 import { playNotificationChime } from '@/lib/notification-sound';
 import { AlertToasts, AUDIBLE_ALERT_TYPES } from '@/components/dashboard/AlertToasts';
+import { useProductTitle } from '@/lib/product-name';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -518,6 +519,7 @@ export default function DashboardPage() {
   // account that already has a backlog of open ones, and not for a trip
   // starting or a zone being entered: with a fleet on the road those come
   // every few minutes, and a chime for each is a dashboard nobody keeps open.
+  useProductTitle('Dashboard');
   const [freshAlerts, setFreshAlerts] = useState<Alert[]>([]);
   useEffect(() => {
     if (alerts.length === 0) return;

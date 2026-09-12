@@ -10,6 +10,7 @@ import {
   getDriverToken,
   setDriverToken,
   driverLogin,
+  rememberedDriverProductName,
 } from '@/lib/driver-api';
 import { DriverTabBar, DriverTab } from '@/components/driver/DriverTabBar';
 import { DriverFuelScreen } from '@/components/driver/DriverFuelScreen';
@@ -50,6 +51,11 @@ function DriverAvatar({ name, photoUrl }: { name?: string; photoUrl?: string | n
 
 export default function DriverPortalPage() {
   const [authed, setAuthed] = useState(false);
+  // Lazy initialiser rather than an effect: localStorage is read once, on
+  // the client, with no second render.
+  const [productName, setProductName] = useState(() =>
+    typeof window === 'undefined' ? 'FuelSense' : rememberedDriverProductName()
+  );
   const [tab, setTab] = useState<DriverTab>('fuel');
   const [driverCode, setDriverCode] = useState('');
   const [pin, setPin] = useState('');
@@ -75,7 +81,8 @@ export default function DriverPortalPage() {
     e.preventDefault();
     setError(null);
     try {
-      const { token, driver: session } = await driverLogin(driverCode.trim().toUpperCase(), pin);
+      const { token, driver: session, product_name: name } = await driverLogin(driverCode.trim().toUpperCase(), pin);
+      if (name) setProductName(name);
       setDriverToken(token);
       setDriver(session);
       setAuthed(true);
@@ -99,7 +106,7 @@ export default function DriverPortalPage() {
               <Truck className="h-7 w-7 text-brand" />
             </div>
             <div>
-              <h1 className="text-xl font-bold text-ink">FuelSense Driver</h1>
+              <h1 className="text-xl font-bold text-ink">{productName} Driver</h1>
               <p className="text-sm text-ink-dim">Mobile fuel & fleet portal</p>
             </div>
           </div>

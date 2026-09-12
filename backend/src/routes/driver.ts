@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { signDriverToken, authenticateDriver } from '../middleware/auth';
 import {
   db,
+  customers,
   drivers,
   vehicles,
   fuelReceipts,
@@ -91,6 +92,12 @@ router.post('/login', async (req: Request, res: Response) => {
     const assignment = await getDriverAssignment(driver.id, driver.customerId);
     const token = signDriverToken(driver as Parameters<typeof signDriverToken>[0]);
 
+    const [company] = await db
+      .select({ name: customers.companyName, whiteLabel: customers.whiteLabel })
+      .from(customers)
+      .where(eq(customers.id, driver.customerId))
+      .limit(1);
+
     res.json({
       token,
       driver: {
@@ -101,6 +108,9 @@ router.post('/login', async (req: Request, res: Response) => {
         license_plate: assignment?.license_plate ?? null,
         model: assignment?.model ?? null,
       },
+      // The name over the driver app's door: the fleet's own when it is
+      // white-labelled, the product's otherwise.
+      product_name: company?.whiteLabel && company.name ? company.name : 'FuelSense',
     });
   } catch (error) {
     logAndRespond(res, req.path, error);

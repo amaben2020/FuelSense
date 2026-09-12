@@ -165,7 +165,15 @@ export async function driverLogin(driverCode: string, pin: string) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || 'Login failed');
-  return data as { token: string; driver: DriverSession };
+  const result = data as { token: string; driver: DriverSession; product_name?: string };
+  // Remembered so the sign-in screen can wear the fleet's name next time,
+  // before anyone has typed a code.
+  try {
+    if (result.product_name) localStorage.setItem('fuelsense_driver_product', result.product_name);
+  } catch {
+    // storage unavailable — the default name is fine
+  }
+  return result;
 }
 
 export async function fetchDriverMe() {
@@ -293,4 +301,13 @@ export async function explainDriverAlert(id: number, note: string) {
     `/driver/alerts/${id}/explain`,
     { method: 'POST', body: JSON.stringify({ note }) }
   );
+}
+
+/** The product's name for the last fleet a driver signed into on this phone. */
+export function rememberedDriverProductName(): string {
+  try {
+    return localStorage.getItem('fuelsense_driver_product') || 'FuelSense';
+  } catch {
+    return 'FuelSense';
+  }
 }
