@@ -95,6 +95,19 @@ export async function handleIgnitionForTripStart(
     )
     .limit(1);
 
+  // A new start supersedes the last end.
+  await db
+    .update(alerts)
+    .set({ isResolved: true, resolvedAt: sql`NOW()` })
+    .where(
+      and(
+        eq(alerts.customerId, ctx.customerId),
+        eq(alerts.vehicleId, ctx.vehicleId),
+        eq(alerts.alertType, 'trip_end'),
+        eq(alerts.isResolved, false)
+      )
+    );
+
   if (!recent) {
     await db.insert(alerts).values({
       imei: ctx.imei,
@@ -171,9 +184,10 @@ async function emailTripStart(ctx: TripStartContext, plate: string): Promise<voi
 /** Closes the open "on a trip" alert once the vehicle is shut off. */
 export async function closeTripStartAlert(
   customerId: string,
-  vehicleId: string
+  vehicleId: string,
+  ctx?: { imei: string; licensePlate?: string | null; driverName?: string | null; latitude: string | null; longitude: string | null }
 ): Promise<void> {
-  await db
+  const closed = await db
     .update(alerts)
     .set({ isResolved: true, resolvedAt: sql`NOW()` })
     .where(
@@ -183,5 +197,24 @@ export async function closeTripStartAlert(
         eq(alerts.alertType, 'trip_start'),
         eq(alerts.isResolved, false)
       )
-    );
+    )
+    .returning({ id: alerts.id });
+
+  // The matching end. Raised only when a start was open, so a parked car's
+  // keep-alive ignition flicker cannot announce a trip that never began.
+  // Informational, like the start: the next start closes it, and the
+  // retention sweep closes any left over after a day.
+  if (closed.length > 0 && ctx) {
+    const plate = ctx.licensePlate ?? 'Vehicle';
+    const driver = ctx.driverName ? ` Driver: ${ctx.driverName}.` : '';
+    await db.insert(alerts).values({
+      imei: ctx.imei,
+      customerId,
+      vehicleId,
+      alertType: 'trip_end',
+      message: `${plate} has ended its trip — ignition off.${driver}`,
+      latitude: ctx.latitude,
+      longitude: ctx.longitude,
+    });
+  }
 }

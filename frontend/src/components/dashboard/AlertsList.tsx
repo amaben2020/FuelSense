@@ -29,6 +29,7 @@ const ALERT_TONE: Record<string, 'bad' | 'warn' | 'good' | 'neutral'> = {
   geofence_entry: 'neutral',
   geofence_exit: 'neutral',
   trip_start: 'neutral',
+  trip_end: 'neutral',
   receipt_uploaded: 'good',
 };
 

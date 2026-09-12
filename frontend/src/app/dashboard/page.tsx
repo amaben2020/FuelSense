@@ -66,6 +66,7 @@ import { OdometerSettingsPanel } from '@/components/dashboard/OdometerSettingsPa
 import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
 import { PowerUnplugBanner } from '@/components/dashboard/PowerUnplugBanner';
 import { playNotificationChime } from '@/lib/notification-sound';
+import { AlertToasts, AUDIBLE_ALERT_TYPES } from '@/components/dashboard/AlertToasts';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
 import { FuelEstimatePanel } from '@/components/dashboard/FuelEstimatePanel';
@@ -479,10 +480,12 @@ export default function DashboardPage() {
       setTick((t) => t + 1);
       setError(null);
 
-      setSelectedVehicleId((prev) => {
-        if (prev && fleetRows.some((v) => v.id === prev)) return prev;
-        return fleetRows[0]?.id ?? null;
-      });
+      // A selection that no longer exists is dropped; none is never invented.
+      // The live map opens on the whole fleet and a car is picked on purpose;
+      // views that need one vehicle fall back to the first via selectedVehicle.
+      setSelectedVehicleId((prev) =>
+        prev && fleetRows.some((v) => v.id === prev) ? prev : null
+      );
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         clearToken();
@@ -510,8 +513,12 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [router]);
 
-  // A chime for an alert that is actually new, not for the first page load
-  // of an account that already has a backlog of open ones.
+  // Alerts new since the last poll, for the toasts — and a chime only when
+  // one of them is the kind worth a sound. Not on the first page load of an
+  // account that already has a backlog of open ones, and not for a trip
+  // starting or a zone being entered: with a fleet on the road those come
+  // every few minutes, and a chime for each is a dashboard nobody keeps open.
+  const [freshAlerts, setFreshAlerts] = useState<Alert[]>([]);
   useEffect(() => {
     if (alerts.length === 0) return;
     const ids = new Set(alerts.map((a) => a.id));
@@ -519,10 +526,17 @@ export default function DashboardPage() {
       seenAlertIds.current = ids;
       return;
     }
-    const hasNew = alerts.some((a) => !seenAlertIds.current!.has(a.id));
+    const fresh = alerts.filter((a) => !seenAlertIds.current!.has(a.id));
     seenAlertIds.current = ids;
-    if (hasNew) playNotificationChime();
+    if (fresh.length === 0) return;
+    setFreshAlerts(fresh);
+    if (fresh.some((a) => AUDIBLE_ALERT_TYPES.has(a.alert_type))) playNotificationChime();
   }, [alerts]);
+  const driverForVehicle = useCallback(
+    (vehicleId: string | undefined) =>
+      vehicleId ? (fleet.find((v) => v.id === vehicleId)?.driver_name ?? null) : null,
+    [fleet],
+  );
 
   // Returning to the tab refreshes once, rather than waiting out the interval.
   useEffect(() => {
@@ -1431,6 +1445,8 @@ export default function DashboardPage() {
         onClose={() => setModalOpen(false)}
         onAdded={handleDeviceAdded}
       />
+
+      <AlertToasts incoming={freshAlerts} driverFor={driverForVehicle} />
 
       <SiphonEventsSidebar
         isOpen={siphonSidebarOpen}

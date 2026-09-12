@@ -39,6 +39,7 @@ const CLASSIFICATION: Record<string, AlertClass> = {
   // Things that happened. Nothing to action, nothing to fix.
   receipt_uploaded: 'informational',
   trip_start: 'informational',
+  trip_end: 'informational',
   geofence_entry: 'informational',
   geofence_exit: 'informational',
   immobilizer_engaged: 'informational',

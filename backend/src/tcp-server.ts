@@ -417,7 +417,15 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
         licensePlate: vehicleRow?.license_plate ?? undefined,
       });
       if (started) logReal(device.imei, 'trip start notified');
-      if (!ignitionOn) await closeTripStartAlert(device.customerId!, device.vehicleId!);
+      if (!ignitionOn) {
+        await closeTripStartAlert(device.customerId!, device.vehicleId!, {
+          imei: device.imei,
+          licensePlate: vehicleRow?.license_plate ?? null,
+          driverName: vehicleRow?.driver_name ?? null,
+          latitude: telemetryRow.latitude,
+          longitude: telemetryRow.longitude,
+        });
+      }
     } catch (err) {
       console.error(`[trip_notifier] failed for ${device.imei}:`, err);
     }
