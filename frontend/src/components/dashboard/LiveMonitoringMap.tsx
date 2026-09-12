@@ -1120,6 +1120,35 @@ export function LiveMonitoringMap({
                 />
               ))}
 
+            {/* Where each trip ended. Without this the trail simply stopped at
+                whatever "P" happened to be last, and a trail leading *into* a
+                car park read as a route leading on past it. A finished trip
+                gets a flag; the live one does not, because the car is there. */}
+            {selectedTrack &&
+              selectedTrips.map((trip, i) => {
+                const end = trip.stops.find((s) => s.kind === 'destination');
+                if (!end || trip.active) return null;
+                const parked =
+                  end.duration_minutes > 0 ? ` · parked ${formatDuration(end.duration_minutes)}` : '';
+                return (
+                  <TripBadgeMarker
+                    key={`trip-end-${selectedTrack.vehicleId}-${i}`}
+                    lat={end.lat}
+                    lng={end.lng}
+                    label="■"
+                    color={tripColor(i)}
+                    title={`Trip ${i + 1} ended${parked}`}
+                    focused={
+                      hoveredStop?.stop.arrived_at === end.arrived_at &&
+                      hoveredStop?.stop.lat === end.lat
+                    }
+                    onClick={() => setOpenStop(end)}
+                    onMouseOver={(point) => setHoveredStop({ stop: end, ...point })}
+                    onMouseOut={() => setHoveredStop(null)}
+                  />
+                );
+              })}
+
             {/* Where the driver actually stopped. Clicking one opens that place
                 directly — the address and photo are the point, so they should
                 not be buried behind the trip list. */}
@@ -1893,10 +1922,16 @@ export function LiveMonitoringMap({
           }}
         >
           <p className="text-sm font-semibold text-ink">
-            Parked {formatDuration(hoveredStop.stop.duration_minutes)}
+            {hoveredStop.stop.kind === 'destination'
+              ? hoveredStop.stop.duration_minutes > 0
+                ? `Trip ended · parked ${formatDuration(hoveredStop.stop.duration_minutes)}`
+                : 'Trip ended here'
+              : `Parked ${formatDuration(hoveredStop.stop.duration_minutes)}`}
           </p>
           <p className="mt-0.5 font-mono text-xs text-ink-mid">
-            {clockTime(hoveredStop.stop.arrived_at)} → {clockTime(hoveredStop.stop.departed_at)}
+            {hoveredStop.stop.kind === 'destination' && hoveredStop.stop.duration_minutes === 0
+              ? clockTime(hoveredStop.stop.arrived_at)
+              : `${clockTime(hoveredStop.stop.arrived_at)} → ${clockTime(hoveredStop.stop.departed_at)}`}
           </p>
           <p className="mt-1.5 text-[11px] text-ink-dim">Click for address and photo</p>
         </div>

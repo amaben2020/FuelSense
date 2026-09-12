@@ -37,6 +37,7 @@ export interface TripStop {
   lng: number;
   arrived_at: string;
   departed_at: string;
+  /** For a destination: how long the vehicle sat there before the tracker went quiet. */
   duration_minutes: number;
   /** 'origin' and 'destination' bookend the trip; 'stop' is a mid-trip halt. */
   kind: 'origin' | 'stop' | 'pause' | 'traffic' | 'destination';
@@ -321,11 +322,18 @@ function findStops(segment: TelemetryTripPoint[]): TripStop[] {
     if (mins < MIN_STOP_MINUTES) continue;
     if (haversineKm(a.lat, a.lng, b.lat, b.lng) * 1000 > STATIONARY_GAP_M) continue;
 
-    // Don't duplicate a stop the run-based pass already reported.
+    // Don't duplicate a stop the run-based pass already reported. Overlap,
+    // not endpoint proximity: a parked tracker goes quiet between heartbeats,
+    // so a long gap usually sits *inside* a halt the run already covers, with
+    // neither of its ends anywhere near the run's. Matching ends alone put a
+    // second "Stopped · 23m" four metres from a "Stopped · 29m" at the same
+    // restaurant, and the driver hovered the wrong one.
+    const aMs = a.recordedAt.getTime();
+    const bMs = b.recordedAt.getTime();
     const already = stops.some(
       (s) =>
-        Math.abs(new Date(s.arrived_at).getTime() - a.recordedAt.getTime()) < 60_000 ||
-        Math.abs(new Date(s.departed_at).getTime() - b.recordedAt.getTime()) < 60_000
+        aMs < new Date(s.departed_at).getTime() + 60_000 &&
+        bMs > new Date(s.arrived_at).getTime() - 60_000
     );
     if (already) continue;
 
@@ -340,11 +348,26 @@ function findStops(segment: TelemetryTripPoint[]): TripStop[] {
 
   stops.sort((x, y) => new Date(x.arrived_at).getTime() - new Date(y.arrived_at).getTime());
 
+  // A halt that runs to the end of the segment is not a stop on the way, it is
+  // where the trip ended — the driver parked and the tracker went quiet. Left
+  // as a separate 'stop' it drew a "P" on top of the trip's end, and the trail
+  // leading in read as a route leading on. The dwell moves onto the
+  // destination instead, so the end of a trip is one marker with a parked
+  // time, and the trail into it reads as an arrival.
+  const trailing = stops[stops.length - 1];
+  const trailingIsTerminal =
+    trailing != null &&
+    (trailing.kind === 'stop' || trailing.kind === 'pause') &&
+    last.recordedAt.getTime() - new Date(trailing.departed_at).getTime() < 60_000;
+  if (trailingIsTerminal) stops.pop();
+
   stops.push({
     ...centroid([last]),
-    arrived_at: last.recordedAt.toISOString(),
+    arrived_at: trailingIsTerminal ? trailing.arrived_at : last.recordedAt.toISOString(),
     departed_at: last.recordedAt.toISOString(),
-    duration_minutes: 0,
+    duration_minutes: trailingIsTerminal
+      ? Math.round((last.recordedAt.getTime() - new Date(trailing.arrived_at).getTime()) / 60000)
+      : 0,
     kind: 'destination',
   });
 

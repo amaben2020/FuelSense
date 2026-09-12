@@ -16,6 +16,12 @@ const KIND_LABEL: Record<TripStop['kind'], string> = {
 /** Kinds where a duration is the meaningful figure, not a departure time. */
 const timedKinds = new Set<TripStop['kind']>(['stop', 'pause', 'traffic']);
 
+/** A destination carries the time the vehicle sat there before the tracker
+ *  went quiet — when it has one, that is the figure, same as a stop. */
+function isTimed(stop: TripStop): boolean {
+  return timedKinds.has(stop.kind) || (stop.kind === 'destination' && stop.duration_minutes > 0);
+}
+
 function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     weekday: 'short',
@@ -183,12 +189,12 @@ export function StopDetailModal({
               <p className="text-[11px] uppercase tracking-wider text-ink-dim">
                 {stop.kind === 'traffic'
                   ? 'Crawled for'
-                  : timedKinds.has(stop.kind)
+                  : isTimed(stop)
                     ? 'Stayed'
                     : 'Recorded'}
               </p>
               <p className="mt-1 flex items-center gap-1 text-sm text-ink">
-                {timedKinds.has(stop.kind) ? (
+                {isTimed(stop) ? (
                   <>
                     <Clock
                       className={`h-3 w-3 ${stop.kind === 'traffic' ? 'text-traffic' : 'text-warn'}`}

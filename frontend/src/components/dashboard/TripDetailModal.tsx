@@ -307,6 +307,12 @@ export function TripDetailModal({
                                 {item.stop.place_label ? ` at ${item.stop.place_label}` : ''}
                               </span>
                               <span className="text-ink-dim">{clockTime(item.at)}</span>
+                              {item.stop.kind === 'destination' &&
+                                item.stop.duration_minutes > 0 && (
+                                  <span className="text-ink-dim">
+                                    parked {item.stop.duration_minutes}m
+                                  </span>
+                                )}
                               {(item.stop.kind === 'stop' ||
                                 item.stop.kind === 'pause' ||
                                 item.stop.kind === 'traffic') && (
