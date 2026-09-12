@@ -299,71 +299,83 @@ router.get('/trips', async (req: Request, res: Response) => {
        * solid trail, because the vehicle's route across that gap is genuinely
        * unknown.
        */
-      const loadBlindOrigins = async (vehicleIds: string[], earliest: Date) => {
-        const out = new Map<
-          string,
-          { lat: number; lng: number; at: string; blind_seconds: number }
-        >();
+      /**
+       * Every stretch a tracker ran blind in the window, per vehicle, each
+       * with the last position it knew beforehand.
+       *
+       * A stretch is a run of ignition-on rows with no fix. The earlier
+       * version found only the one before the first plotted point, on the
+       * theory that a tracker has a lock by its second trip — but a car
+       * parked for lunch cold-starts again, and the third trip of the day set
+       * off blind from a restaurant with nothing on the map to say so.
+       */
+      const loadBlindStretches = async (vehicleIds: string[], from: Date, to: Date) => {
+        const out = new Map<string, Array<{ startedAt: Date; lat: number; lng: number; at: string }>>();
         if (!vehicleIds.length) return out;
 
-        const res = await db.execute(sql`
-          SELECT
-            v.vehicle_id,
-            last_fix.latitude::double precision AS lat,
-            last_fix.longitude::double precision AS lng,
-            last_fix.recorded_at AS at,
-            blind.first_blind_at
-          -- A VALUES list, not UNNEST($1::uuid[]): the driver binds a JS array
-          -- as a single scalar, so the cast failed with "malformed array
-          -- literal" on the first id.
+        const blindRows = await db.execute(sql`
+          SELECT vehicle_id, recorded_at
+          FROM telemetry t
+          WHERE t.customer_id = ${customerId}
+            AND t.vehicle_id IN (${sql.join(vehicleIds.map((id) => sql`${id}::uuid`), sql`, `)})
+            AND t.recorded_at >= ${new Date(from.getTime() - 15 * 60_000)}
+            AND t.recorded_at <= ${to}
+            AND COALESCE(t.ignition_on, false)
+            AND (t.latitude IS NULL OR t.longitude IS NULL)
+          ORDER BY vehicle_id, recorded_at
+        `);
+
+        // Group consecutive blind rows into stretches: a gap over five
+        // minutes starts a new one.
+        const stretchStarts: Array<{ vehicleId: string; startedAt: Date }> = [];
+        let prevVehicle = '';
+        let prevAt = 0;
+        for (const raw of blindRows.rows as Array<{ vehicle_id: string; recorded_at: string }>) {
+          const at = new Date(raw.recorded_at).getTime();
+          if (raw.vehicle_id !== prevVehicle || at - prevAt > 5 * 60_000) {
+            stretchStarts.push({ vehicleId: raw.vehicle_id, startedAt: new Date(at) });
+          }
+          prevVehicle = raw.vehicle_id;
+          prevAt = at;
+        }
+        if (!stretchStarts.length) return out;
+
+        // The last fix before each stretch. One statement for all of them.
+        const fixes = await db.execute(sql`
+          SELECT s.vehicle_id, s.started_at, f.latitude::double precision AS lat,
+                 f.longitude::double precision AS lng, f.recorded_at AS at
           FROM (VALUES ${sql.join(
-            vehicleIds.map((id) => sql`(${id}::uuid)`),
+            stretchStarts.map((x) => sql`(${x.vehicleId}::uuid, ${x.startedAt}::timestamp)`),
             sql`, `
-          )}) AS v(vehicle_id)
-          -- The most recent position before the window, whenever that was.
-          LEFT JOIN LATERAL (
+          )}) AS s(vehicle_id, started_at)
+          JOIN LATERAL (
             SELECT t.latitude, t.longitude, t.recorded_at
             FROM telemetry t
-            WHERE t.vehicle_id = v.vehicle_id
+            WHERE t.vehicle_id = s.vehicle_id
               AND t.customer_id = ${customerId}
-              AND t.recorded_at < ${earliest}
+              AND t.recorded_at < s.started_at
               AND t.latitude IS NOT NULL AND t.longitude IS NOT NULL
             ORDER BY t.recorded_at DESC
             LIMIT 1
-          ) last_fix ON true
-          -- The first moment the engine was running with no fix to show for
-          -- it. Bounded strictly *between* the last known position and the
-          -- first plotted one: those blind rows are by definition earlier than
-          -- the first fix that could be drawn, so anchoring the search at the
-          -- plotted fix excluded the only rows it was looking for.
-          LEFT JOIN LATERAL (
-            SELECT MIN(t.recorded_at) AS first_blind_at
-            FROM telemetry t
-            WHERE t.vehicle_id = v.vehicle_id
-              AND t.customer_id = ${customerId}
-              AND t.recorded_at > last_fix.recorded_at
-              AND t.recorded_at < ${earliest}
-              AND COALESCE(t.ignition_on, false)
-              AND (t.latitude IS NULL OR t.longitude IS NULL)
-          ) blind ON true
-          WHERE last_fix.recorded_at IS NOT NULL
-            AND blind.first_blind_at IS NOT NULL
+          ) f ON true
         `);
-
-        for (const raw of res.rows as Array<Record<string, unknown>>) {
-          out.set(String(raw.vehicle_id), {
+        for (const raw of fixes.rows as Array<Record<string, unknown>>) {
+          const vid = String(raw.vehicle_id);
+          const list = out.get(vid) ?? [];
+          list.push({
+            startedAt: new Date(raw.started_at as string),
             lat: Number(raw.lat),
             lng: Number(raw.lng),
             at: new Date(raw.at as string).toISOString(),
-            blind_seconds: 0,
           });
+          out.set(vid, list);
         }
         return out;
       };
 
       const buildVehicleTrips = (
         rows: TripRow[],
-        blindOrigins?: Map<string, { lat: number; lng: number; at: string; blind_seconds: number }>
+        blindStretches?: Map<string, Array<{ startedAt: Date; lat: number; lng: number; at: string }>>
       ) => {
         const byVehicle = new Map<
           string,
@@ -395,7 +407,7 @@ router.get('/trips', async (req: Request, res: Response) => {
 
         const nowMs = Date.now();
         return Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
-          const blind = blindOrigins?.get(vehicleId);
+          const stretches = blindStretches?.get(vehicleId) ?? [];
           const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
           const trips = segmentTrips(v.points, nowMs).map((trip) => {
             // Economy follows a U-curve, so the same distance burns more in
@@ -427,19 +439,23 @@ router.get('/trips', async (req: Request, res: Response) => {
                 | undefined,
             };
           });
-          // Only the earliest trip can have been the one that set off blind;
-          // by the second trip the tracker has a lock. Attached only when the
-          // known origin is far enough from the first plotted fix to be worth
-          // drawing — a lock acquired on the driveway needs no explanation.
-          const firstTrip = trips[0];
-          if (blind && firstTrip?.path?.length) {
-            const [flat, flng] = firstTrip.path[0];
+          // A trip set off blind if a blind stretch began in the quarter hour
+          // before its first plotted fix. Attached only when the known origin
+          // is far enough from that fix to be worth drawing — a lock acquired
+          // on the driveway needs no explanation.
+          for (const trip of trips) {
+            if (!trip.path?.length) continue;
+            const startMs = new Date(trip.start_at).getTime();
+            const blind = stretches.find(
+              (st) => st.startedAt.getTime() <= startMs && startMs - st.startedAt.getTime() < 15 * 60_000
+            );
+            if (!blind) continue;
+            const [flat, flng] = trip.path[0];
             const dLat = (blind.lat - flat) * 111_320;
-            const dLng =
-              (blind.lng - flng) * 111_320 * Math.cos((flat * Math.PI) / 180);
+            const dLng = (blind.lng - flng) * 111_320 * Math.cos((flat * Math.PI) / 180);
             const metres = Math.sqrt(dLat * dLat + dLng * dLng);
             if (metres > 150) {
-              firstTrip.blind_origin = {
+              trip.blind_origin = {
                 latitude: blind.lat,
                 longitude: blind.lng,
                 last_known_at: blind.at,
@@ -484,14 +500,14 @@ router.get('/trips', async (req: Request, res: Response) => {
       let source = 'live';
       const liveRows = liveResult.rows as TripRow[];
       const liveVehicleIds = [...new Set(liveRows.map((r) => String(r.vehicle_id)))];
-      const earliestPlotted = liveRows.reduce<Date | null>((min, r) => {
-        const at = new Date(r.recorded_at as string);
-        return min == null || at < min ? at : min;
-      }, null);
-      const blindOrigins = earliestPlotted
-        ? await loadBlindOrigins(liveVehicleIds, earliestPlotted)
+      const windowFrom = useRange
+        ? fromDate!
+        : new Date(Date.now() - minutes * 60_000);
+      const windowTo = useRange ? toDate! : new Date();
+      const blindStretches = liveRows.length
+        ? await loadBlindStretches(liveVehicleIds, windowFrom, windowTo)
         : new Map();
-      let vehicleTrips = buildVehicleTrips(liveRows, blindOrigins);
+      let vehicleTrips = buildVehicleTrips(liveRows, blindStretches);
       const liveTripCount = vehicleTrips.reduce((s, v) => s + v.trips.length, 0);
 
       // The live window can be non-empty (parked heartbeat pings) yet contain
