@@ -61,6 +61,7 @@ import { GreenDrivingBadge } from '@/components/dashboard/GreenDrivingBadge';
 import { DashboardKpis } from '@/components/dashboard/DashboardKpis';
 import { DriverSettingsPanel } from '@/components/dashboard/DriverSettingsPanel';
 import { FuelPricePanel } from '@/components/dashboard/FuelPricePanel';
+import { CompanySettingsPanel } from '@/components/dashboard/CompanySettingsPanel';
 import { OdometerSettingsPanel } from '@/components/dashboard/OdometerSettingsPanel';
 import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
 import { PowerUnplugBanner } from '@/components/dashboard/PowerUnplugBanner';
@@ -303,7 +304,7 @@ export default function DashboardPage() {
   const tripFallbackRef = useLatest(tripFallback);
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
   const [fuelEventCount, setFuelEventCount] = useState(0);
-  const { customer: cachedCustomer, setCustomer: cacheCustomer, clearAuth } = useAuthStore();
+  const { setCustomer: cacheCustomer, clearAuth } = useAuthStore();
   const activeViewRef = useLatest(activeView);
 
   const selectedVehicle = useMemo(
@@ -379,8 +380,13 @@ export default function DashboardPage() {
 
   const loadDashboard = async () => {
     try {
+      // Read the store at call time, not the `cachedCustomer` this closure was
+      // created with: the refresh interval keeps the mount-time closure alive,
+      // and a rename made since would be overwritten by the stale copy on the
+      // next tick.
+      const storedCustomer = useAuthStore.getState().customer;
       const [meOrNull, fleetRows, alertList, anomalyList, fuelEvents] = await Promise.all([
-        cachedCustomer ? Promise.resolve(cachedCustomer) : api<Customer>('/auth/me'),
+        storedCustomer ? Promise.resolve(storedCustomer) : api<Customer>('/auth/me'),
         api<FleetVehicle[]>('/vehicles/fleet'),
         // Enough rows for the alert-detail section to enumerate the count the
         // summary headlines. The queue above it still shows a shortlist.
@@ -389,7 +395,7 @@ export default function DashboardPage() {
         api<FuelEventsResponse>('/fuel-events').catch(() => null),
       ]);
       const me = meOrNull as Customer;
-      if (!cachedCustomer) cacheCustomer(me);
+      if (!storedCustomer) cacheCustomer(me);
 
       if (!me.onboarding_completed && fleetRows.length === 0) {
         router.replace('/onboarding');
@@ -1406,6 +1412,7 @@ export default function DashboardPage() {
                 </div>
               </Panel>
 
+              <CompanySettingsPanel customer={customer} onChanged={setCustomer} />
               <NotificationSettingsPanel />
               <FuelPricePanel />
               <OdometerSettingsPanel fleet={fleet} onChanged={loadDashboard} />
