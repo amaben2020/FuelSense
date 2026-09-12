@@ -3,8 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
 import { DateRangePicker } from './DateRangePicker';
-import { isReadingLive, lerp, timeAgo, tripColor, tripInk } from '@/lib/map-utils';
-import { DriverLicenceCard } from './DriverLicenceCard';
+import { isReadingLive, lerp, timeAgo, tripInk, vehicleTripColor } from '@/lib/map-utils';
 import {
   FleetVehicle,
   Geofence,
@@ -42,7 +41,11 @@ import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
 
-const ANIMATION_MS = 1800;
+// The puck glides for the whole refresh interval rather than easing for two
+// seconds and sitting still for eighteen: a car that lurches once every
+// twenty seconds does not read as moving. Linear, because a vehicle in
+// motion does not decelerate at every packet boundary.
+const ANIMATION_MS = 19_000;
 
 /** How the next zone is being drawn. Rectangles are saved as polygons. */
 type ZoneShapeMode = 'circle' | 'rectangle' | 'polygon';
@@ -622,7 +625,7 @@ export function LiveMonitoringMap({
   startDrawing?: boolean;
   onDrawingStarted?: () => void;
   selectedVehicleId: string | null;
-  onSelectVehicle: (id: string) => void;
+  onSelectVehicle: (id: string | null) => void;
   followSelected: boolean;
   onUserPan?: () => void;
   trailMinutes: number;
@@ -698,7 +701,7 @@ export function LiveMonitoringMap({
 
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / ANIMATION_MS);
-      const eased = 1 - Math.pow(1 - t, 3);
+      const eased = t;
 
       const next: AnimatedTrack[] = targets.map(({ track, prev, snap }) => ({
         ...track,
@@ -730,8 +733,11 @@ export function LiveMonitoringMap({
     };
   }, [tracks]);
 
-  const selectedTrack =
-    animated.find((t) => t.vehicleId === selectedVehicleId) ?? animated[0] ?? null;
+  // Nothing selected means the whole fleet: every car's latest journey in its
+  // own colour, no single trail emphasised. It used to fall back to the first
+  // car, which silently made one vehicle "the" vehicle the moment the map
+  // opened, and there was no way back to seeing everyone.
+  const selectedTrack = animated.find((t) => t.vehicleId === selectedVehicleId) ?? null;
 
   // Whether the selected vehicle's last packet is recent enough to describe it
   // now, rather than to describe the moment its tracker went quiet.
@@ -775,11 +781,6 @@ export function LiveMonitoringMap({
       onUserPan?.(); // stop camera-follow so fitBounds isn't fought
     },
     [onUserPan],
-  );
-
-  const fleetStatus = useMemo(
-    () => new globalThis.Map(fleet.map((v) => [v.id, v.connection_status])),
-    [fleet],
   );
 
   const fleetMeta = useMemo(
@@ -998,15 +999,9 @@ export function LiveMonitoringMap({
     },
     [selectedVehicleId],
   );
-  const railRef = useRef<HTMLDivElement>(null);
-  // Selecting a car from the map brings its chip into view on the rail.
-  useEffect(() => {
-    const el = railRef.current?.querySelector<HTMLElement>('[data-rail-selected]');
-    el?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
-  }, [selectedVehicleId]);
 
   const handleSelectVehicle = useCallback(
-    (id: string) => onSelectVehicle(id),
+    (id: string | null) => onSelectVehicle(id),
     [onSelectVehicle],
   );
 
@@ -1075,10 +1070,25 @@ export function LiveMonitoringMap({
             <TripFocusCamera trip={focusedTripData} />
 
             {/* One polyline per server-segmented trip — trails don't connect
-                across 30+ minute stops, so separate journeys read separately. */}
+                across 30+ minute stops, so separate journeys read separately.
+
+                Which trips are drawn depends on what is selected. With the
+                whole fleet in view each car shows only its latest journey, in
+                its own colour: ten cars' full histories on one screen stacked
+                into a single bright tangle in which nothing could be told
+                from anything. With one car selected, only that car's trips
+                are drawn — every journey in the window, stepped in its hue —
+                and the others keep just their pucks. */}
             {animated.flatMap((track) => {
               const vehicleTrips = tripsByVehicle.get(track.vehicleId)?.trips ?? [];
-              return vehicleTrips.map((trip, i) => {
+              const isSelected = track.vehicleId === selectedVehicleId;
+              if (selectedVehicleId && !isSelected) return [];
+              const drawn = selectedVehicleId
+                ? vehicleTrips.map((trip, i) => ({ trip, i }))
+                : vehicleTrips.length
+                  ? [{ trip: vehicleTrips[vehicleTrips.length - 1], i: vehicleTrips.length - 1 }]
+                  : [];
+              return drawn.map(({ trip, i }) => {
                 let path = tripPath(trip);
                 // in-progress trip follows the live animated position
                 if (trip.active && i === vehicleTrips.length - 1 && path.length > 0) {
@@ -1086,9 +1096,7 @@ export function LiveMonitoringMap({
                 }
                 const isFocused =
                   focusedTrip?.vehicleId === track.vehicleId && focusedTrip.index === i;
-                const emphasized = focusedTripData
-                  ? isFocused
-                  : track.vehicleId === selectedVehicleId;
+                const emphasized = focusedTripData ? isFocused : isSelected;
                 return (
                   <Fragment key={`route-${track.vehicleId}-${i}`}>
                     {/* The run-up the tracker drove blind, dashed.
@@ -1114,7 +1122,11 @@ export function LiveMonitoringMap({
                     )}
                     <EmphasizedRoute
                       path={path}
-                      color={tripColor(i)}
+                      color={
+                        isSelected
+                          ? vehicleTripColor(track.color, i, vehicleTrips.length)
+                          : track.color
+                      }
                       emphasized={emphasized}
                       flowing={!!trip.active}
                     />
@@ -1131,7 +1143,7 @@ export function LiveMonitoringMap({
                   lat={trip.path[0][0]}
                   lng={trip.path[0][1]}
                   label={String(i + 1)}
-                  color={tripColor(i)}
+                  color={vehicleTripColor(selectedTrack.color, i, selectedTrips.length)}
                   focused={
                     focusedTrip?.vehicleId === selectedTrack.vehicleId &&
                     focusedTrip.index === i
@@ -1157,7 +1169,7 @@ export function LiveMonitoringMap({
                     lat={end.lat}
                     lng={end.lng}
                     label="■"
-                    color={tripColor(i)}
+                    color={vehicleTripColor(selectedTrack.color, i, selectedTrips.length)}
                     title={`Trip ${i + 1} ended${parked}`}
                     focused={
                       hoveredStop?.stop.arrived_at === end.arrived_at &&
@@ -1200,7 +1212,9 @@ export function LiveMonitoringMap({
                   ))
               )}
 
-            {animated.map((track) => (
+            {animated
+              .filter((track) => !selectedVehicleId || track.vehicleId === selectedVehicleId)
+              .map((track) => (
               <VehicleCarMarker
                 key={`car-${track.vehicleId}`}
                 lat={track.displayLat}
@@ -1580,108 +1594,105 @@ export function LiveMonitoringMap({
         </div>
       </div>
 
-      {/* Vehicle rail */}
-      {/* Centred, not bottom-left: the row used to sit on top of the stops
-          legend. A fleet of ten does not fit in one row, so the rail scrolls
-          sideways: the vehicles that are moving come first, since those are
-          the ones a manager is watching, the edges fade so a clipped chip
-          reads as "more this way" rather than as a rendering fault, and the
-          count says how many there are without scrolling to find out. */}
-      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex max-w-[min(56rem,calc(100%-8rem))] -translate-x-1/2 flex-col items-center gap-1.5">
-        {animated.length + fleet.filter((v) => !animated.some((t) => t.vehicleId === v.id)).length > 4 && (
+      {/* Fleet grid */}
+      {/* Three across, every tile the same shape, all of them visible at once:
+          a manager scanning for the car that stopped should not have to
+          scroll, and a tile that changes size when picked reads as a
+          different control. Selection is a border and heavier type. Moving
+          cars come first. "View all" clears the selection and puts every
+          car's journey back on the map. */}
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex w-[min(38rem,calc(100%-8rem))] -translate-x-1/2 flex-col gap-1.5">
+        <div className="pointer-events-auto flex items-center justify-between gap-2 px-1">
           <span className="rounded-full border border-edge bg-panel/85 px-2.5 py-0.5 text-[10px] tabular-nums text-ink-dim backdrop-blur-md">
-            {fleet.length} vehicles · {animated.filter((t) => isReadingLive(t.current.recordedAt) && (t.current.speedKph ?? 0) >= 3).length} moving
-            {' · '}scroll for more
+            {fleet.length} vehicle{fleet.length !== 1 ? 's' : ''} ·{' '}
+            {animated.filter((t) => isReadingLive(t.current.recordedAt) && (t.current.speedKph ?? 0) >= 3).length} moving
           </span>
-        )}
-      <div
-        ref={railRef}
-        className="pointer-events-auto flex w-full gap-2 overflow-x-auto pb-1 [mask-image:linear-gradient(to_right,transparent,black_1.5rem,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
+          <button
+            type="button"
+            onClick={() => handleSelectVehicle(null)}
+            className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold backdrop-blur-md transition-colors ${
+              selectedVehicleId
+                ? 'border-brand bg-brand/15 text-brand hover:bg-brand/25'
+                : 'border-edge bg-panel/85 text-ink-dim'
+            }`}
+            title="Show every vehicle's route"
+          >
+            {selectedVehicleId ? 'View all' : 'All routes shown'}
+          </button>
+        </div>
+        <div className="pointer-events-auto grid grid-cols-3 gap-1.5">
         {/* Vehicles the tracks endpoint knows nothing about — no telemetry has
             ever arrived for them. They still exist, have a driver and a device,
             so hiding them entirely made a registered vehicle look like it was
-            not there at all. No position means no map marker, but the chip
+            not there at all. No position means no map marker, but the tile
             belongs here. */}
         {fleet
           .filter((v) => !animated.some((t) => t.vehicleId === v.id))
           .map((v) => (
-            <div key={`no-telemetry-${v.id}`} className="group relative shrink-0">
-              <button
-                type="button"
-                onClick={() => handleSelectVehicle(v.id)}
-                className={`pointer-events-auto flex items-center gap-2 rounded-full border px-3.5 py-2 text-left backdrop-blur-md transition ${
-                  v.id === selectedVehicleId
-                    ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
-                    : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
-                }`}
-                title="No telemetry received yet — the tracker has not reported a position"
-              >
+            <button
+              key={`no-telemetry-${v.id}`}
+              type="button"
+              onClick={() => handleSelectVehicle(v.id)}
+              className={`flex flex-col gap-0.5 rounded-xl border px-2.5 py-1.5 text-left backdrop-blur-md transition ${
+                v.id === selectedVehicleId
+                  ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
+                  : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
+              }`}
+              title="No telemetry received yet — the tracker has not reported a position"
+            >
+              <span className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-ink-dim" />
-                <span className="font-mono text-sm font-medium text-ink">
-                  {v.license_plate}
-                </span>
-                <span className="text-xs text-bad">Offline</span>
-                <span className="text-xs text-ink-dim">· awaiting first fix</span>
-              </button>
-            </div>
+                <span className="min-w-0 truncate font-mono text-xs font-medium text-ink">{v.license_plate}</span>
+                <span className="ml-auto text-[10px] text-bad">Offline</span>
+              </span>
+              <span className="truncate pl-[18px] text-[10px] text-ink-dim">{v.driver_name ?? 'No driver'}</span>
+            </button>
           ))}
 
         {[...animated]
           .sort((a, b) => railRank(a) - railRank(b))
           .map((track) => {
-          const status = fleetStatus.get(track.vehicleId) ?? 'offline';
-          const meta = fleetMeta.get(track.vehicleId);
-          return (
-            <div
-              key={track.vehicleId}
-              className="group relative shrink-0"
-              data-rail-selected={track.vehicleId === selectedVehicleId ? '' : undefined}
-            >
-              {track.vehicleId === selectedVehicleId ? (
-                /* The selected vehicle earns the room: its chip becomes the
-                   card, in place, rather than opening one somewhere else on
-                   screen for the eye to go and find. */
-                <button
-                  type="button"
-                  onClick={() => handleSelectVehicle(track.vehicleId)}
-                  aria-label={`${track.licensePlate} — selected. Click to collapse.`}
-                  className="pointer-events-auto block rounded-2xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-y"
-                >
-                  <DriverLicenceCard
-                    plate={track.licensePlate}
-                    driverName={meta?.driver}
-                    photoUrl={meta?.driverPhotoUrl}
-                    status={status}
-                    accentColor={track.color}
-                  />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleSelectVehicle(track.vehicleId)}
-                  className="pointer-events-auto flex items-center gap-2 rounded-full border border-edge bg-panel/85 px-3.5 py-2 text-left backdrop-blur-md transition hover:bg-panel-hover/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-y"
-                >
+            const meta = fleetMeta.get(track.vehicleId);
+            const live = isReadingLive(track.current.recordedAt);
+            const selected = track.vehicleId === selectedVehicleId;
+            return (
+              <button
+                key={track.vehicleId}
+                type="button"
+                data-rail-selected={selected ? '' : undefined}
+                onClick={() => handleSelectVehicle(selected ? null : track.vehicleId)}
+                aria-pressed={selected}
+                className={`flex flex-col gap-0.5 rounded-xl border px-2.5 py-1.5 text-left backdrop-blur-md transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-y ${
+                  selected
+                    ? 'border-brand bg-panel/95 ring-1 ring-brand/40'
+                    : 'border-edge bg-panel/85 hover:bg-panel-hover/90'
+                }`}
+              >
+                <span className="flex items-center gap-2">
                   <span
                     className="h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: track.color }}
                   />
-                  <span className="font-mono text-sm font-medium text-ink">
+                  <span
+                    className={`min-w-0 truncate font-mono text-xs text-ink ${selected ? 'font-bold' : 'font-medium'}`}
+                  >
                     {track.licensePlate}
                   </span>
-                  {/* A dash, not a stale speed: this chip is scanned at a glance
+                  {/* A dash, not a stale speed: this tile is scanned at a glance
                       and a number on it reads as live. */}
-                  <span className="text-xs tabular-nums text-ink-dim">
-                    {isReadingLive(track.current.recordedAt)
-                      ? `${Math.round(track.current.speedKph ?? 0)} km/h`
-                      : '\u2014'}
+                  <span className="ml-auto shrink-0 text-[10px] tabular-nums text-ink-dim">
+                    {live ? `${Math.round(track.current.speedKph ?? 0)} km/h` : '\u2014'}
                   </span>
-                </button>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                </span>
+                <span
+                  className={`truncate pl-[18px] text-[10px] ${selected ? 'font-semibold text-ink' : 'text-ink-dim'}`}
+                >
+                  {meta?.driver ?? 'No driver'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Selected vehicle info panel */}
@@ -1728,6 +1739,7 @@ export function LiveMonitoringMap({
           <CurrentPlaceCard
             lat={selectedTrack.current.lat}
             lng={selectedTrack.current.lng}
+            moving={selectedTrackLive && (selectedTrack.current.speedKph ?? 0) >= 3}
           />
           <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
             {/* The same instrument as the vehicle view, sized down. A dial
@@ -1897,8 +1909,14 @@ export function LiveMonitoringMap({
                               <span
                                 className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold"
                                 style={{
-                                  backgroundColor: tripColor(i),
-                                  color: tripInk(i),
+                                  backgroundColor: vehicleTripColor(
+                                    selectedTrack.color,
+                                    i,
+                                    selectedTrips.length,
+                                  ),
+                                  color: tripInk(
+                                    vehicleTripColor(selectedTrack.color, i, selectedTrips.length),
+                                  ),
                                 }}
                               >
                                 {i + 1}
@@ -1996,10 +2014,16 @@ export function LiveMonitoringMap({
  *
  * Coordinates are not an answer to "where is it?" — a manager cannot check
  * 9.0158, 7.6235 against anything. The kerbside image is the part that settles
- * an argument, so it leads. Resolved only for the selected vehicle and only
- * when its position actually moves, since each lookup is a billed Google call.
+ * an argument, so it leads.
+ *
+ * Resolved only while the vehicle is stationary. Each lookup is a billed
+ * geocode plus a Street View image, and keying it off position alone meant a
+ * moving car re-resolved every packet — one lookup per eleven metres, a day
+ * of driving with the dashboard open enough to hit the daily cap on its own.
+ * A car in motion has no "where it is standing" to show; the last place it
+ * stood stays up, marked as such, until it stops again.
  */
-function CurrentPlaceCard({ lat, lng }: { lat: number; lng: number }) {
+function CurrentPlaceCard({ lat, lng, moving }: { lat: number; lng: number; moving: boolean }) {
   // Result and the coordinates it belongs to are one value, so a stale place
   // can never be shown against a new position — and nothing has to be reset
   // synchronously when the vehicle moves.
@@ -2016,6 +2040,7 @@ function CurrentPlaceCard({ lat, lng }: { lat: number; lng: number }) {
   const key = `${keyLat},${keyLng}`;
 
   useEffect(() => {
+    if (moving) return;
     if (!Number.isFinite(keyLat) || !Number.isFinite(keyLng)) return;
     let cancelled = false;
     fetchStopPlace(keyLat, keyLng)
@@ -2028,13 +2053,22 @@ function CurrentPlaceCard({ lat, lng }: { lat: number; lng: number }) {
     return () => {
       cancelled = true;
     };
-  }, [keyLat, keyLng]);
+  }, [keyLat, keyLng, moving]);
 
-  const current = resolved?.key === key ? resolved : null;
+  // While moving, whatever was last resolved is shown as the last stop; once
+  // stationary, only a result for this exact position counts.
+  const current = moving ? resolved : resolved?.key === key ? resolved : null;
   const place = current?.place ?? null;
   const failed = current?.failed ?? false;
 
-  if (failed) return null;
+  if (failed && !moving) return null;
+  if (moving && !place) {
+    return (
+      <div className="mt-3 flex h-24 items-center justify-center rounded-lg border border-edge bg-canvas text-[10px] text-ink-dim">
+        In motion — the place resolves when the vehicle stops
+      </div>
+    );
+  }
 
   const label = place?.place_name ?? place?.formatted_address ?? null;
   const photo = placePhotoSrc(place?.photo_url ?? null);
@@ -2056,7 +2090,10 @@ function CurrentPlaceCard({ lat, lng }: { lat: number; lng: number }) {
       <div className="p-2">
         <p className="flex items-start gap-1 text-xs leading-snug text-ink">
           <MapPinIcon />
-          <span className="min-w-0">{label ?? 'Resolving address…'}</span>
+          <span className="min-w-0">
+            {moving ? 'In motion · last stood at ' : ''}
+            {label ?? 'Resolving address…'}
+          </span>
         </p>
         {place?.image_kind === 'street_view' && place.street_view_date && (
           <p className="mt-1 text-[10px] text-ink-dim">

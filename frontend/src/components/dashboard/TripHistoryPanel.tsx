@@ -641,7 +641,7 @@ export function TripHistoryPanel({
                             )}
                             <span
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
-                              style={{ backgroundColor: tripColor(tripIndex), color: tripInk(tripIndex) }}
+                              style={{ backgroundColor: tripColor(tripIndex), color: tripInk(tripColor(tripIndex)) }}
                             >
                               {tripIndex + 1}
                             </span>

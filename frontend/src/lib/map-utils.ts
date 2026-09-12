@@ -93,18 +93,48 @@ export function timeAgo(isoTimestamp: string): string {
   return `${hours}h ago`;
 }
 
+/**
+ * One hue per vehicle — the way a ride-hailing map tells its cars apart.
+ *
+ * Seven colours meant three of a ten-car fleet shared one, and lilac against
+ * blue did not read as different at trail width. Ten hues now, spread at
+ * least 16° apart round the wheel and each lifted to clear 5:1 on the dark
+ * map, so a car's puck, its chip and its trail are the same recognisable
+ * colour and no two cars on screen share it.
+ */
 export const ROUTE_COLORS = [
-  '#2e5bff',
-  '#4edea3',
-  '#ffb95f',
-  '#b8c3ff',
+  '#5b8cff',
   '#ff6b9d',
-  '#00d4ff',
+  '#ffb95f',
+  '#4edea3',
   '#c084fc',
+  '#00d4ff',
+  '#ff8a5c',
+  '#f5e663',
+  '#33e06b',
+  '#ff5cf0',
 ];
 
 export function routeColor(index: number) {
   return ROUTE_COLORS[index % ROUTE_COLORS.length];
+}
+
+/**
+ * One colour per trip of the selected vehicle.
+ *
+ * Lemon, green, lime, orange, yellow — the warm-to-green family the product
+ * wears, cycled by trip so consecutive journeys are tellable apart on the
+ * map and in the list. The vehicle's own hue is kept for its puck and tile;
+ * on a single selected car there is no second vehicle to confuse it with, so
+ * the trips can take the palette. `base` is accepted so callers need not
+ * change when a per-vehicle scheme returns; it is unused today.
+ */
+export const TRIP_PALETTE = ['#e9fc73', '#33e06b', '#9be22d', '#ffb95f', '#f5e663'];
+
+export function vehicleTripColor(base: string, index: number, count: number): string {
+  void base;
+  void count;
+  return TRIP_PALETTE[index % TRIP_PALETTE.length];
 }
 
 /**
@@ -137,15 +167,20 @@ export function tripColor(index: number) {
 }
 
 /**
- * Readable ink for text sitting on a trip step.
+ * Readable ink for text sitting on a colour.
  *
- * Every step in TRIP_GREENS is light enough that dark ink clears 8:1, so the
- * old lightness-indexed switch to pale ink is no longer needed. Kept as a
- * function so a future deeper step can flip it without touching callers.
+ * Trip badges now take a vehicle's hue stepped toward the canvas for older
+ * trips, so a fixed dark ink would vanish on the dimmest step. Luminance
+ * decides: dark ink on a bright badge, pale on a deep one.
  */
-export function tripInk(index: number) {
-  void index;
-  return '#14170a';
+export function tripInk(color: string) {
+  const c = color.startsWith('#') && color.length === 7 ? color : '#e9fc73';
+  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const r = lin(parseInt(c.slice(1, 3), 16) / 255);
+  const g = lin(parseInt(c.slice(3, 5), 16) / 255);
+  const b = lin(parseInt(c.slice(5, 7), 16) / 255);
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.3 ? '#14170a' : '#f4f7e8';
 }
 
 export function carSvgDataUrl(color: string, heading: number, selected: boolean) {

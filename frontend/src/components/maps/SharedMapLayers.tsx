@@ -36,7 +36,6 @@ const CIRCLE_PATH = 'M 0 -1 A 1 1 0 1 0 0 1 A 1 1 0 1 0 0 -1 Z';
 
 // Chevron pointing along the direction of travel. Google rotates line symbols
 // to the segment angle, so this reads as a forward arrow anywhere on the path.
-const CHEVRON_PATH = 'M -1.1 -1.1 L 0.4 0 L -1.1 1.1';
 
 // How many pieces the emphasized trail is cut into to fade from tail to head.
 // Enough to look continuous at screen width, few enough to stay cheap.
@@ -75,9 +74,11 @@ function useMarchingOffset(active: boolean): number {
 
   useEffect(() => {
     if (!active) return;
+    // A step a tenth of a second at a third of a percent: perceptible as
+    // drift, never as a strobe.
     const id = setInterval(() => {
-      if (!document.hidden) setOffset((o) => (o + 3) % 100);
-    }, 80);
+      if (!document.hidden) setOffset((o) => (o + 0.35) % 100);
+    }, 100);
     return () => clearInterval(id);
   }, [active]);
 
@@ -204,29 +205,34 @@ export const EmphasizedRoute = memo(function EmphasizedRoute({
           />
         );
       })}
-      {/* Chevrons notched out of the core. Dark-on-lemon rather than a second
-          bright colour, so direction is legible without adding a hue. */}
-      <Polyline
-        path={path}
-        strokeOpacity={0}
-        strokeWeight={1}
-        geodesic
-        zIndex={3}
-        icons={[
-          {
-            icon: {
-              path: CHEVRON_PATH,
-              scale: 2.2,
-              strokeColor: '#0b0e13',
-              strokeOpacity: 0.85,
-              strokeWeight: 2,
-              fillOpacity: 0,
-            } as google.maps.Symbol,
-            offset: `${marchOffset}%`,
-            repeat: '52px',
-          },
-        ]}
-      />
+      {/* Flow. Short pale dashes drifting along the core toward the vehicle,
+          slow and faint. They replace the dark chevrons, which read as a
+          zig-zag of teeth once several trips shared a road; the drift alone
+          says which way the car went, and the fade of the core already says
+          where it is now. Drawn only while the trip is live: a finished
+          journey does not move. */}
+      {flowing && (
+        <Polyline
+          path={path}
+          strokeOpacity={0}
+          strokeWeight={1}
+          geodesic
+          zIndex={3}
+          icons={[
+            {
+              icon: {
+                path: 'M 0,-1 0,1',
+                scale: 3,
+                strokeColor: '#ffffff',
+                strokeOpacity: 0.45,
+                strokeWeight: 2,
+              } as google.maps.Symbol,
+              offset: `${marchOffset}%`,
+              repeat: '34px',
+            },
+          ]}
+        />
+      )}
     </>
   );
 });
