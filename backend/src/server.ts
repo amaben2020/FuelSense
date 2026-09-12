@@ -37,6 +37,7 @@ import { startDailyReportScheduler } from './lib/daily-report-mailer';
 import { startDeviceOfflineWatchdog } from './lib/device-offline-watchdog';
 import { startAlertRetentionSweep } from './lib/alert-retention';
 import { startDeviceFrameRetentionSweep } from './lib/frame-retention';
+import { startTelemetryPartitionSweep } from './lib/telemetry-partitions';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -221,6 +222,12 @@ const start = async () => {
   // row the platform writes, and nothing was ever deleting it — one vehicle
   // made 21 MB a month, so a fleet would grow this unbounded.
   startDeviceFrameRetentionSweep();
+
+  // Keeps next month's telemetry child in existence before a tracker needs
+  // it. A no-op until the table has been converted (npm run
+  // db:partition-telemetry); after that, the one thing standing between a
+  // month boundary and refused inserts.
+  startTelemetryPartitionSweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

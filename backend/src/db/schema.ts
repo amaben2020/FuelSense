@@ -224,6 +224,11 @@ export const devices = pgTable('devices', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Partitioned by month on recorded_at in production (lib/telemetry-partitions).
+// The real primary key there is (id, recorded_at) — Postgres requires the
+// partition column in it — so `drizzle-kit push` must NOT be run against that
+// database: it would try to reinstate the single-column key and fail, or worse.
+// Schema changes go through initDatabase's ensureColumn, as they already do.
 export const telemetry = pgTable('telemetry', {
   id: bigserial('id', { mode: 'number' }).primaryKey(),
   imei: varchar('imei', { length: 20 }).references(() => devices.imei),

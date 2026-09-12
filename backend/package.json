@@ -22,7 +22,8 @@
     "prom:grafana:logs": "../ops/observability/obs.sh logs",
     "prom:grafana:reload": "../ops/observability/obs.sh reload",
     "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "db:partition-telemetry": "tsx src/partition-telemetry.ts"
   },
   "keywords": [
     "teltonika",
