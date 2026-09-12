@@ -984,6 +984,27 @@ export function LiveMonitoringMap({
     userInteractedRef.current = true;
     onUserPan?.();
   }, [onUserPan]);
+  // Moving first, then parked-with-a-live-signal, then quiet: the rail is
+  // scanned for what is happening, and a parked car is not happening. The
+  // selected vehicle stays where it is so it does not jump under the cursor
+  // when its speed changes.
+  const railRank = useCallback(
+    (track: AnimatedTrack) => {
+      if (track.vehicleId === selectedVehicleId) return 0;
+      const live = isReadingLive(track.current.recordedAt);
+      if (live && (track.current.speedKph ?? 0) >= 3) return 1;
+      if (live) return 2;
+      return 3;
+    },
+    [selectedVehicleId],
+  );
+  const railRef = useRef<HTMLDivElement>(null);
+  // Selecting a car from the map brings its chip into view on the rail.
+  useEffect(() => {
+    const el = railRef.current?.querySelector<HTMLElement>('[data-rail-selected]');
+    el?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
+  }, [selectedVehicleId]);
+
   const handleSelectVehicle = useCallback(
     (id: string) => onSelectVehicle(id),
     [onSelectVehicle],
@@ -1559,11 +1580,24 @@ export function LiveMonitoringMap({
         </div>
       </div>
 
-      {/* Vehicle cards strip */}
+      {/* Vehicle rail */}
       {/* Centred, not bottom-left: the row used to sit on top of the stops
-          legend. Hovering a chip opens the full card, so the collapsed state
-          can stay small enough not to cover the map. */}
-      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex max-w-[min(46rem,calc(100%-8rem))] -translate-x-1/2 gap-2 overflow-x-auto pb-1">
+          legend. A fleet of ten does not fit in one row, so the rail scrolls
+          sideways: the vehicles that are moving come first, since those are
+          the ones a manager is watching, the edges fade so a clipped chip
+          reads as "more this way" rather than as a rendering fault, and the
+          count says how many there are without scrolling to find out. */}
+      <div className="pointer-events-none absolute bottom-4 left-1/2 z-20 flex max-w-[min(56rem,calc(100%-8rem))] -translate-x-1/2 flex-col items-center gap-1.5">
+        {animated.length + fleet.filter((v) => !animated.some((t) => t.vehicleId === v.id)).length > 4 && (
+          <span className="rounded-full border border-edge bg-panel/85 px-2.5 py-0.5 text-[10px] tabular-nums text-ink-dim backdrop-blur-md">
+            {fleet.length} vehicles · {animated.filter((t) => isReadingLive(t.current.recordedAt) && (t.current.speedKph ?? 0) >= 3).length} moving
+            {' · '}scroll for more
+          </span>
+        )}
+      <div
+        ref={railRef}
+        className="pointer-events-auto flex w-full gap-2 overflow-x-auto pb-1 [mask-image:linear-gradient(to_right,transparent,black_1.5rem,black_calc(100%-1.5rem),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {/* Vehicles the tracks endpoint knows nothing about — no telemetry has
             ever arrived for them. They still exist, have a driver and a device,
             so hiding them entirely made a registered vehicle look like it was
@@ -1593,11 +1627,17 @@ export function LiveMonitoringMap({
             </div>
           ))}
 
-        {animated.map((track) => {
+        {[...animated]
+          .sort((a, b) => railRank(a) - railRank(b))
+          .map((track) => {
           const status = fleetStatus.get(track.vehicleId) ?? 'offline';
           const meta = fleetMeta.get(track.vehicleId);
           return (
-            <div key={track.vehicleId} className="group relative shrink-0">
+            <div
+              key={track.vehicleId}
+              className="group relative shrink-0"
+              data-rail-selected={track.vehicleId === selectedVehicleId ? '' : undefined}
+            >
               {track.vehicleId === selectedVehicleId ? (
                 /* The selected vehicle earns the room: its chip becomes the
                    card, in place, rather than opening one somewhere else on
@@ -1641,6 +1681,7 @@ export function LiveMonitoringMap({
             </div>
           );
         })}
+      </div>
       </div>
 
       {/* Selected vehicle info panel */}
