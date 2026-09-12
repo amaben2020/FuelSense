@@ -246,10 +246,16 @@ export function isNotableBenchmarkChange(fraction: number | null): boolean {
 }
 
 /**
- * The price to value a period with, in priority order: the manager's benchmark
- * for that moment, then the newest receipt, then null. Callers that must show a
- * number fall back to DEFAULT_FUEL_PRICE_NGN_LITER themselves and should label
- * it as an assumption.
+ * The price to value a period with.
+ *
+ * Whichever is newer wins: the manager's benchmark in force at `at`, or the
+ * most recent receipt a driver paid on or before `at`. The benchmark used to
+ * win outright, which meant a manager who set ₦1,310 in August was still
+ * quoted ₦1,310 in September after a driver had paid ₦1,345 that morning —
+ * the receipt is the one figure nobody had to estimate, and a fill more
+ * recent than the benchmark is the better statement of what fuel costs now.
+ * Callers that must show a number fall back to DEFAULT_FUEL_PRICE_NGN_LITER
+ * themselves and should label it as an assumption.
  */
 export async function effectivePriceAt(
   customerId: string,
@@ -260,19 +266,35 @@ export async function effectivePriceAt(
   /** When this price took effect, so a caller can show what it is quoting. */
   asOf: Date;
 } | null> {
-  const benchmark = await benchmarkPriceAt(customerId, at);
-  if (benchmark) {
-    return {
-      ngnPerLiter: benchmark.ngnPerLiter,
-      source: 'benchmark',
-      asOf: benchmark.effectiveFrom,
-    };
-  }
+  const [benchmark, receipt] = await Promise.all([
+    benchmarkPriceAt(customerId, at),
+    receiptPriceAt(customerId, at),
+  ]);
 
-  const receipt = await latestReceiptPrice(customerId);
+  if (benchmark && (!receipt || benchmark.effectiveFrom >= receipt.asOf)) {
+    return { ngnPerLiter: benchmark.ngnPerLiter, source: 'benchmark', asOf: benchmark.effectiveFrom };
+  }
   if (receipt) {
     return { ngnPerLiter: receipt.ngnPerLiter, source: 'receipt', asOf: receipt.asOf };
   }
-
   return null;
+}
+
+/** The newest receipt price paid on or before `at`. */
+async function receiptPriceAt(customerId: string, at: Date): Promise<FuelPrice | null> {
+  const [row] = await db
+    .select({ price: fuelPurchases.costPerLiterNgn, at: fuelPurchases.purchasedAt })
+    .from(fuelPurchases)
+    .where(
+      and(
+        eq(fuelPurchases.customerId, customerId),
+        sql`${fuelPurchases.costPerLiterNgn} IS NOT NULL`,
+        sql`${fuelPurchases.costPerLiterNgn} > 0`,
+        sql`${fuelPurchases.purchasedAt} <= ${at}`
+      )
+    )
+    .orderBy(desc(fuelPurchases.purchasedAt))
+    .limit(1);
+  if (!row || row.at == null) return null;
+  return { ngnPerLiter: Number(row.price), asOf: row.at };
 }
