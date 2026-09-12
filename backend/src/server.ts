@@ -38,6 +38,7 @@ import { startDeviceOfflineWatchdog } from './lib/device-offline-watchdog';
 import { startAlertRetentionSweep } from './lib/alert-retention';
 import { startDeviceFrameRetentionSweep } from './lib/frame-retention';
 import { startTelemetryPartitionSweep } from './lib/telemetry-partitions';
+import { startTelemetryRetentionSweep } from './lib/telemetry-retention';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -229,6 +230,11 @@ const start = async () => {
   // month boundary and refused inserts.
   startTelemetryPartitionSweep();
 
+  // Off unless TELEMETRY_RETENTION_DAYS is set. The demo database sets it so
+  // the simulated fleet recycles a week at a time on a free tier; production
+  // does not, and keeps the fleet's history whole.
+  startTelemetryRetentionSweep();
+
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {
     console.log(`Express server running on port ${port}`);
@@ -241,8 +247,18 @@ const start = async () => {
     if (simulatorEnabled) {
       setTimeout(async () => {
         try {
-          const { runFleetSimulator } = await import('./fleet-simulator');
-          runFleetSimulator();
+          const { runFleetSimulator, withResolvedOrigins } = await import('./fleet-simulator');
+          // FLEET_SIM_PROFILES=blue-fleet plays the sales-demo fleet; anything
+          // else keeps the five-vehicle development set. Origins resolve from
+          // each device's last seeded fix, so the cars start where the week
+          // of history left them.
+          if (process.env.FLEET_SIM_PROFILES === 'blue-fleet') {
+            const { BLUE_FLEET_PROFILES } = await import('./lib/blue-fleet');
+            const profiles = await withResolvedOrigins(BLUE_FLEET_PROFILES);
+            runFleetSimulator(profiles);
+          } else {
+            runFleetSimulator();
+          }
           console.log('Fleet simulator started (dev only)');
         } catch (err) {
           console.warn(
@@ -258,6 +274,21 @@ const start = async () => {
     }
   });
 };
+
+// A hard stop for the demo backend. The demo database is a Neon free tier,
+// which bills compute by the hour the endpoint is awake — and it only sleeps
+// once every connection is gone. A backend left running on a laptop after a
+// demo holds its pool open all night and burns the month's allowance for
+// nothing. Unset in production, where the service is meant to run forever.
+const maxRuntimeHours = Number(process.env.MAX_RUNTIME_HOURS || 0);
+if (maxRuntimeHours > 0) {
+  const timer = setTimeout(() => {
+    console.log(`[max_runtime] ${maxRuntimeHours}h reached — exiting so the demo database can sleep`);
+    process.exit(0);
+  }, maxRuntimeHours * 3600_000);
+  timer.unref?.();
+  console.log(`[max_runtime] this process will exit after ${maxRuntimeHours}h`);
+}
 
 start().catch((error) => {
   console.error('Failed to start server:', error);
