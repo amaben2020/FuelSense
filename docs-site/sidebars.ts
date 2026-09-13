@@ -22,6 +22,7 @@ const sidebars: SidebarsConfig = {
         'data/driving-events',
         'data/pricing',
         'data/anomalies',
+        'data/immobilizer',
       ],
     },
     {
