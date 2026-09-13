@@ -123,12 +123,22 @@ export function AlertToasts({
 }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const seq = useRef(0);
+  // Read through a ref: driverFor is rebuilt on every fleet poll, and keying
+  // the effect on it re-ran the body for the same batch — the same alert
+  // toasted three times over, and the cleanup cancelled the timer that would
+  // have taken the first copy away, so none of them ever left.
+  const driverForRef = useRef(driverFor);
+  useEffect(() => {
+    driverForRef.current = driverFor;
+  }, [driverFor]);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   useEffect(() => {
     if (incoming.length === 0) return;
     const fresh: Toast[] = incoming.slice(0, MAX_VISIBLE).map((a) => {
       seq.current += 1;
-      const driver = driverFor(a.vehicle_id);
+      const driver = driverForRef.current(a.vehicle_id);
       return {
         key: seq.current,
         title: toastTitle(a.alert_type),
@@ -139,12 +149,14 @@ export function AlertToasts({
       };
     });
     setToasts((prev) => [...prev, ...fresh].slice(-MAX_VISIBLE));
+    // Each batch leaves on its own clock; a later batch must not reset it.
     const keys = fresh.map((t) => t.key);
-    const timer = setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => !keys.includes(t.key)));
-    }, TOAST_MS);
-    return () => clearTimeout(timer);
-  }, [incoming, driverFor]);
+    timers.current.push(
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => !keys.includes(t.key)));
+      }, TOAST_MS)
+    );
+  }, [incoming]);
 
   if (toasts.length === 0) return null;
 
