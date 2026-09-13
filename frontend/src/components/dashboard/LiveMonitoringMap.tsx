@@ -34,7 +34,7 @@ import {
   TripBadgeMarker,
   VehicleCarMarker,
 } from '@/components/maps/SharedMapLayers';
-import { Circle as CircleIcon, Crosshair, Minus, Pentagon, Plus, Square } from 'lucide-react';
+import { Circle as CircleIcon, Crosshair, Loader2, Minus, Pentagon, Plus, Square } from 'lucide-react';
 import { Compass } from '@/components/maps/Compass';
 import { Avatar } from '@/components/ui/chrome';
 import { ZONE_PURPOSE_LABEL } from '@/lib/trust-language';
@@ -131,6 +131,13 @@ function formatDuration(minutes: number): string {
 function formatRangeLabel({ from, to }: { from: string; to: string }): string {
   const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' };
   return `${new Date(from).toLocaleDateString([], opts)}–${new Date(to).toLocaleDateString([], opts)}`;
+}
+
+/** "24 hours", "7 days", "6 hours" — for the loading pill. */
+function trailLabel(minutes: number): string {
+  if (minutes % 1440 === 0) return `${minutes / 1440} day${minutes === 1440 ? '' : 's'}`;
+  if (minutes % 60 === 0) return `${minutes / 60} hour${minutes === 60 ? '' : 's'}`;
+  return `${minutes} minutes`;
 }
 
 /** Null when the draft range is valid — otherwise why Apply is disabled. */
@@ -604,6 +611,7 @@ function MapInteractionGuard({ onUserInteract }: { onUserInteract: () => void })
 export function LiveMonitoringMap({
   tracks,
   trips,
+  tripsLoading = false,
   fleet,
   startDrawing = false,
   onDrawingStarted,
@@ -621,6 +629,8 @@ export function LiveMonitoringMap({
 }: {
   tracks: VehicleTrack[];
   trips: TripsResponse | null;
+  /** A trail the user asked for is still on its way. */
+  tripsLoading?: boolean;
   fleet: FleetVehicle[];
   /** Arrive from the Geofencing page with the zone tool already armed. */
   startDrawing?: boolean;
@@ -1516,6 +1526,20 @@ export function LiveMonitoringMap({
           </Map>
         </APIProvider>
       </div>
+
+      {/* A day of trails for a whole fleet is a lot of points, and on a slow
+          link the map sits bare for seconds before they land. Say so. */}
+      {tripsLoading && (
+        <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
+          <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs text-white shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin text-accent" />
+            <span>
+              Drawing {selectedVehicleId ? 'the trail' : 'the trails'} for{' '}
+              {dateRange ? formatRangeLabel(dateRange) : `the last ${trailLabel(trailMinutes)}`}…
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Top header + controls overlay */}
       {/* Above the overlay cards (z-10): the date-range popover drops out of

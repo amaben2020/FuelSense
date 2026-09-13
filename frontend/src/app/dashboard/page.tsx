@@ -270,6 +270,7 @@ export default function DashboardPage() {
     () => buildVehicleTracks([] as TrackPoint[])
   );
   const [trips, setTrips] = useState<TripsResponse | null>(null);
+  const tripsRef = useLatest(trips);
   const [pendingTripFocus, setPendingTripFocus] = useState<{
     vehicleId: string;
     startAt: string;
@@ -296,6 +297,10 @@ export default function DashboardPage() {
   const [flags, setFlags] = useState<FeatureFlags>({});
   const [trailMinutes, setTrailMinutes] = useState(1440);
   const trailMinutesRef = useLatest(trailMinutes);
+  // True while a trail the user asked for is on its way — the first load and
+  // every range change. The silent 30 s refresh never sets it: a spinner that
+  // flickers over a map that already has its trails is noise.
+  const [tripsLoading, setTripsLoading] = useState(true);
   // Explicit calendar range from the date picker. When set it supersedes the
   // rolling preset above; clearing it returns to the presets.
   const [tripRange, setTripRange] = useState<{ from: string; to: string } | null>(null);
@@ -364,7 +369,8 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const loadTrips = useCallback(async () => {
+  const loadTrips = useCallback(async (opts: { announce?: boolean } = {}) => {
+    if (opts.announce) setTripsLoading(true);
     try {
       const range = tripRangeRef.current;
       const params = new URLSearchParams(
@@ -377,6 +383,8 @@ export default function DashboardPage() {
       setTrips(data);
     } catch {
       // no-op — keep existing trips on error
+    } finally {
+      if (opts.announce) setTripsLoading(false);
     }
   }, []);
 
@@ -555,7 +563,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (activeView !== 'live' || !getToken()) return;
     loadLiveTracks();
-    loadTrips();
+    loadTrips({ announce: tripsRef.current === null });
     const interval = setInterval(() => {
       if (!document.hidden) loadLiveTracks();
     }, LIVE_REFRESH_MS);
@@ -572,7 +580,7 @@ export default function DashboardPage() {
   // Re-fetch immediately when the user changes trail duration, picks a date
   // range, or opts into the historical widening
   useEffect(() => {
-    if (activeView === 'live' && getToken()) loadTrips();
+    if (activeView === 'live' && getToken()) loadTrips({ announce: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trailMinutes, tripRange, tripFallback]);
 
@@ -1201,6 +1209,7 @@ export default function DashboardPage() {
               <LiveMonitoringMap
                 tracks={liveTracks}
                 trips={trips}
+                tripsLoading={tripsLoading}
                 fleet={fleet}
                 startDrawing={autoDrawZone}
                 onDrawingStarted={() => setAutoDrawZone(false)}
