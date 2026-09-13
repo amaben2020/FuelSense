@@ -19,6 +19,7 @@ const ALERT_TONE: Record<string, 'bad' | 'warn' | 'good' | 'neutral'> = {
   device_offline: 'bad',
   immobilizer_engaged: 'bad',
   immobilizer_released: 'good',
+  doors_locked: 'good',
   unlogged_fill: 'warn',
   excessive_idle: 'warn',
   idle_fuel_waste: 'warn',

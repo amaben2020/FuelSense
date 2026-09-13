@@ -4,6 +4,12 @@ const {
   idleFuelBurnLiters,
 } = require('./fuel-metrics');
 const { loopForProfile } = require('./lagos-routes');
+const {
+  DOUT1_AVL_ID,
+  DOUT2_AVL_ID,
+  parseSetDigoutCommand,
+  formatSetDigoutReply,
+} = require('./teltonika-dout');
 
 /**
  * Stateful virtual FMC150 — Uber-style routes, physics-based fuel + odometer.
@@ -65,6 +71,16 @@ class VehicleSimulator {
     // loop through the day, back to the office from `returnHourUtc`, parked
     // there until the next shift. Profiles without a depot just loop.
     this.depot = profile.depot ?? null;
+    // The two open-collector outputs, as the firmware holds them. DOUT1 is
+    // taken to drive a relay in the starter circuit: while it is high the
+    // engine cannot be started, and the car stays where it is.
+    this.dout = [0, 0];
+    this.doutTimeouts = [0, 0];
+    // When a timed output drops again, per output (ms epoch; 0 = never).
+    this.doutRevertAt = [0, 0];
+    // A setdigout received above its speed ceiling waits here until the car
+    // has slowed, the way the firmware queues it.
+    this.pendingDigout = null;
     this.loopWaypoints = this.waypoints;
     this.mode = 'loop';
     this.lapDone = false;
@@ -120,6 +136,57 @@ class VehicleSimulator {
       this.speedKph = 0;
       this.phaseTicks = 0;
     }
+  }
+
+  /**
+   * A GPRS command, answered the way the real unit answers it. `setdigout`
+   * follows Teltonika's syntax: a level per output (`?` leaves one alone), an
+   * optional timeout, and an optional speed ceiling above which the command
+   * is held until the car slows.
+   */
+  handleCommand(text) {
+    const digout = parseSetDigoutCommand(text);
+    if (digout) {
+      this._applyDigout(digout, false);
+      return formatSetDigoutReply(this.dout, this.doutTimeouts);
+    }
+    const word = text.trim().split(/\s+/)[0]?.toLowerCase();
+    if (word === 'getio') {
+      return `DI1:${this.ignitionOn ? 1 : 0} DI2:0 DO1:${this.dout[0]} DO2:${this.dout[1]} AIN1:0 AIN2:0`;
+    }
+    return 'unknown command or invalid format';
+  }
+
+  _applyDigout(digout, fromQueue) {
+    const held = { levels: [null, null], timeouts: [null, null], maxSpeeds: [null, null] };
+    let anyHeld = false;
+    digout.levels.forEach((level, i) => {
+      if (level == null) return;
+      const ceiling = digout.maxSpeeds[i];
+      if (!fromQueue && ceiling != null && this.speedKph > ceiling) {
+        held.levels[i] = level;
+        held.timeouts[i] = digout.timeouts[i];
+        held.maxSpeeds[i] = ceiling;
+        anyHeld = true;
+        return;
+      }
+      this.dout[i] = level;
+      this.doutTimeouts[i] = digout.timeouts[i] ?? 0;
+      this.doutRevertAt[i] =
+        level === 1 && this.doutTimeouts[i] > 0 ? Date.now() + this.doutTimeouts[i] * 1000 : 0;
+    });
+    this.pendingDigout = anyHeld ? held : null;
+  }
+
+  /** A timed output drops on its own once its timeout has run, as on the real unit. */
+  _expireDigouts() {
+    this.doutRevertAt.forEach((at, i) => {
+      if (at && Date.now() >= at) {
+        this.dout[i] = 0;
+        this.doutTimeouts[i] = 0;
+        this.doutRevertAt[i] = 0;
+      }
+    });
   }
 
   /** Whether `nowMs` falls inside the profile's working day. */
@@ -261,6 +328,24 @@ class VehicleSimulator {
       if (this.mode === 'loop') this._advancePhase();
     }
 
+    this._expireDigouts();
+    // A held setdigout goes through once the car is under its ceiling.
+    if (this.pendingDigout) {
+      const ceiling = Math.min(
+        ...this.pendingDigout.maxSpeeds.filter((v) => v != null)
+      );
+      if (this.speedKph <= ceiling) this._applyDigout(this.pendingDigout, true);
+    }
+
+    // The relay: with DOUT1 high the starter circuit is open, so whatever
+    // the day's plan says, the car does not start. It parks where it is and
+    // stays there until the output drops.
+    if (this.dout[0] === 1) {
+      this.phase = 'parked';
+      this.ignitionOn = false;
+      this.speedKph = 0;
+    }
+
     let theftSimulated = false;
     const intervalHours = this.tickIntervalMs / 3600000;
 
@@ -329,8 +414,17 @@ class VehicleSimulator {
       ignitionOn: this.ignitionOn,
       headingDeg: (this.heading * 180) / Math.PI,
       eventId: scenarioEvent?.eventId ?? 0,
-      extraIo: scenarioEvent?.ioElements ?? [],
-      meta: { theftSimulated, scenarioEventId: scenarioEvent?.eventId, offShift },
+      extraIo: [
+        { id: DOUT1_AVL_ID, size: 1, value: this.dout[0] },
+        { id: DOUT2_AVL_ID, size: 1, value: this.dout[1] },
+        ...(scenarioEvent?.ioElements ?? []),
+      ],
+      meta: {
+        theftSimulated,
+        scenarioEventId: scenarioEvent?.eventId,
+        offShift,
+        immobilized: this.dout[0] === 1,
+      },
     });
   }
 

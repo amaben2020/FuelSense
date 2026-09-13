@@ -191,6 +191,28 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
   },
   113: { label: 'Battery level', group: 'electrical', unit: '%' },
 
+  179: {
+    label: 'Digital output 1',
+    group: 'electrical',
+    states: { 0: 'Low', 1: 'High' },
+    description:
+      'The level the tracker is holding on its DOUT1 pin, which drives the immobilizer relay in the starter circuit. High means the engine-start cutoff is engaged. This is the device reporting what it is actually doing, not what it was asked to do.',
+  },
+  180: {
+    label: 'Digital output 2',
+    group: 'electrical',
+    states: { 0: 'Low', 1: 'High' },
+    description:
+      'The level on the tracker’s second output pin, which drives the central-locking relay. It goes high for one second when the doors are locked from the dashboard.',
+  },
+  248: {
+    label: 'Driver authorisation',
+    group: 'engine',
+    states: { 0: 'No key presented', 1: 'Authorised key', 2: 'Unauthorised key' },
+    description:
+      'The tracker’s own immobilizer scenario, where a driver must present an iButton or RFID key after turning the ignition on or the output blocks the engine. A configurator feature, separate from the remote cutoff the dashboard sends.',
+  },
+
   181: {
     label: 'GNSS PDOP',
     group: 'gnss',

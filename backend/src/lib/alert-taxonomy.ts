@@ -44,6 +44,7 @@ const CLASSIFICATION: Record<string, AlertClass> = {
   geofence_exit: 'informational',
   immobilizer_engaged: 'informational',
   immobilizer_released: 'informational',
+  doors_locked: 'informational',
 
   // The device-offline watchdog raises and clears these itself as the tracker
   // comes and goes, so they must not be swept or scored here.

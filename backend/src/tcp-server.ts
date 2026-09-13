@@ -21,6 +21,13 @@ import {
 import { handleFuelStopForRecord } from './lib/fuel-stop-detector';
 import { handlePowerForRecord } from './lib/power-monitor';
 import {
+  flushQueuedCommand,
+  handleCommandReply,
+  handleDoutReading,
+  registerCommandLink,
+} from './lib/immobilizer';
+import { DOUT1_AVL_ID } from './lib/teltonika-dout';
+import {
   applyBurnCarry,
   shouldSkipTelemetryRow,
   FloorState,
@@ -160,6 +167,10 @@ tcpServer.on('init', async (device: TeltonikaDevice) => {
       device.imei,
       `accepted customer=${device.customerId} vehicle=${device.vehicleId}`
     );
+
+    // Codec 12 only travels on a connection the device opened, so a command
+    // that found no socket waits here for the next handshake.
+    await flushQueuedCommand(device.imei);
   } catch (error) {
     tcpHandshakesTotal.inc({ outcome: 'error' });
     console.error(`Error in init event for device ${device.imei}:`, error);
@@ -430,6 +441,17 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
       console.error(`[trip_notifier] failed for ${device.imei}:`, err);
     }
 
+    // DOUT1 as the tracker holds it — the relay side of the immobilizer,
+    // reported by the device rather than assumed from the command.
+    const dout1 = getIoValue(record.io, DOUT1_AVL_ID);
+    if (dout1 != null) {
+      try {
+        await handleDoutReading(device.imei, dout1, recordedAt);
+      } catch (err) {
+        console.error(`[immobilizer] DOUT1 update failed for ${device.imei}:`, err);
+      }
+    }
+
     // Read every frame, not only eventful ones: this device never sends AVL 252,
     // so the level in AVL 66 is the only evidence a disconnect ever produces.
     try {
@@ -564,6 +586,25 @@ tcpServer.on('data', async (device: TeltonikaDevice, packet: TeltonikaPacket) =>
   } catch (error) {
     console.error(`Failed to process packet for ${device.imei}:`, error);
   }
+});
+
+// The device's answer to a GPRS command. Every reply is logged; the
+// immobilizer reads the ones that answer a setdigout.
+tcpServer.on('response', async (device: SdkDevice<Socket>, packet) => {
+  const text = packet.records[0]?.response ?? '';
+  console.log(`Device ${device.imei} replied: ${text}`);
+  if (!device.imei) return;
+  logReal(device.imei, `command reply "${text}"`);
+  try {
+    await handleCommandReply(device.imei, text);
+  } catch (err) {
+    console.error(`[immobilizer] reply handling failed for ${device.imei}:`, err);
+  }
+});
+
+registerCommandLink({
+  isConnected: (imei) => !!tcpServer.getDevice(imei),
+  send: (imei, command) => tcpServer.sendCommand(imei, command),
 });
 
 tcpServer.on('timeout', (device: TeltonikaDevice) => {

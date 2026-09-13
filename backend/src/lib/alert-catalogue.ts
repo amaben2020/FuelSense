@@ -212,18 +212,29 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     label: 'Vehicle immobilized',
     severity: 'critical',
     meaning:
-      'A manager remotely cut the engine-start circuit. The vehicle will not start until it is released.',
+      'A manager remotely cut the engine-start circuit: a "setdigout" command raised the tracker\'s DOUT1, which drives the starter relay. The vehicle will not start until it is released.',
     trigger:
-      'Manager action, blocked unless the vehicle has been stopped with the engine off for at least 2 continuous minutes.',
+      'Manager action from the Theft panel, confirmed once. Sent immediately if the tracker is connected, otherwise queued for its next connection.',
     source: 'analysis',
     emailable: true,
   },
   {
     type: 'immobilizer_released',
-    label: 'Vehicle released',
+    label: 'Vehicle mobilized',
     severity: 'info',
-    meaning: 'A manager restored the engine-start circuit — the vehicle can start normally.',
-    trigger: 'Manager action.',
+    meaning: 'A manager restored the engine-start circuit — DOUT1 dropped, the vehicle can start normally.',
+    trigger: 'Manager action from the Theft panel — the opposite of immobilize, sent the same way.',
+    source: 'analysis',
+    emailable: false,
+  },
+  {
+    type: 'doors_locked',
+    label: 'Doors locked remotely',
+    severity: 'info',
+    meaning:
+      'A manager sent a one-second pulse on the tracker\'s DOUT2, which drives a relay on the vehicle\'s central-locking lock line. Every door locks as if the key fob had been pressed. It does not stop the doors being unlocked from inside.',
+    trigger:
+      'Manager action from the Theft panel, confirmed once. Only sent to a tracker with a live connection; a vehicle without central locking, or without the second relay fitted, feels nothing.',
     source: 'analysis',
     emailable: false,
   },

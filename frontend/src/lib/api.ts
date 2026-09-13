@@ -291,20 +291,80 @@ export async function calibrateVirtualTank(
   });
 }
 
+export type ImmobilizerPhase =
+  | 'released'
+  | 'engage_queued'
+  | 'engage_sent'
+  | 'engaged'
+  | 'engaged_confirmed'
+  | 'release_queued'
+  | 'release_sent';
+
 export interface ImmobilizerStatus {
+  /** The commanded state — what the manager last asked for. */
   immobilized: boolean;
   immobilizedAt: string | null;
   canImmobilize: boolean;
   blockedReason: string | null;
+  /** Reported within the last 30 minutes. */
   deviceOnline: boolean;
+  /** Has a socket open to the server this instant. */
+  linkOpen: boolean;
+  lastSeenAt: string | null;
+  phase: ImmobilizerPhase;
+  relay: {
+    output: string;
+    engageCommand: string;
+    releaseCommand: string;
+  };
+  /** The setdigout in flight, if any. */
+  command: {
+    kind: 'engage' | 'release';
+    text: string;
+    queuedAt: string | null;
+    sentAt: string | null;
+  } | null;
+  /** The tracker's last reply to a setdigout, verbatim. */
+  ack: { text: string; at: string; level: 0 | 1 | null } | null;
+  /** DOUT1 as the tracker last reported it in AVL 179. */
+  dout1: { level: 0 | 1; since: string } | null;
+  /** The last central-locking pulse on DOUT2. */
+  doorLock: {
+    output: string;
+    command: string;
+    sentAt: string | null;
+    ack: { text: string; at: string; level: 0 | 1 | null } | null;
+  };
 }
 
 export async function getImmobilizerStatus(vehicleId: string): Promise<ImmobilizerStatus> {
   return api(`/vehicles/${vehicleId}/immobilizer`);
 }
 
-export async function engageImmobilizer(vehicleId: string): Promise<ImmobilizerStatus> {
-  return api(`/vehicles/${vehicleId}/immobilizer/engage`, { method: 'POST' });
+/**
+ * Engaging has to say, in the request itself, that a person meant this
+ * vehicle: the server refuses anything without `confirm: true` and the plate.
+ * Only the Theft panel's yes/no modal calls this.
+ */
+export async function engageImmobilizer(
+  vehicleId: string,
+  licensePlate: string
+): Promise<ImmobilizerStatus> {
+  return api(`/vehicles/${vehicleId}/immobilizer/engage`, {
+    method: 'POST',
+    body: JSON.stringify({ confirm: true, licensePlate }),
+  });
+}
+
+/** Same explicit intent as engage; refused unless the tracker is connected now. */
+export async function lockVehicleDoors(
+  vehicleId: string,
+  licensePlate: string
+): Promise<ImmobilizerStatus> {
+  return api(`/vehicles/${vehicleId}/immobilizer/lock-doors`, {
+    method: 'POST',
+    body: JSON.stringify({ confirm: true, licensePlate }),
+  });
 }
 
 export async function releaseImmobilizer(vehicleId: string): Promise<ImmobilizerStatus> {

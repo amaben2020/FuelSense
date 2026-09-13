@@ -19,7 +19,7 @@ import {
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { getVirtualTank, calibrateTank } from '../lib/virtual-tank';
 import { CATALOGUE_MIN_YEAR, VEHICLE_CATALOGUE } from '../lib/vehicle-catalogue';
-import { engageImmobilizer, getImmobilizerStatus, releaseImmobilizer } from '../lib/immobilizer';
+import { engageImmobilizer, getImmobilizerStatus, lockDoors, releaseImmobilizer } from '../lib/immobilizer';
 import {
   ECONOMY_UNIT_LABELS,
   baselineEfficiencyL100km,
@@ -655,15 +655,45 @@ router.get('/:id/immobilizer', async (req: Request, res: Response) => {
   }
 });
 
+// Engaging needs explicit intent in the body — { confirm: true, licensePlate }
+// — see engageIntentError. An empty POST is refused with 400.
 router.post('/:id/immobilizer/engage', async (req: Request, res: Response) => {
   try {
+    const body = (req.body ?? {}) as { confirm?: unknown; licensePlate?: unknown };
     const result = await engageImmobilizer(
       String(req.params.id),
       req.user.customerId,
-      req.user.name ?? req.user.email
+      req.user.name ?? req.user.email,
+      { confirm: body.confirm, licensePlate: body.licensePlate }
     );
+    if (!result.ok && /explicit confirmation|licence plate/.test(result.error ?? '')) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
     if (!result.ok) {
       res.status(409).json({ error: result.error });
+      return;
+    }
+    res.json(result.status);
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+// Same explicit intent as engage — { confirm: true, licensePlate } — and only
+// ever sent to a tracker that is connected this instant.
+router.post('/:id/immobilizer/lock-doors', async (req: Request, res: Response) => {
+  try {
+    const body = (req.body ?? {}) as { confirm?: unknown; licensePlate?: unknown };
+    const result = await lockDoors(
+      String(req.params.id),
+      req.user.customerId,
+      req.user.name ?? req.user.email,
+      { confirm: body.confirm, licensePlate: body.licensePlate }
+    );
+    if (!result.ok) {
+      const bad = /explicit confirmation|licence plate/.test(result.error ?? '');
+      res.status(bad ? 400 : 409).json({ error: result.error });
       return;
     }
     res.json(result.status);

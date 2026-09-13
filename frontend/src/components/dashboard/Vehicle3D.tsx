@@ -89,8 +89,9 @@ function makeTextTexture(lines: { text: string; size: number; color: string }[])
   return texture;
 }
 
-/** Procedural 2013 RAV4-style crossover, nose facing +x. */
-function buildSuv(plate: string, model: string | null): THREE.Group {
+/** Procedural 2013 RAV4-style crossover, nose facing +x. Shared with the
+ *  immobilizer scene so both views show the same vehicle. */
+export function buildSuv(plate: string, model: string | null): THREE.Group {
   const car = new THREE.Group();
 
   addBox(car, [4.35, 1.0, 1.85], [0, 1.02, 0], { color: BODY, metalness: 0.35, roughness: 0.5 });

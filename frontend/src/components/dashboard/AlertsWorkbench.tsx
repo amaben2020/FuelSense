@@ -36,6 +36,7 @@ const SEVERITY: Record<string, Severity> = {
   geofence_exit: 'warning',
   geofence_entry: 'info',
   immobilizer_released: 'info',
+  doors_locked: 'info',
   trip_start: 'info',
   receipt_uploaded: 'info',
 };
@@ -46,7 +47,8 @@ const TYPE_LABEL: Record<string, string> = {
   receipt_fraud: 'Receipt mismatch',
   device_offline: 'Tracker offline',
   immobilizer_engaged: 'Immobiliser engaged',
-  immobilizer_released: 'Immobiliser released',
+  immobilizer_released: 'Vehicle mobilized',
+  doors_locked: 'Doors locked remotely',
   unlogged_fill: 'Fill with no receipt',
   excessive_idle: 'Excessive idling',
   idle_fuel_waste: 'Idle fuel waste',

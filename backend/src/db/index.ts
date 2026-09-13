@@ -324,6 +324,19 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('devices', 'firmware_version', 'VARCHAR(50)');
   await ensureColumn('devices', 'created_at', 'TIMESTAMP DEFAULT NOW()');
   await ensureColumn('devices', 'updated_at', 'TIMESTAMP DEFAULT NOW()');
+  await ensureColumn('devices', 'immobilized', 'BOOLEAN DEFAULT false');
+  await ensureColumn('devices', 'immobilized_at', 'TIMESTAMP');
+  await ensureColumn('devices', 'immobilizer_command', 'VARCHAR(16)');
+  await ensureColumn('devices', 'immobilizer_command_text', 'TEXT');
+  await ensureColumn('devices', 'immobilizer_queued_at', 'TIMESTAMP');
+  await ensureColumn('devices', 'immobilizer_sent_at', 'TIMESTAMP');
+  await ensureColumn('devices', 'immobilizer_ack', 'TEXT');
+  await ensureColumn('devices', 'immobilizer_ack_at', 'TIMESTAMP');
+  await ensureColumn('devices', 'dout1_state', 'INTEGER');
+  await ensureColumn('devices', 'dout1_reported_at', 'TIMESTAMP');
+  await ensureColumn('devices', 'door_lock_sent_at', 'TIMESTAMP');
+  await ensureColumn('devices', 'door_lock_ack', 'TEXT');
+  await ensureColumn('devices', 'door_lock_ack_at', 'TIMESTAMP');
 
   const telemetryExists = await db.execute(sql`
     SELECT column_name FROM information_schema.columns

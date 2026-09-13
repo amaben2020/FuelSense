@@ -227,6 +227,28 @@ export const devices = pgTable('devices', {
   // to a device that never had the relay wired at all.
   immobilized: boolean('immobilized').default(false),
   immobilizedAt: timestamp('immobilized_at'),
+  // The setdigout in flight, if any: 'engage' or 'release'. Queued when the
+  // tracker had no open socket, sent once it does, cleared by its Codec 12
+  // reply. The text is the exact command line, kept so the UI can show it.
+  immobilizerCommand: varchar('immobilizer_command', { length: 16 }),
+  immobilizerCommandText: text('immobilizer_command_text'),
+  immobilizerQueuedAt: timestamp('immobilizer_queued_at'),
+  immobilizerSentAt: timestamp('immobilizer_sent_at'),
+  // The device's last reply to a setdigout, verbatim ("DOUTS are set to:10
+  // TMOs are: 0 0"), and when it arrived.
+  immobilizerAck: text('immobilizer_ack'),
+  immobilizerAckAt: timestamp('immobilizer_ack_at'),
+  // DOUT1 as the device itself last reported it in AVL 179 — the relay-side
+  // truth, independent of what was commanded. Null on a tracker that does
+  // not have the element enabled.
+  dout1State: integer('dout1_state'),
+  dout1ReportedAt: timestamp('dout1_reported_at'),
+  // The last central-locking pulse on DOUT2: when it was sent and what the
+  // device replied. A lock pulse is only ever sent to a connected tracker,
+  // so there is no queue for it.
+  doorLockSentAt: timestamp('door_lock_sent_at'),
+  doorLockAck: text('door_lock_ack'),
+  doorLockAckAt: timestamp('door_lock_ack_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

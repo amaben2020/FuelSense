@@ -41,7 +41,8 @@ const TOAST_TITLE: Record<string, string> = {
   receipt_uploaded: 'Receipt filed',
   receipt_fraud: 'Receipt does not add up',
   immobilizer_engaged: 'Immobiliser engaged',
-  immobilizer_released: 'Immobiliser released',
+  immobilizer_released: 'Vehicle mobilized',
+  doors_locked: 'Doors locked remotely',
 };
 
 const TOAST_ICON: Record<string, typeof BellRing> = {

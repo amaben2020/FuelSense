@@ -5,6 +5,7 @@ const { encodeCodec8ePacket } = require('./codec8e-encoder');
 const { VehicleSimulator, DEFAULT_FLEET_PROFILES } = require('./lib/simulator');
 const { lastKnownPosition, lastKnownReadings } = require('./lib/last-known-position');
 const { resolveOrigin, envOrigin } = require('./lib/sim-origin');
+const { decodeCodec12Command, encodeCodec12Response } = require('./lib/codec12');
 
 const TCP_SERVER_PORT = Number(process.env.TCP_PORT || 5027);
 const TCP_SERVER_HOST = process.env.TCP_SERVER_HOST || 'localhost';
@@ -32,6 +33,18 @@ const startVirtualDevice = (profile) => {
     });
 
     client.on('data', (data) => {
+      // Anything the server sends after the handshake is either the 4-byte
+      // record acknowledgement or a Codec 12 command — and the two can share
+      // a chunk, so the command is looked for behind an ack as well.
+      const command =
+        decodeCodec12Command(data) ?? (data.length > 4 ? decodeCodec12Command(data.subarray(4)) : null);
+      if (command) {
+        const reply = simulator.handleCommand(command);
+        client.write(encodeCodec12Response(reply));
+        console.log(`[${profile.label}] command "${command}" → "${reply}"`);
+        return;
+      }
+
       if (!imeiAccepted && data[0] === 0x01) {
         imeiAccepted = true;
         console.log(`[${profile.label}] IMEI accepted — Uber-style route active`);
@@ -55,7 +68,7 @@ const startVirtualDevice = (profile) => {
 
           client.write(encodeCodec8ePacket([record]));
           const meta = record.meta;
-          const theftTag = meta.theftSimulated ? ' ⚠️ THEFT' : '';
+          const theftTag = meta.theftSimulated ? ' ⚠️ THEFT' : meta.immobilized ? ' 🔒 IMMOBILIZED' : '';
           console.log(
             `[${profile.label}] ${meta.odometerKm}km · ${meta.fuelLevel?.toFixed(1)}L · ${meta.speedKph}km/h${theftTag}`
           );
