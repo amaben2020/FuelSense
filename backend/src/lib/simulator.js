@@ -87,10 +87,18 @@ class VehicleSimulator {
     if (this.depot) {
       const hour = this.workHoursUtc ? this.workHoursUtc[0] : 0;
       void hour;
-      // Where the car is decides how the day resumes: at the office it waits
-      // for the commute; anywhere else it is mid-loop.
+      // Where the car is decides how the day resumes: at the office before
+      // the shift it waits for the commute; at the office *during* the shift
+      // it sets off now — a restart mid-morning used to file every car under
+      // "day finished" and the whole fleet sat at the depot until tomorrow;
+      // anywhere else it is mid-loop.
       const atOffice = this._distanceKm(this.depot.office) < 0.4;
-      if (atOffice) this._enterMode('at_base');
+      if (atOffice) {
+        const d = new Date();
+        const hourUtc = d.getUTCHours() + d.getUTCMinutes() / 60;
+        const shiftStillOn = this.onShift(Date.now()) && hourUtc < this.depot.returnHourUtc;
+        this._enterMode(shiftStillOn ? 'commute_out' : 'at_base');
+      }
     }
   }
 

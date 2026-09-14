@@ -303,6 +303,9 @@ export default function DashboardPage() {
   // every range change. The silent 30 s refresh never sets it: a spinner that
   // flickers over a map that already has its trails is noise.
   const [tripsLoading, setTripsLoading] = useState(true);
+  // False until the first set of positions has landed, so the map can say
+  // it is placing the vehicles rather than sit empty.
+  const [tracksReady, setTracksReady] = useState(false);
   // Explicit calendar range from the date picker. When set it supersedes the
   // rolling preset above; clearing it returns to the presets.
   const [tripRange, setTripRange] = useState<{ from: string; to: string } | null>(null);
@@ -366,6 +369,7 @@ export default function DashboardPage() {
     try {
       const trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=15');
       setLiveTracks(buildVehicleTracks(trackPoints));
+      setTracksReady(true);
     } catch {
       // no-op — keep existing tracks on error
     }
@@ -1255,6 +1259,7 @@ export default function DashboardPage() {
                 tracks={liveTracks}
                 trips={trips}
                 tripsLoading={tripsLoading}
+                tracksReady={tracksReady}
                 fleet={fleet}
                 startDrawing={autoDrawZone}
                 onDrawingStarted={() => setAutoDrawZone(false)}

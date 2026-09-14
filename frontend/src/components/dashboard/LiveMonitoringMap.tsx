@@ -620,6 +620,7 @@ export function LiveMonitoringMap({
   tracks,
   trips,
   tripsLoading = false,
+  tracksReady = true,
   fleet,
   startDrawing = false,
   onDrawingStarted,
@@ -639,6 +640,8 @@ export function LiveMonitoringMap({
   trips: TripsResponse | null;
   /** A trail the user asked for is still on its way. */
   tripsLoading?: boolean;
+  /** The first positions have arrived; until then the map is being set up. */
+  tracksReady?: boolean;
   fleet: FleetVehicle[];
   /** Arrive from the Geofencing page with the zone tool already armed. */
   startDrawing?: boolean;
@@ -1551,7 +1554,17 @@ export function LiveMonitoringMap({
 
       {/* A day of trails for a whole fleet is a lot of points, and on a slow
           link the map sits bare for seconds before they land. Say so. */}
-      {tripsLoading && (
+      {!tracksReady && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/55 backdrop-blur-[2px]">
+          <Loader2 className="h-7 w-7 animate-spin text-accent" />
+          <p className="mt-3 text-sm font-semibold text-white">Getting things ready…</p>
+          <p className="mt-1 text-xs text-white/70">
+            Placing your {fleet.length > 0 ? `${fleet.length} vehicle${fleet.length === 1 ? '' : 's'}` : 'vehicles'} on the map
+          </p>
+        </div>
+      )}
+
+      {tracksReady && tripsLoading && (
         <div className="pointer-events-none absolute inset-x-0 top-16 z-20 flex justify-center">
           <div className="glass flex items-center gap-2 rounded-full px-4 py-2 text-xs text-white shadow-lg">
             <Loader2 className="h-4 w-4 animate-spin text-accent" />
