@@ -122,6 +122,10 @@ export function DriverFuelScreen({
     }
   }, [derivedLiters, declaredLiters, autoFilledLiters]);
   const [transactionDate, setTransactionDate] = useState('');
+  // What the tank read at the pump. "Full" is the one exact fact the fuel
+  // model ever gets; a gauge reading is the fallback for a top-up.
+  const [filledToFull, setFilledToFull] = useState<boolean | null>(null);
+  const [gaugeEighths, setGaugeEighths] = useState<number | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
     null,
   );
@@ -261,6 +265,8 @@ export function DriverFuelScreen({
     setPricePerLiter('1300');
     setTotalAmount('');
     setTransactionDate(toDatetimeLocal(new Date().toISOString()));
+    setFilledToFull(null);
+    setGaugeEighths(null);
     setMode('form');
   };
 
@@ -276,6 +282,14 @@ export function DriverFuelScreen({
       : Math.round(declared * price);
     if (!merchantName || !declared) {
       setError('Merchant and liters are required');
+      return;
+    }
+    if (filledToFull === null) {
+      setError('Tell us whether you filled the tank to full');
+      return;
+    }
+    if (!filledToFull && gaugeEighths === null) {
+      setError('Pick where the fuel gauge is now');
       return;
     }
 
@@ -296,6 +310,8 @@ export function DriverFuelScreen({
       transaction_date: transactionDate
         ? new Date(transactionDate).toISOString()
         : new Date().toISOString(),
+      filled_to_full: filledToFull === true,
+      gauge_eighths: filledToFull ? null : gaugeEighths,
     };
 
     if (!isOnline()) {
@@ -524,6 +540,58 @@ export function DriverFuelScreen({
             onChange={setTotalAmount}
             type="number"
           />
+
+          {/* The tank level is what keeps the manager's fuel figure honest:
+              litres bought only say what went in, not what is there. */}
+          <div className="rounded-xl border border-edge bg-panel p-3">
+            <p className="text-xs font-semibold text-ink">Did you fill the tank to full?</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {[
+                { value: true, label: 'Yes, to full' },
+                { value: false, label: 'No, a top-up' },
+              ].map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => setFilledToFull(opt.value)}
+                  className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                    filledToFull === opt.value
+                      ? 'border-accent bg-accent text-accent-y-ink'
+                      : 'border-edge bg-canvas text-ink-mid'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {filledToFull === false && (
+              <div className="mt-3">
+                <p className="text-xs text-ink-dim">Where is the fuel gauge now?</p>
+                <div className="mt-2 grid grid-cols-5 gap-1.5">
+                  {[
+                    { e: 0, label: 'E' },
+                    { e: 2, label: '¼' },
+                    { e: 4, label: '½' },
+                    { e: 6, label: '¾' },
+                    { e: 8, label: 'F' },
+                  ].map((g) => (
+                    <button
+                      key={g.e}
+                      type="button"
+                      onClick={() => setGaugeEighths(g.e)}
+                      className={`rounded-lg border py-2.5 text-sm font-semibold transition-colors ${
+                        gaugeEighths === g.e
+                          ? 'border-accent bg-accent text-accent-y-ink'
+                          : 'border-edge bg-canvas text-ink-mid'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Photographing the slip is the better path, so a driver who
               reached this form by mistake needs a way back to it that is not

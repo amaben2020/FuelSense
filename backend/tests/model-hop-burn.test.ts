@@ -156,3 +156,29 @@ describe('modelHopBurnMl', () => {
     expect(litres).toBeLessThan(0.9);
   });
 });
+
+describe('an all-in rate measured from full-to-full receipts', () => {
+  it('is charged flat: no traffic multiplier, no idle on top', () => {
+    const { modelHopBurnMl } = require('../src/lib/virtual-tank');
+    // 1 km in 5 minutes of crawling at 12 km/h — the stop-start bucket.
+    const specRate = modelHopBurnMl({
+      distanceKm: 1, seconds: 300, ignitionOn: true, speedKph: 12,
+      consumptionL100km: 17.5, idleBurnLph: 1.2,
+    });
+    const allIn = modelHopBurnMl({
+      distanceKm: 1, seconds: 300, ignitionOn: true, speedKph: 12,
+      consumptionL100km: 17.5, idleBurnLph: 1.2, allIn: true,
+    });
+    expect(allIn).toBe(175);
+    expect(specRate).toBeGreaterThan(allIn);
+  });
+
+  it('charges nothing for idling on an all-in rate — the receipts already did', () => {
+    const { modelHopBurnMl } = require('../src/lib/virtual-tank');
+    const idle = modelHopBurnMl({
+      distanceKm: 0, seconds: 600, ignitionOn: true, speedKph: 0,
+      consumptionL100km: 17.5, idleBurnLph: 1.2, allIn: true,
+    });
+    expect(idle).toBe(0);
+  });
+});

@@ -24,7 +24,7 @@ import { scanReceiptImage as ocrScanReceiptImage } from '../lib/receipt-ocr';
 import { buildPurchaseValuesFromReceipt } from '../lib/driver-receipt-sync';
 import { notifyReceiptUploaded } from '../lib/receipt-notifier';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
-import { creditRefuel } from '../lib/virtual-tank';
+import { calibrateTank, creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase } from '../lib/fuel-calibration';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
 import { alertDefinition, DRIVER_RESOLVABLE_ALERTS } from '../lib/alert-catalogue';
@@ -530,6 +530,8 @@ router.post('/receipts', async (req: Request, res: Response) => {
     receipt_latitude: receiptLatitude,
     receipt_longitude: receiptLongitude,
     transaction_date: transactionDate,
+    filled_to_full: filledToFullRaw,
+    gauge_eighths: gaugeEighthsRaw,
   } = req.body as {
     vehicle_id?: string;
     client_receipt_id?: string;
@@ -543,7 +545,23 @@ router.post('/receipts', async (req: Request, res: Response) => {
     receipt_latitude?: number | string;
     receipt_longitude?: number | string;
     transaction_date?: string;
+    /** The driver filled the tank to the top: the level is now capacity. */
+    filled_to_full?: boolean;
+    /** Otherwise, the dash gauge after the fill in eighths, 0 (E) to 8 (F). */
+    gauge_eighths?: number | null;
   };
+
+  // The tank facts, read strictly: a "true" string or a gauge outside 0–8 is
+  // not evidence and is dropped rather than guessed at.
+  const filledToFull = filledToFullRaw === true;
+  const gaugeEighths =
+    !filledToFull &&
+    typeof gaugeEighthsRaw === 'number' &&
+    Number.isInteger(gaugeEighthsRaw) &&
+    gaugeEighthsRaw >= 0 &&
+    gaugeEighthsRaw <= 8
+      ? gaugeEighthsRaw
+      : null;
 
   if (!vehicleId || !declaredLiters || !merchantName) {
     res.status(400).json({
@@ -659,8 +677,8 @@ router.post('/receipts', async (req: Request, res: Response) => {
         })
         .returning({ id: fuelReceipts.id });
 
-      await tx.insert(fuelPurchases).values(
-        buildPurchaseValuesFromReceipt({
+      await tx.insert(fuelPurchases).values({
+        ...buildPurchaseValuesFromReceipt({
           id: insertedReceipt.id,
           customerId: req.driver.customerId,
           vehicleId,
@@ -671,8 +689,10 @@ router.post('/receipts', async (req: Request, res: Response) => {
           totalAmount: total,
           odometerKm: odometer ?? undefined,
           reconciliationStatus: verification.status,
-        })
-      );
+        }),
+        filledToFull,
+        gaugeEighths,
+      });
 
       return [insertedReceipt];
     });
@@ -688,6 +708,21 @@ router.post('/receipts', async (req: Request, res: Response) => {
         : declared,
       { pricePerLiter: price }
     ).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
+
+    // What the driver saw at the pump outranks the credit above. A fill to
+    // full pins the level at capacity — the only exact fact the model ever
+    // gets — and a gauge reading pins it to within an eighth of a tank.
+    // Either one wipes out whatever the model had drifted by.
+    if (filledToFull) {
+      await calibrateTank(vehicleId, req.driver.customerId, null, 'receipt_full').catch((err) =>
+        console.error('[virtual_tank] full-fill calibration failed:', err)
+      );
+    } else if (gaugeEighths != null && vehicle.tankCapacityLiters) {
+      const liters = (Number(vehicle.tankCapacityLiters) * gaugeEighths) / 8;
+      await calibrateTank(vehicleId, req.driver.customerId, liters, 'driver_gauge').catch((err) =>
+        console.error('[virtual_tank] gauge calibration failed:', err)
+      );
+    }
 
     // Reconcile this fill against the previous one and refresh the vehicle's
     // measured consumption rate.

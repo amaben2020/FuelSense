@@ -415,6 +415,8 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('fuel_purchases', 'implausible_odometer', 'BOOLEAN DEFAULT false');
   await ensureColumn('fuel_purchases', 'unusual_purchase', 'BOOLEAN DEFAULT false');
   await ensureColumn('fuel_purchases', 'flag_reason', 'TEXT');
+  await ensureColumn('fuel_purchases', 'filled_to_full', 'BOOLEAN DEFAULT false');
+  await ensureColumn('fuel_purchases', 'gauge_eighths', 'INTEGER');
 
   await ensureColumn('vehicles', 'vehicle_type', 'VARCHAR(20)');
   await ensureColumn('vehicles', 'consumption_rate_l_per_100km', 'DECIMAL(6,2)');

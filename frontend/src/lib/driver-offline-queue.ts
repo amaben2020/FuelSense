@@ -12,6 +12,8 @@ export interface PendingDriverReceipt {
   receipt_latitude?: number;
   receipt_longitude?: number;
   transaction_date: string;
+  filled_to_full?: boolean;
+  gauge_eighths?: number | null;
   sync_error?: string | null;
 }
 

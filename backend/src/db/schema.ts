@@ -207,6 +207,13 @@ export const fuelPurchases = pgTable('fuel_purchases', {
   // Litres bought exceed what the distance can account for.
   unusualPurchase: boolean('unusual_purchase').default(false),
   flagReason: text('flag_reason'),
+  // What the driver said about the tank at the pump. A fill to full pins the
+  // level at capacity — the one fact that resets the model to truth — and
+  // two consecutive fills to full give the vehicle's real consumption. A
+  // gauge reading (0–8, eighths of a tank as read off the dash) is the
+  // fallback when the fill was a top-up.
+  filledToFull: boolean('filled_to_full').default(false),
+  gaugeEighths: integer('gauge_eighths'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

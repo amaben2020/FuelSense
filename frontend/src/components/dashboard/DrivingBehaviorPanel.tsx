@@ -162,8 +162,35 @@ function buildFeed(events: DeviceEvent[], idleBurnLph: number): FeedItem[] {
     longitude: e.longitude != null ? Number(e.longitude) : null,
   });
 
+  // The last power loss per vehicle, so its restore can say how long it was.
+  const openPowerLoss = new Map<string, DeviceEvent>();
+
   for (const e of chronological) {
     const key = e.vehicle_id ?? 'unknown';
+
+    if (e.event_type === 'power_unplug' || e.event_type === 'power_dropout') {
+      openPowerLoss.set(key, e);
+    }
+    if (e.event_type === 'power_restored') {
+      const loss = openPowerLoss.get(key);
+      openPowerLoss.delete(key);
+      if (loss) {
+        const minutes =
+          (new Date(e.occurred_at).getTime() - new Date(loss.occurred_at).getTime()) / 60000;
+        items.push({
+          ...base(e),
+          id: String(e.id),
+          eventType: e.event_type,
+          label: `Power restored · after ${formatMinutes(Math.max(1, minutes))} ${
+            loss.event_type === 'power_dropout' ? 'without supply' : 'unplugged'
+          }`,
+          occurredAt: e.occurred_at,
+          detail: eventValueDetail(e),
+          needsAttention: false,
+        });
+        continue;
+      }
+    }
 
     if (e.event_type === 'idling_start') {
       openIdle.set(key, e);

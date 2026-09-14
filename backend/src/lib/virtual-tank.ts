@@ -227,8 +227,20 @@ export function modelHopBurnMl(params: {
   speedKph: number | null;
   consumptionL100km: number;
   idleBurnLph: number;
+  /**
+   * The rate is an all-in figure measured from full-to-full receipts: the
+   * vehicle's own idling and stop-start are already inside it, so the speed
+   * multiplier and the idle charge must not be added on top. Charging both
+   * was how the reference RAV4 came to be billed ~13 L for a day its
+   * receipts and gauge both put nearer 7–10.
+   */
+  allIn?: boolean;
 }): number {
-  const { distanceKm, seconds, ignitionOn, speedKph, consumptionL100km, idleBurnLph } = params;
+  const { distanceKm, seconds, ignitionOn, speedKph, consumptionL100km, idleBurnLph, allIn } = params;
+
+  if (allIn) {
+    return Math.max(0, Math.round(((distanceKm * consumptionL100km) / 100) * 1000));
+  }
 
   // Average speed over the hop. Falls back to the reported instantaneous speed
   // when the elapsed time is unusable, and `speedBucketMultiplier` returns 1
@@ -327,11 +339,12 @@ const FALLBACK_IDLE_BURN_LPH = 1.2;
  */
 async function vehicleBurnRates(
   vehicleId: string
-): Promise<{ consumptionL100km: number; idleBurnLph: number }> {
+): Promise<{ consumptionL100km: number; idleBurnLph: number; allIn: boolean }> {
   const [row] = await db
     .select({
       consumption: vehicles.consumptionRateL100km,
       idle: vehicles.idleBurnRateLph,
+      source: vehicles.rateSource,
     })
     .from(vehicles)
     .where(eq(vehicles.id, vehicleId))
@@ -344,6 +357,9 @@ async function vehicleBurnRates(
     consumptionL100km:
       Number.isFinite(consumption) && consumption > 0 ? consumption : FALLBACK_CONSUMPTION_L100KM,
     idleBurnLph: Number.isFinite(idle) && idle > 0 ? idle : FALLBACK_IDLE_BURN_LPH,
+    // A rate measured full-to-full from receipts already has this vehicle's
+    // idling and traffic in it; a spec or preset figure is driving only.
+    allIn: row?.source === 'calibrated',
   };
 }
 
@@ -649,6 +665,7 @@ export async function processFuelGpsReading(
     speedKph: reading.speedKph,
     consumptionL100km: rates.consumptionL100km,
     idleBurnLph: rates.idleBurnLph,
+    allIn: rates.allIn,
   });
 
   const modelledBurnMl = state.modelledBurnMl + hopBurnMl;

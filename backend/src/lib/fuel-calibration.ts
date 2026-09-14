@@ -289,6 +289,7 @@ export async function reconcileFuelPurchase(purchaseId: string): Promise<Reconci
     .select({
       odometerKm: fuelPurchases.odometerKm,
       purchasedAt: fuelPurchases.purchasedAt,
+      filledToFull: fuelPurchases.filledToFull,
     })
     .from(fuelPurchases)
     .where(
@@ -326,7 +327,14 @@ export async function reconcileFuelPurchase(purchaseId: string): Promise<Reconci
       reasons.push(
         `Odometer jumped ${odometerDelta.toLocaleString()} km between fills, beyond the ${MAX_PLAUSIBLE_FILL_GAP_KM.toLocaleString()} km limit.`
       );
-    } else if (liters > 0) {
+    } else if (liters > 0 && current.filledToFull && previous.filledToFull) {
+      // Litres over distance is the vehicle's consumption only when the tank
+      // was at the same level at both ends — which is to say full both
+      // times. Between two top-ups the level drifts by whatever the driver
+      // felt like buying, and on the reference RAV4 that scattered the
+      // "measured" rate from 14 to 22 L/100 km across six partial fills.
+      // A top-up still reconciles (distance, plausibility, unusual amounts);
+      // it just does not teach the rate.
       realRate = round2((liters / odometerDelta) * 100);
     }
   }
