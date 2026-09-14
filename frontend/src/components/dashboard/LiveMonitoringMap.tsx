@@ -46,7 +46,15 @@ import { StopDetailModal } from './StopDetailModal';
 // seconds and sitting still for eighteen: a car that lurches once every
 // twenty seconds does not read as moving. Linear, because a vehicle in
 // motion does not decelerate at every packet boundary.
-const ANIMATION_MS = 19_000;
+/**
+ * How long a marker takes to glide to a new fix. Sized to the gap since the
+ * previous update — a fix that arrived 7 s after the last one glides for 7 s,
+ * so the marker reaches it just as the next lands — and capped at the poll
+ * interval for the polling fallback. The floor keeps a burst of two fixes
+ * from reading as a teleport.
+ */
+const ANIMATION_MAX_MS = 19_000;
+const ANIMATION_MIN_MS = 1_500;
 
 /** How the next zone is being drawn. Rectangles are saved as polygons. */
 type ZoneShapeMode = 'circle' | 'rectangle' | 'polygon';
@@ -665,6 +673,8 @@ export function LiveMonitoringMap({
   const [focusedTrip, setFocusedTrip] = useState<{ vehicleId: string; index: number } | null>(
     null
   );
+  const displayRef = useRef(new globalThis.Map<string, { lat: number; lng: number; heading: number }>());
+  const lastUpdateRef = useRef<number | null>(null);
   const prevRef = useRef(
     new globalThis.Map<string, { lat: number; lng: number; heading: number }>(),
   );
@@ -696,7 +706,16 @@ export function LiveMonitoringMap({
     }
 
     const start = performance.now();
-    const from = new globalThis.Map(prevRef.current);
+    // Start from where each marker is *drawn* right now, not from where the
+    // previous animation began — with fixes pushed every few seconds a new
+    // one lands mid-glide, and restarting from the old origin snapped the
+    // marker backwards before it set off again.
+    const from = new globalThis.Map(displayRef.current.size ? displayRef.current : prevRef.current);
+    const duration = Math.min(
+      ANIMATION_MAX_MS,
+      Math.max(ANIMATION_MIN_MS, lastUpdateRef.current ? start - lastUpdateRef.current : ANIMATION_MAX_MS)
+    );
+    lastUpdateRef.current = start;
 
     const targets = tracks.map((track) => {
       const prev = from.get(track.vehicleId);
@@ -711,7 +730,7 @@ export function LiveMonitoringMap({
     });
 
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / ANIMATION_MS);
+      const t = Math.min(1, (now - start) / duration);
       const eased = t;
 
       const next: AnimatedTrack[] = targets.map(({ track, prev, snap }) => ({
@@ -722,6 +741,9 @@ export function LiveMonitoringMap({
       }));
 
       setAnimated(next);
+      displayRef.current = new globalThis.Map(
+        next.map((a) => [a.vehicleId, { lat: a.displayLat, lng: a.displayLng, heading: a.displayHeading }])
+      );
 
       if (t < 1) {
         frameRef.current = requestAnimationFrame(tick);

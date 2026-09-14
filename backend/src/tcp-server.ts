@@ -27,6 +27,7 @@ import {
   registerCommandLink,
 } from './lib/immobilizer';
 import { DOUT1_AVL_ID } from './lib/teltonika-dout';
+import { publishLivePoint } from './lib/live-feed';
 import {
   applyBurnCarry,
   shouldSkipTelemetryRow,
@@ -389,6 +390,24 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     recordFrame(device.imei);
     // fire-and-forget — don't let cache failure block telemetry
     invalidate(device.customerId!, 'tracks', 'fleet', 'summary').catch(() => {});
+
+    // The browser hears about this fix now, not on its next 20-second poll.
+    // Every record goes, including the ones the write floor did not persist:
+    // the map wants each fix to glide through, the table does not need it.
+    if (validGps) {
+      publishLivePoint(device.customerId!, {
+        vehicle_id: device.vehicleId!,
+        imei: device.imei,
+        license_plate: vehicleRow?.license_plate ?? null,
+        driver_name: vehicleRow?.driver_name ?? null,
+        latitude: rawLat!,
+        longitude: rawLng!,
+        speed_kph: telemetryRow.speedKph ?? null,
+        ignition_on: ignitionOn,
+        fuel_level_liters: fuelLevelLiters ?? null,
+        recorded_at: recordedAt.toISOString(),
+      });
+    }
 
     // Store raw frame for every registered device so parse issues can be diagnosed.
     db.insert(deviceFrames).values({

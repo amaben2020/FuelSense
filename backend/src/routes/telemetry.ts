@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import { subscribeLivePoints } from '../lib/live-feed';
 import { authenticateCustomer } from '../middleware/auth';
 import { db, telemetry, vehicles, fuelPurchases, eq, and, desc, sql } from '../lib/db-helpers';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
@@ -113,6 +114,33 @@ router.get('/history', async (req: Request, res: Response) => {
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
+});
+
+/**
+ * Live positions as Server-Sent Events. One event per telemetry record the
+ * instant the TCP server writes it, for this customer's vehicles only. A
+ * comment line every 15 s keeps CloudFront's 30 s origin timeout and any
+ * proxy from closing an idle stream.
+ */
+router.get('/stream', (req: Request, res: Response) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(': connected\n\n');
+  res.flushHeaders?.();
+
+  const unsubscribe = subscribeLivePoints(req.user.customerId, (point) => {
+    res.write(`event: position\ndata: ${JSON.stringify(point)}\n\n`);
+  });
+  const keepalive = setInterval(() => res.write(': ping\n\n'), 15_000);
+
+  req.on('close', () => {
+    clearInterval(keepalive);
+    unsubscribe();
+  });
 });
 
 router.get('/tracks', async (req: Request, res: Response) => {

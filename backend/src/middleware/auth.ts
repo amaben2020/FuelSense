@@ -40,7 +40,11 @@ export const signDriverToken = (driver: DriverTokenInput): string =>
   );
 
 export const authenticateCustomer = (req: Request, res: Response, next: NextFunction): void => {
-  const header = req.headers.authorization;
+  // EventSource cannot set headers, so the live stream carries the token as
+  // ?token=. Same JWT, same checks; only the transport differs.
+  const header =
+    req.headers.authorization ??
+    (typeof req.query.token === 'string' ? `Bearer ${req.query.token}` : undefined);
   if (!header?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Authentication required' });
     return;

@@ -2,6 +2,10 @@
   base = "frontend"
   command = "npm run build"
   publish = ".next"
+  # Production is served from CloudFront (.github/workflows/deploy-frontend.yml).
+  # Netlify builds are skipped so pushes to main stop consuming its credits;
+  # remove this line to let it build again.
+  ignore = "exit 0"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

@@ -67,6 +67,8 @@ import { LowFuelBanner } from '@/components/dashboard/LowFuelBanner';
 import { PowerUnplugBanner } from '@/components/dashboard/PowerUnplugBanner';
 import { playNotificationChime } from '@/lib/notification-sound';
 import { AlertToasts, AUDIBLE_ALERT_TYPES } from '@/components/dashboard/AlertToasts';
+import { liveStreamUrl } from '@/lib/api';
+import { bearingDeg } from '@/lib/map-utils';
 import { useProductTitle } from '@/lib/product-name';
 import { DailyActivityTable } from '@/components/dashboard/DailyActivityTable';
 import { EstimatedConsumptionTable } from '@/components/dashboard/EstimatedConsumptionTable';
@@ -576,6 +578,49 @@ export default function DashboardPage() {
       clearInterval(tripsInterval);
     };
   }, [activeView, loadLiveTracks, loadTrips]);
+
+  // Push, on top of the poll: each fix the tracker sends moves its marker the
+  // moment the server has it, instead of waiting up to twenty seconds. The
+  // poll stays as the source of truth for vehicles the stream has not seen.
+  useEffect(() => {
+    if (activeView !== 'live') return;
+    const url = liveStreamUrl();
+    if (!url || typeof EventSource === 'undefined') return;
+    const source = new EventSource(url);
+    source.addEventListener('position', (event) => {
+      const p = JSON.parse((event as MessageEvent).data) as {
+        vehicle_id: string;
+        latitude: number;
+        longitude: number;
+        speed_kph: number | null;
+        ignition_on: boolean | null;
+        fuel_level_liters: number | null;
+        recorded_at: string;
+      };
+      setLiveTracks((prev) =>
+        prev.map((track) => {
+          if (track.vehicleId !== p.vehicle_id) return track;
+          const last = track.current;
+          const moved = Math.abs(last.lat - p.latitude) > 1e-6 || Math.abs(last.lng - p.longitude) > 1e-6;
+          return {
+            ...track,
+            path: moved ? [...track.path, { lat: p.latitude, lng: p.longitude }] : track.path,
+            heading: moved ? bearingDeg(last.lat, last.lng, p.latitude, p.longitude) : track.heading,
+            current: {
+              ...last,
+              lat: p.latitude,
+              lng: p.longitude,
+              speedKph: p.speed_kph,
+              fuelLiters: p.fuel_level_liters ?? last.fuelLiters,
+              ignitionOn: p.ignition_on,
+              recordedAt: p.recorded_at,
+            },
+          };
+        })
+      );
+    });
+    return () => source.close();
+  }, [activeView]);
 
   // Re-fetch immediately when the user changes trail duration, picks a date
   // range, or opts into the historical widening

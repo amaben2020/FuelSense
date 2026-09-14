@@ -1,4 +1,11 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+
+/** The live position stream (Server-Sent Events); the token rides in the query
+ *  because EventSource cannot set headers. */
+export function liveStreamUrl(): string | null {
+  const token = getToken();
+  return token ? `${API_URL}/telemetry/stream?token=${encodeURIComponent(token)}` : null;
+}
 const TOKEN_KEY = 'fuelsense_token';
 
 export function getToken(): string | null {
