@@ -411,7 +411,7 @@ export interface VehicleCalibrationStatus {
   rate_l_per_100km: number | null;
   idle_burn_l_per_hour: number | null;
   /** 'manual' = a figure the manager entered; the tank burns at this rate. */
-  rate_source: 'manual' | 'calibrated' | 'preset' | null;
+  rate_source: 'manual' | 'calibrated' | 'catalogue' | 'preset' | null;
   purchases_logged: number;
   usable_measurements: number;
   fill_ups_until_calibrated: number;

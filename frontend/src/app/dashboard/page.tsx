@@ -962,7 +962,7 @@ export default function DashboardPage() {
           className={
             activeView === 'live'
               ? 'flex h-full flex-col overflow-hidden px-2 py-3 sm:px-4'
-              : 'mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:py-8'
+              : 'mx-auto max-w-[96rem] px-4 py-6 sm:px-6 lg:py-8'
           }
         >
           {/* Metric strip + global search + identity. Scrolls away with the

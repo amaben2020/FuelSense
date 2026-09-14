@@ -418,20 +418,20 @@ function ReconciledReceiptsTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[920px] text-left text-sm">
+      <table className="w-full min-w-[1080px] text-left text-sm">
         <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
           <tr>
-            <th className="px-6 py-3">Date</th>
-            <th className="px-6 py-3">Purchase time</th>
-            <th className="px-6 py-3">Vehicle</th>
-            <th className="px-6 py-3">Driver</th>
-            <th className="px-6 py-3">Merchant</th>
-            <th className="px-6 py-3 text-right">Receipt (L)</th>
-            <th className="px-6 py-3">Tracker check</th>
-            <th className="px-6 py-3 text-right">Could not fit</th>
-            <th className="px-6 py-3 text-right">Cost</th>
-            <th className="px-6 py-3">Status</th>
-            <th className="px-6 py-3" />
+            <th className="whitespace-nowrap px-4 py-3">Date</th>
+            <th className="whitespace-nowrap px-4 py-3">Purchase time</th>
+            <th className="whitespace-nowrap px-4 py-3">Vehicle</th>
+            <th className="whitespace-nowrap px-4 py-3">Driver</th>
+            <th className="whitespace-nowrap px-4 py-3">Merchant</th>
+            <th className="whitespace-nowrap px-4 py-3 text-right">Receipt (L)</th>
+            <th className="whitespace-nowrap px-4 py-3">Tracker check</th>
+            <th className="whitespace-nowrap px-4 py-3 text-right">Could not fit</th>
+            <th className="whitespace-nowrap px-4 py-3 text-right">Cost</th>
+            <th className="whitespace-nowrap px-4 py-3">Status</th>
+            <th className="whitespace-nowrap px-4 py-3" />
           </tr>
         </thead>
         <tbody className="divide-y divide-divider text-ink-mid">
@@ -459,21 +459,21 @@ function ReconciledReceiptsTable({
                   header already says 0 of 1 checked against the tracker. This
                   totals what drivers logged — the checking status is reported
                   per receipt and counted above, not implied here. */}
-              <td colSpan={5} className="px-6 py-4 font-semibold text-ink">
+              <td colSpan={5} className="px-4 py-4 font-semibold text-ink">
                 Grand total (logged by drivers)
               </td>
-              <td className="px-6 py-4 text-right font-mono font-semibold tabular-nums text-brand">
+              <td className="px-4 py-4 text-right font-mono font-semibold tabular-nums text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </td>
               {/* No measured-litres total to sum: the check is per receipt,
                   and a fleet-wide "missing litres" figure derived from a tank
                   sensor this vehicle does not have would be fiction. */}
-              <td className="px-6 py-4 text-xs text-ink-dim">Per receipt</td>
-              <td className="px-6 py-4 text-right text-xs text-ink-dim">—</td>
-              <td className="px-6 py-4 text-right font-mono font-bold tabular-nums text-ink">
+              <td className="px-4 py-4 text-xs text-ink-dim">Per receipt</td>
+              <td className="px-4 py-4 text-right text-xs text-ink-dim">—</td>
+              <td className="px-4 py-4 text-right font-mono font-bold tabular-nums text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
               </td>
-              <td colSpan={2} className="px-6 py-4 text-xs text-ink-dim">
+              <td colSpan={2} className="px-4 py-4 text-xs text-ink-dim">
                 {summary.grand_total.receipt_count} receipts
               </td>
             </tr>
@@ -601,7 +601,7 @@ function ReconciledDateGroup({
   return (
     <>
       <tr className="bg-panel-hover/60">
-        <td colSpan={11} className="px-6 py-2 text-xs font-semibold uppercase tracking-wider text-brand">
+        <td colSpan={11} className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-brand">
           {dayLabel}
           {dayCost > 0 && (
             <span className="ml-3 font-mono normal-case text-ink-dim">
@@ -618,21 +618,21 @@ function ReconciledDateGroup({
           onResolve={onResolve}
         />
       ))}
-      {dayTotals.map((row) => (
+      {purchases.length > 1 && dayTotals.map((row) => (
         <tr key={`${dayLabel}-${row.driver_name}-reconciled`} className="bg-canvas/80">
-          <td colSpan={5} className="px-6 py-2 text-xs text-ink-dim">
+          <td colSpan={5} className="px-4 py-2 text-xs text-ink-dim">
             Daily total · {row.driver_name}
           </td>
-          <td className="px-6 py-2 text-right font-mono text-xs tabular-nums text-brand">
+          <td className="px-4 py-2 text-right font-mono text-xs tabular-nums text-brand">
             {row.total_receipt_liters.toFixed(1)} L
           </td>
-          <td className="px-6 py-2 text-right font-mono text-xs text-good">
+          <td className="px-4 py-2 text-right font-mono text-xs text-good">
             —
           </td>
-          <td className="px-6 py-2 text-right font-mono text-xs text-bad">
+          <td className="px-4 py-2 text-right font-mono text-xs text-bad">
             —
           </td>
-          <td className="px-6 py-2 text-right font-mono text-xs font-semibold tabular-nums text-ink">
+          <td className="px-4 py-2 text-right font-mono text-xs font-semibold tabular-nums text-ink">
             {formatNgn(row.total_cost_ngn)}
           </td>
           <td colSpan={2} />
@@ -665,10 +665,10 @@ function ReconciledReceiptRow({
   if (compact) {
     return (
       <tr className={`transition-colors hover:bg-panel-hover/40 ${isTheft ? 'bg-bad-deep/5' : ''}`}>
-        <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
-        <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
-        <td className="px-6 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
-        <td className="px-6 py-3">
+        <td className="whitespace-nowrap px-4 py-3">{formatReceiptDate(purchaseTime)}</td>
+        <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-ink">{purchase.license_plate}</td>
+        <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
+        <td className="px-4 py-3">
           <TrackerCheckCell verification={purchase.verification} />
         </td>
         <td
@@ -676,11 +676,11 @@ function ReconciledReceiptRow({
         >
           {overclaimed ? `${overclaimed} L` : '—'}
         </td>
-        <td className="px-6 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
-        <td className="px-6 py-3">
+        <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
+        <td className="px-4 py-3">
           <ReceiptStatusBadge status={purchase.status} />
         </td>
-        <td className="px-6 py-3">
+        <td className="px-4 py-3">
           {/* Stacked, not side by side: "View event" plus two circular
               accept/reject buttons squeezed into one row overflowed this
               cell's width. The verdict buttons sit on their own row below
@@ -700,25 +700,25 @@ function ReconciledReceiptRow({
 
   return (
     <tr className={`transition-colors hover:bg-panel-hover/40 ${isTheft ? 'bg-bad-deep/5' : ''}`}>
-      <td className="px-6 py-3">{formatReceiptDate(purchaseTime)}</td>
-      <td className="px-6 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
-      <td className="px-6 py-3 font-medium text-ink">{purchase.license_plate}</td>
-      <td className="px-6 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
-      <td className="px-6 py-3"><MerchantLabel merchant={purchase.merchant} /></td>
-      <td className="px-6 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
-      <td className="px-6 py-3">
+      <td className="whitespace-nowrap px-4 py-3">{formatReceiptDate(purchaseTime)}</td>
+      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-brand">{formatReceiptTime(purchaseTime)}</td>
+      <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-ink">{purchase.license_plate}</td>
+      <td className="whitespace-nowrap px-4 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
+      <td className="max-w-[12rem] px-4 py-3"><MerchantLabel merchant={purchase.merchant} /></td>
+      <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
+      <td className="min-w-[13rem] px-4 py-3">
         <TrackerCheckCell verification={purchase.verification} />
       </td>
       <td
-        className={`px-6 py-3 text-right font-mono tabular-nums ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
+        className={`whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
       >
         {overclaimed ? `${overclaimed} L` : '—'}
       </td>
-      <td className="px-6 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
-      <td className="px-6 py-3">
+      <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
+      <td className="whitespace-nowrap px-4 py-3">
         <ReceiptStatusBadge status={purchase.status} />
       </td>
-      <td className="px-6 py-3">
+      <td className="whitespace-nowrap px-4 py-3">
         <div className="flex flex-col items-start gap-1.5">
           <ViewEventButton onClick={() => onViewEvent(purchase)} />
           {isPending && onResolve && (
