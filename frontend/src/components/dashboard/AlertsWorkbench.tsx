@@ -25,6 +25,8 @@ const SEVERITY: Record<string, Severity> = {
   // Losing sight of a vehicle is at least as serious as a confirmed theft —
   // it is the gap a dishonest driver blames on "the app was down".
   device_offline: 'critical',
+  power_unplug: 'critical',
+  power_dropout: 'warning',
   immobilizer_engaged: 'critical',
   unlogged_fill: 'warning',
   excessive_idle: 'warning',
@@ -48,6 +50,8 @@ const TYPE_LABEL: Record<string, string> = {
   device_offline: 'Tracker offline',
   immobilizer_engaged: 'Immobiliser engaged',
   immobilizer_released: 'Vehicle mobilized',
+  power_unplug: 'Tracker unplugged',
+  power_dropout: 'Tracker power dropout',
   doors_locked: 'Doors locked remotely',
   unlogged_fill: 'Fill with no receipt',
   excessive_idle: 'Excessive idling',
@@ -93,6 +97,8 @@ const RESOLVE_MEANING: Record<string, string> = {
   receipt_uploaded: 'You are clearing a routine notification. The receipt itself is untouched.',
   power_unplug:
     'You are recording that the tracker power has been dealt with. If it is still unplugged, this will be raised again.',
+  power_dropout:
+    'You are recording that the wiring has been looked at. If the connector drops out again on the road, this will be raised again.',
   fuel_discrepancy_reported:
     "You are recording that the driver's report has been read. The estimate is modelled, so this neither confirms nor corrects it.",
 };

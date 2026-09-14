@@ -191,8 +191,21 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     type: 'power_unplug',
     label: 'Tracker disconnected',
     severity: 'critical',
-    meaning: 'The tracker lost vehicle power and fell back to its internal battery.',
-    trigger: 'Tracker reports unplug. Clears when power is restored.',
+    meaning:
+      'The tracker lost vehicle power and fell back to its internal battery while the vehicle was stationary — the pattern of someone pulling the plug.',
+    trigger:
+      'External voltage (AVL 66) under 6 V for at least 60 seconds with the vehicle not moving, or the device\'s own unplug scenario (AVL 252). Clears when power is restored.',
+    source: 'device',
+    emailable: false,
+  },
+  {
+    type: 'power_dropout',
+    label: 'Tracker power dropout',
+    severity: 'warning',
+    meaning:
+      'The tracker lost vehicle power while the vehicle was moving and ran on its internal battery. Nobody unplugs a tracker at speed: this is the OBD or power connector losing contact — a wiring fault to have looked at, not a tamper.',
+    trigger:
+      'External voltage (AVL 66) under 6 V for at least 60 seconds during which the vehicle was moving. Clears when power is restored.',
     source: 'device',
     emailable: false,
   },

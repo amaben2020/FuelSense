@@ -14,7 +14,7 @@
 //   251 Excessive idling (1 start / 0 end)
 //   250 Trip (1 start / 0 stop)
 //   175 Auto-geofence, 155-158 geofence zones 1-4 (1 enter / 0 exit)
-import { db, deviceEvents, alerts, eq, and, sql } from './db-helpers';
+import { db, deviceEvents, alerts, eq, and, inArray, sql } from './db-helpers';
 import { getIoValue } from './avl-io';
 
 export type EventSeverity = 'info' | 'warning' | 'critical';
@@ -255,12 +255,13 @@ export async function recordDeviceEvent(
 
 // End-of-event closers auto-resolve the matching open alert so jamming/unplug
 // alerts don't linger after the device reports recovery.
-const EVENT_CLOSERS: Record<string, string> = {
-  jamming_end: 'jamming_start',
-  power_restored: 'power_unplug',
+const EVENT_CLOSERS: Record<string, string[]> = {
+  jamming_end: ['jamming_start'],
+  // Power coming back closes whichever kind of loss was open.
+  power_restored: ['power_unplug', 'power_dropout'],
   // "Vehicle is out on a trip" stays open for the journey and closes when it
   // ends — otherwise dedup would suppress every trip start after the first.
-  trip_stop: 'trip_start',
+  trip_stop: ['trip_start'],
 };
 
 export async function resolveClosedAlert(
@@ -277,7 +278,7 @@ export async function resolveClosedAlert(
       and(
         eq(alerts.customerId, customerId),
         eq(alerts.vehicleId, vehicleId),
-        eq(alerts.alertType, opens),
+        inArray(alerts.alertType, opens),
         eq(alerts.isResolved, false)
       )
     );

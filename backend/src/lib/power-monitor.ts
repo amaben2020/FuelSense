@@ -23,7 +23,7 @@
  */
 import { getIoValue } from './avl-io';
 import { recordDeviceEvent, resolveClosedAlert } from './device-event-decoder';
-import { db, alerts, eq, and, sql } from './db-helpers';
+import { db, alerts, eq, and, inArray, sql } from './db-helpers';
 
 export const EXTERNAL_VOLTAGE_AVL_ID = 66;
 
@@ -43,12 +43,37 @@ export const EXTERNAL_POWER_MIN_MV = Number(
  * Consecutive low readings before an unplug is called.
  *
  * One frame is not enough: a single corrupt or mid-write IO block would raise a
- * critical tamper alert. Two is plenty of evidence — frames arrive seconds
- * apart, and the real disconnect above produced 75 in a row.
+ * critical tamper alert. Kept as a floor under the duration rule below.
  */
 export const CONSECUTIVE_LOW_FRAMES = Number(
   process.env.EXTERNAL_POWER_LOW_FRAMES || 2
 );
+
+/**
+ * How long the supply must stay low before anything is reported, in seconds.
+ *
+ * Two frames turned out to be two *seconds* on a moving vehicle, and on
+ * 2026-09-13 that produced seven "unplugged" alarms in a day for one real
+ * unplug. The others were the supply dipping to 0 V for a frame or two —
+ * one lasted two seconds — which is a connector losing contact, not a hand
+ * on the plug. The genuine episodes (26 Aug: 41 min; 13 Sep: 3 min) clear a
+ * minute easily, and a tamper reported sixty seconds late is still reported.
+ */
+export const SUSTAINED_LOW_SECONDS = Number(
+  process.env.EXTERNAL_POWER_LOW_SECONDS || 60
+);
+
+/**
+ * Above this speed the vehicle counts as moving for the tamper-or-wiring call.
+ *
+ * On 13 Sep the supply read 0 V for four and a half minutes while the vehicle
+ * was doing 58–88 km/h, after sagging to 5.3 V twice in the minute before.
+ * Nobody pulled the plug at 88 km/h: that is the OBD connector losing contact
+ * under vibration — a wiring fault a manager should hear about, but not a
+ * critical tamper alarm. A tracker unplugged by a person is unplugged while
+ * the vehicle is stopped.
+ */
+export const MOVING_KPH = 5;
 
 interface PowerContext {
   imei: string;
@@ -71,6 +96,17 @@ interface PowerContext {
 interface PowerState {
   unplugged: boolean;
   lowStreak: number;
+  /** When the current run of low readings began (ms epoch); null when powered. */
+  lowSince: number | null;
+  /** Whether the vehicle moved at any point during the current low run. */
+  movedWhileLow: boolean;
+}
+
+/** One voltage reading, with the two facts the rule needs alongside it. */
+export interface PowerReading {
+  externalMv: number | null;
+  at: Date;
+  speedKph: number | null;
 }
 
 const state = new Map<string, PowerState>();
@@ -92,7 +128,7 @@ const hasOpenUnplugAlert = async (
       and(
         eq(alerts.customerId, customerId),
         eq(alerts.vehicleId, vehicleId),
-        eq(alerts.alertType, 'power_unplug'),
+        inArray(alerts.alertType, ['power_unplug', 'power_dropout']),
         eq(alerts.isResolved, false)
       )
     )
@@ -107,12 +143,19 @@ const loadState = async (ctx: PowerContext): Promise<PowerState> => {
   const seeded: PowerState = {
     unplugged: await hasOpenUnplugAlert(ctx.customerId, ctx.vehicleId),
     lowStreak: 0,
+    lowSince: null,
+    movedWhileLow: false,
   };
   state.set(ctx.imei, seeded);
   return seeded;
 };
 
-export type PowerTransition = 'unplugged' | 'restored' | null;
+/**
+ * `unplugged` — power lost on a stationary vehicle: a tamper until proven
+ * otherwise. `dropout` — power lost while moving: the wiring, not a hand.
+ * `restored` closes either.
+ */
+export type PowerTransition = 'unplugged' | 'dropout' | 'restored' | null;
 
 /**
  * The whole rule, as a pure function: given a reading and the state before it,
@@ -128,25 +171,37 @@ export type PowerTransition = 'unplugged' | 'restored' | null;
  * reported as unplugged for failing to send a reading it never sends.
  */
 export const decidePowerTransition = (
-  externalMv: number | null,
+  reading: PowerReading,
   before: PowerState
 ): { transition: PowerTransition; after: PowerState } => {
+  const { externalMv } = reading;
   if (externalMv == null || !Number.isFinite(externalMv)) {
     return { transition: null, after: before };
   }
 
   if (externalMv < EXTERNAL_POWER_MIN_MV) {
     const lowStreak = before.lowStreak + 1;
-    if (before.unplugged || lowStreak < CONSECUTIVE_LOW_FRAMES) {
-      return { transition: null, after: { unplugged: before.unplugged, lowStreak } };
+    const lowSince = before.lowSince ?? reading.at.getTime();
+    const movedWhileLow = before.movedWhileLow || (reading.speedKph ?? 0) > MOVING_KPH;
+    const after: PowerState = { unplugged: before.unplugged, lowStreak, lowSince, movedWhileLow };
+    if (before.unplugged) return { transition: null, after };
+    const lowForSeconds = (reading.at.getTime() - lowSince) / 1000;
+    if (lowStreak < CONSECUTIVE_LOW_FRAMES || lowForSeconds < SUSTAINED_LOW_SECONDS) {
+      return { transition: null, after };
     }
-    return { transition: 'unplugged', after: { unplugged: true, lowStreak } };
+    return {
+      transition: movedWhileLow ? 'dropout' : 'unplugged',
+      after: { ...after, unplugged: true },
+    };
   }
 
-  if (!before.unplugged) {
-    return { transition: null, after: { unplugged: false, lowStreak: 0 } };
-  }
-  return { transition: 'restored', after: { unplugged: false, lowStreak: 0 } };
+  const powered: PowerState = {
+    unplugged: false,
+    lowStreak: 0,
+    lowSince: null,
+    movedWhileLow: false,
+  };
+  return { transition: before.unplugged ? 'restored' : null, after: powered };
 };
 
 /**
@@ -165,13 +220,20 @@ export const handlePowerForRecord = async (
   if (externalMv == null || !Number.isFinite(externalMv)) return null;
 
   const current = await loadState(ctx);
-  const { transition, after } = decidePowerTransition(externalMv, current);
+  const { transition, after } = decidePowerTransition(
+    { externalMv, at: ctx.occurredAt, speedKph: ctx.speedKph },
+    current
+  );
   state.set(ctx.imei, after);
 
   if (transition === null) return null;
 
+  const plate = ctx.licensePlate || ctx.imei;
+  const lowForMin = after.lowSince
+    ? Math.max(1, Math.round((ctx.occurredAt.getTime() - after.lowSince) / 60_000))
+    : 1;
+
   if (transition === 'unplugged') {
-    const plate = ctx.licensePlate || ctx.imei;
     await recordDeviceEvent(
       {
         eventType: 'power_unplug',
@@ -180,7 +242,8 @@ export const handlePowerForRecord = async (
         unit: 'mV',
         alertMessage:
           `Tracker on ${plate} lost main power and is running on its internal ` +
-          `battery. External voltage read ${(externalMv / 1000).toFixed(1)}V. ` +
+          `battery, with the vehicle stationary, for ${lowForMin} min so far. ` +
+          `External voltage read ${(externalMv / 1000).toFixed(1)}V. ` +
           `Possible tamper or disconnect.`,
       },
       ctx
@@ -188,8 +251,27 @@ export const handlePowerForRecord = async (
     return 'unplugged';
   }
 
+  if (transition === 'dropout') {
+    await recordDeviceEvent(
+      {
+        eventType: 'power_dropout',
+        severity: 'warning',
+        value: externalMv,
+        unit: 'mV',
+        alertMessage:
+          `Tracker on ${plate} lost vehicle power while the vehicle was moving ` +
+          `and has run on its internal battery for ${lowForMin} min so far. ` +
+          `That is the power connector losing contact, not a hand on the plug — ` +
+          `have the OBD/power wiring checked.`,
+      },
+      ctx
+    );
+    return 'dropout';
+  }
+
   // Power is back. `power_restored` carries no alert message of its own — it
-  // exists to close the open unplug alert, exactly as AVL 252's off-state does.
+  // exists to close the open unplug or dropout alert, exactly as AVL 252's
+  // off-state does.
   await recordDeviceEvent(
     {
       eventType: 'power_restored',

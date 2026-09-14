@@ -19,7 +19,7 @@ import {
   notificationPreferences,
   fuelPrices,
 } from '../db/schema';
-import { eq, and, desc, sql, isNull } from 'drizzle-orm';
+import { eq, and, desc, sql, isNull, inArray } from 'drizzle-orm';
 import { serializeForApi } from './serialize';
 import {
   DEFAULT_VEHICLE_TYPE,
@@ -213,5 +213,6 @@ export {
   and,
   desc,
   sql,
+  inArray,
   isNull,
 };

@@ -38,6 +38,8 @@ const TOAST_TITLE: Record<string, string> = {
   geofence_exit: 'Left a zone',
   device_offline: 'Tracker offline',
   device_unplugged: 'Tracker unplugged',
+  power_unplug: 'Tracker unplugged',
+  power_dropout: 'Tracker power dropout',
   receipt_uploaded: 'Receipt filed',
   receipt_fraud: 'Receipt does not add up',
   immobilizer_engaged: 'Immobiliser engaged',
