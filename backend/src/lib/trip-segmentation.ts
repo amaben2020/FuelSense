@@ -37,10 +37,13 @@ export interface TripStop {
   lng: number;
   arrived_at: string;
   departed_at: string;
-  /** For a destination: how long the vehicle sat there before the tracker went quiet. */
+  /** For a destination: how long the vehicle sat there before it next moved —
+   *  up to the next trip's start, or to now if it has not moved since. */
   duration_minutes: number;
   /** 'origin' and 'destination' bookend the trip; 'stop' is a mid-trip halt. */
   kind: 'origin' | 'stop' | 'pause' | 'traffic' | 'destination';
+  /** The vehicle is still parked here: the duration is "so far", not final. */
+  ongoing?: boolean;
 }
 
 export interface Trip {
@@ -462,6 +465,30 @@ export function segmentTrips(points: TelemetryTripPoint[], nowMs = Date.now()): 
     if (isActive(pt)) lastActiveAt = t;
   }
   close();
+
+  // A trip's parked time is the gap to the next trip, not the dwell inside
+  // its own last few points — the segment ends when the tracker goes quiet,
+  // so the destination of yesterday's last trip read "Trip ended here" with
+  // no parked time while the vehicle had sat there eighteen hours. For the
+  // final trip the gap runs to now and is marked as still going.
+  for (let i = 0; i < trips.length; i++) {
+    const trip = trips[i];
+    const destination = trip.stops.find((s) => s.kind === 'destination');
+    if (!destination || trip.active) continue;
+    const endMs = new Date(trip.end_at).getTime();
+    const next = trips[i + 1];
+    const untilMs = next ? new Date(next.start_at).getTime() : nowMs;
+    if (untilMs - endMs <= 0) continue;
+    // Measured from when the vehicle actually came to rest, which can be a
+    // few minutes before the segment's last row.
+    const arrivedMs = new Date(destination.arrived_at).getTime();
+    destination.departed_at = new Date(untilMs).toISOString();
+    destination.duration_minutes = Math.max(
+      destination.duration_minutes,
+      Math.round((untilMs - arrivedMs) / 60000)
+    );
+    if (!next) destination.ongoing = true;
+  }
 
   return trips;
 }

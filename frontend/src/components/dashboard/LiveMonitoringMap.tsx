@@ -2019,15 +2019,19 @@ export function LiveMonitoringMap({
         >
           <p className="text-sm font-semibold text-ink">
             {hoveredStop.stop.kind === 'destination'
-              ? hoveredStop.stop.duration_minutes > 0
-                ? `Trip ended · parked ${formatDuration(hoveredStop.stop.duration_minutes)}`
-                : 'Trip ended here'
+              ? hoveredStop.stop.ongoing
+                ? `Trip ended · parked ${formatDuration(hoveredStop.stop.duration_minutes)} so far`
+                : hoveredStop.stop.duration_minutes > 0
+                  ? `Trip ended · parked ${formatDuration(hoveredStop.stop.duration_minutes)}`
+                  : 'Trip ended here'
               : `Parked ${formatDuration(hoveredStop.stop.duration_minutes)}`}
           </p>
           <p className="mt-0.5 font-mono text-xs text-ink-mid">
-            {hoveredStop.stop.kind === 'destination' && hoveredStop.stop.duration_minutes === 0
-              ? clockTime(hoveredStop.stop.arrived_at)
-              : `${clockTime(hoveredStop.stop.arrived_at)} → ${clockTime(hoveredStop.stop.departed_at)}`}
+            {hoveredStop.stop.kind === 'destination' && hoveredStop.stop.ongoing
+              ? `since ${clockTime(hoveredStop.stop.arrived_at)} · still here`
+              : hoveredStop.stop.kind === 'destination' && hoveredStop.stop.duration_minutes === 0
+                ? clockTime(hoveredStop.stop.arrived_at)
+                : `${clockTime(hoveredStop.stop.arrived_at)} → ${clockTime(hoveredStop.stop.departed_at)}`}
           </p>
           <p className="mt-1.5 text-[11px] text-ink-dim">Click for address and photo</p>
         </div>

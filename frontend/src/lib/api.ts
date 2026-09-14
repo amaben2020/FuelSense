@@ -1281,6 +1281,8 @@ export interface TripStop {
   departed_at: string;
   duration_minutes: number;
   kind: 'origin' | 'stop' | 'pause' | 'traffic' | 'destination';
+  /** Destination only: the vehicle is still parked here; the duration is so far. */
+  ongoing?: boolean;
   /** Present only when this spot is already in the place cache — resolving it
    *  live would bill a geocode per stop, every time the list is opened. */
   place_label?: string | null;

@@ -928,7 +928,7 @@ export default function DashboardPage() {
 
   return (
     <div
-      className={`bg-canvas text-ink ${activeView === 'live' ? 'h-screen overflow-hidden' : 'min-h-screen'}`}
+      className={`bg-canvas text-ink ${activeView === 'live' ? 'h-dvh overflow-hidden' : 'min-h-screen'}`}
     >
       <aside className="glass fixed left-0 top-0 z-40 hidden h-full rounded-none border-y-0 border-l-0 lg:block">
         {rail}
@@ -956,7 +956,7 @@ export default function DashboardPage() {
       )}
 
       <main
-        className={`lg:ml-[76px] ${activeView === 'live' ? 'h-screen overflow-hidden' : ''}`}
+        className={`lg:ml-[76px] ${activeView === 'live' ? 'h-dvh overflow-hidden' : ''}`}
       >
         <div
           className={

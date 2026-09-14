@@ -42,10 +42,11 @@ describe('a halt at the end of the trip', () => {
   it('becomes the destination, carrying the whole parked time', () => {
     const end = trip.stops[trip.stops.length - 1];
     expect(end.kind).toBe('destination');
-    // From the first stationary fix (310 s) to the last row.
-    const expectedMinutes = Math.round((435 + 26 * 60 + 2 - 310) / 60);
+    // From the first stationary fix (310 s) to "now" — the vehicle has not
+    // moved since, so the parked time runs on and is flagged as still going.
+    const expectedMinutes = Math.round((3 * 3600 - 310) / 60);
     expect(end.duration_minutes).toBe(expectedMinutes);
-    expect(end.arrived_at).toBe(new Date(T0 + 310 * 1000).toISOString());
+    expect(end.ongoing).toBe(true);
   });
 });
 
@@ -72,9 +73,12 @@ describe('a trip that ends while moving', () => {
   const points = drive(0, 7.62, 300);
   const [trip] = segmentTrips(points, T0 + 3 * 3600 * 1000);
 
-  it('has a destination with no parked time', () => {
+  it('has a destination whose parked time runs from the last fix to now', () => {
     const end = trip.stops[trip.stops.length - 1];
     expect(end.kind).toBe('destination');
-    expect(end.duration_minutes).toBe(0);
+    // Nothing moved after the last fix, so the vehicle is parked there still.
+    expect(end.ongoing).toBe(true);
+    expect(end.duration_minutes).toBeGreaterThan(0);
+    expect(end.departed_at).toBe(new Date(T0 + 3 * 3600 * 1000).toISOString());
   });
 });
