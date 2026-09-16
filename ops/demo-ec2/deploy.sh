@@ -33,13 +33,18 @@ rsync -az --delete -e "ssh -i $SSH_KEY" \
   "$REPO/backend/" "$SSH_USER@$IP:/home/ec2-user/backend/"
 # The demo environment, and only that, becomes the box's .env. Simulator on,
 # ports as the box's caddy expects.
-grep -vE '^(PORT|TCP_PORT|TCP_SERVER_HOST|CORS_ALLOW_ALL)=' "$REPO/backend/.env.demo" > "$HERE/.env.box"
+# The database is the box's own Postgres when db.sh has set one up (no
+# transfer quota, gone with the box); otherwise .env.demo's URL stands.
+DB_URL="$(state_get DB_URL)"
+grep -vE '^(PORT|TCP_PORT|TCP_SERVER_HOST|CORS_ALLOW_ALL)=' "$REPO/backend/.env.demo" \
+  | { if [ -n "$DB_URL" ]; then grep -vE '^(DATABASE_URL|DATABASE_SSL)='; else cat; fi; } > "$HERE/.env.box"
 cat >> "$HERE/.env.box" <<ENV
 PORT=5101
 TCP_PORT=5127
 TCP_SERVER_HOST=127.0.0.1
 CORS_ALLOW_ALL=true
 ENV
+if [ -n "$DB_URL" ]; then printf 'DATABASE_URL=%s\nDATABASE_SSL=disable\n' "$DB_URL" >> "$HERE/.env.box"; fi
 scp -q -i "$SSH_KEY" "$HERE/.env.box" "$SSH_USER@$IP:/home/ec2-user/backend/.env"
 rm -f "$HERE/.env.box"
 rsync -az --delete -e "ssh -i $SSH_KEY" "$REPO/frontend/out/" "$SSH_USER@$IP:/home/ec2-user/site/"

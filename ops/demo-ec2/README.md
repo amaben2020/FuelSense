@@ -16,7 +16,14 @@ ops/demo-ec2/up.sh          # security group + t3.small (Amazon Linux 2023)
 ops/demo-ec2/deploy.sh      # build the site, sync backend + site, start services
 ops/demo-ec2/cloudfront.sh  # https URL on *.cloudfront.net (5-10 min to deploy)
 ops/demo-ec2/down.sh        # delete all of it
+ops/demo-ec2/laptop.sh      # run the API here against the box's database (simulator off)
 ```
+
+The box keeps its own Postgres (`fuelsense_demo`, loopback only) — set up by
+hand on 2026-09-16 after Neon's free transfer quota took the demo down. `.state`
+carries its password and `deploy.sh` writes that URL into the box's `.env`.
+Reseed with `DOTENV_CONFIG_PATH=.env npx tsx src/seed-blue-fleet.ts --fresh`
+in `/home/ec2-user/backend` on the box.
 
 Re-run `deploy.sh` to push changes. State (instance id, distribution id)
 lives in `.state`, which is git-ignored.

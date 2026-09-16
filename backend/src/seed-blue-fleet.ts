@@ -93,8 +93,11 @@ function refuseProduction(): void {
       'DATABASE_URL points at production (RDS / the RDS tunnel). Blue Fleet lives in the demo database only — run with DOTENV_CONFIG_PATH=.env.demo'
     );
   }
-  if (!/neon\.tech/i.test(url)) {
-    throw new Error(`DATABASE_URL is not the Neon demo database — refusing (${url.replace(/:[^:@]+@/, ':***@')})`);
+  // The demo lives in Neon, or in a database that says so in its own name —
+  // the disposable demo box keeps one locally, after Neon's free transfer
+  // quota took the demo down mid-preparation.
+  if (!/neon\.tech/i.test(url) && !/\/fuelsense_demo(\?|$)/.test(url)) {
+    throw new Error(`DATABASE_URL is not a demo database — refusing (${url.replace(/:[^:@]+@/, ':***@')})`);
   }
 }
 
