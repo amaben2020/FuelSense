@@ -1,0 +1,16 @@
+# The demo box's front door on :80. CloudFront terminates HTTPS in front of it.
+# /api goes to the demo API; everything else is the site's static export.
+:80 {
+	encode gzip
+	handle /api/* {
+		reverse_proxy 127.0.0.1:5101 {
+			# The live map's event stream must not be buffered.
+			flush_interval -1
+		}
+	}
+	handle {
+		root * /home/ec2-user/site
+		try_files {path} {path}.html {path}/index.html /index.html
+		file_server
+	}
+}

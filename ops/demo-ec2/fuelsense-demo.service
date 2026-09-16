@@ -1,0 +1,15 @@
+[Unit]
+Description=FuelSense NAF demo API (demo database only, disposable)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/backend
+EnvironmentFile=/home/ec2-user/backend/.env
+ExecStart=/home/ec2-user/backend/node_modules/.bin/tsx src/server.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
