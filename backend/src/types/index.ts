@@ -1,7 +1,14 @@
+/** Chooses the dashboard's landing view; every role has the whole app. */
+export type FleetRole = 'manager' | 'commander';
+
 export interface JwtPayload {
   customerId: string;
   email: string;
   name?: string;
+  /** Absent on tokens issued before roles existed — those are the manager's. */
+  role?: FleetRole;
+  /** Set when the token belongs to a fleet user rather than the account holder. */
+  userId?: string;
   iat?: number;
   exp?: number;
 }

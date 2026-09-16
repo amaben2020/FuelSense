@@ -123,6 +123,20 @@ export const initDatabase = async (): Promise<void> => {
 
   await ensureColumn('vehicles', 'driver_id', 'UUID REFERENCES drivers(id) ON DELETE SET NULL');
 
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fleet_users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      role VARCHAR(20) NOT NULL,
+      title VARCHAR(120),
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+
   await ensureColumn('drivers', 'email', 'VARCHAR(255)');
   await ensureColumn('drivers', 'driver_code', 'VARCHAR(50)');
   await ensureColumn('drivers', 'pin_hash', 'VARCHAR(255)');
@@ -530,6 +544,17 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('alerts', 'longitude', 'DECIMAL(11,8)');
   await ensureColumn('alerts', 'fuel_drop_liters', 'DECIMAL(10,2)');
   await ensureColumn('alerts', 'estimated_loss_ngn', 'INTEGER');
+  // The person behind a remote command. Rows written before the column
+  // existed carry the name only inside the message ("… by Jane Doe (setdigout
+  // …"); lift it out once so the audit trail is complete for them too.
+  await ensureColumn('alerts', 'actor', 'TEXT');
+  await db.execute(sql`
+    UPDATE alerts
+    SET actor = substring(message from ' by ([^(]+) \\(')
+    WHERE actor IS NULL
+      AND alert_type IN ('immobilizer_engaged', 'immobilizer_released', 'doors_locked')
+      AND message ~ ' by [^(]+ \\('
+  `);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS subscriptions (

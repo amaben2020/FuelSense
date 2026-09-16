@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { api, AuthResponse, setToken } from '@/lib/api';
 import { AuthLayout, Field, inputClass } from '@/components/AuthLayout';
+import { useAuthStore } from '@/store/authStore';
 
 export default function LoginPage() {
   const router = useRouter();
+  const cacheCustomer = useAuthStore((s) => s.setCustomer);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -25,6 +27,10 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       setToken(data.token);
+      // The account is known the moment sign-in succeeds, so the loading
+      // screen that follows can wear its name and mark rather than the
+      // product's until /auth/me answers.
+      cacheCustomer(data.customer);
       router.push(
         data.customer.onboarding_completed ? '/dashboard' : '/onboarding'
       );

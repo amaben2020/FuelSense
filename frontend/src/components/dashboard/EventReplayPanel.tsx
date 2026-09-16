@@ -41,6 +41,7 @@ import {
   fleetMapContainerStyle,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
+import { useLightTheme } from '@/lib/use-light-theme';
 import {
   AnomalyMapMarker,
   MANOEUVRE_STYLE,
@@ -378,6 +379,7 @@ function ReplayMapSection({
   speedLimitKph?: number | null;
   locationName?: string | null;
 }) {
+  const lightTheme = useLightTheme();
   const mapPath = readings.filter(
     (r) => r.latitude != null && r.longitude != null,
   );
@@ -427,14 +429,18 @@ function ReplayMapSection({
         />
       ) : (
         <Map
-          {...fleetMapDefaults({
-            defaultCenter:
-              mapCenter?.latitude != null && mapCenter?.longitude != null
-                ? { lat: mapCenter.latitude, lng: mapCenter.longitude }
-                : LAGOS_CENTER,
-            defaultZoom: 14,
-            reuseMaps: true,
-          })}
+          {...fleetMapDefaults(
+            {
+              defaultCenter:
+                mapCenter?.latitude != null && mapCenter?.longitude != null
+                  ? { lat: mapCenter.latitude, lng: mapCenter.longitude }
+                  : LAGOS_CENTER,
+              defaultZoom: 14,
+              reuseMaps: true,
+            },
+            false,
+            lightTheme,
+          )}
           style={replayMapStyle}
         >
           <ReplayMap

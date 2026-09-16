@@ -28,6 +28,7 @@ import {
   ROUTE_PRIMARY,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
+import { useLightTheme } from '@/lib/use-light-theme';
 import {
   EmphasizedRoute,
   MapResizeFix,
@@ -990,6 +991,7 @@ export function LiveMonitoringMap({
     }
   };
 
+  const lightTheme = useLightTheme();
   const mapOptions = useMemo(
     () =>
       fleetMapDefaults(
@@ -1005,8 +1007,9 @@ export function LiveMonitoringMap({
           mapTypeControl: false,
         },
         showPoi,
+        lightTheme,
       ),
-    [showPoi],
+    [showPoi, lightTheme],
   );
 
   // Most recent place any vehicle was actually seen — the map's real origin.

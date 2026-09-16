@@ -142,6 +142,52 @@ router.get('/anomalies', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Everything that has happened on the theft side, resolved or not.
+ *
+ * An immobilize, a mobilize or a door lock is an audit event: the record of
+ * a person cutting an engine, and the one thing a security buyer asks to see.
+ * It lands in `alerts` so it also reaches the inbox, but the inbox is the
+ * wrong place to read it back from — resolving is how a manager clears a
+ * morning's queue, and the first bulk resolve took the whole trail off the
+ * theft panel with it. This reads the same rows regardless of `is_resolved`,
+ * alongside the detector-raised theft and fraud alerts they sit among.
+ */
+const SECURITY_LOG_TYPES = [
+  'immobilizer_engaged',
+  'immobilizer_released',
+  'doors_locked',
+  'fuel_theft',
+  'receipt_fraud',
+];
+
+router.get('/security-log', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const rows = await db
+      .select({
+        id: alerts.id,
+        vehicle_id: alerts.vehicleId,
+        alert_type: alerts.alertType,
+        message: alerts.message,
+        actor: alerts.actor,
+        is_resolved: alerts.isResolved,
+        created_at: alerts.createdAt,
+        license_plate: vehicles.licensePlate,
+      })
+      .from(alerts)
+      .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
+      .where(
+        and(eq(alerts.customerId, req.user.customerId), inArray(alerts.alertType, SECURITY_LOG_TYPES))
+      )
+      .orderBy(desc(alerts.createdAt))
+      .limit(limit);
+    res.json(rows);
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
 router.get('/', async (req: Request, res: Response) => {
   try {
     // The cap used to be a hardcoded 20 while /dashboard/summary counted every

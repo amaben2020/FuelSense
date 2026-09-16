@@ -26,7 +26,8 @@
     "db:partition-telemetry": "tsx src/partition-telemetry.ts",
     "demo:push": "DOTENV_CONFIG_PATH=.env.demo drizzle-kit push",
     "demo:seed": "DOTENV_CONFIG_PATH=.env.demo tsx src/seed-blue-fleet.ts",
-    "dev:demo": "DOTENV_CONFIG_PATH=.env.demo tsx watch src/server.ts"
+    "dev:demo": "DOTENV_CONFIG_PATH=.env.demo tsx watch src/server.ts",
+    "demo:serve": "DOTENV_CONFIG_PATH=.env.demo tsx src/server.ts"
   },
   "keywords": [
     "teltonika",

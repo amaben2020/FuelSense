@@ -7,8 +7,23 @@ import {
   customerPublicSelect,
   eq,
 } from '../lib/db-helpers';
-import { signToken, authenticateCustomer } from '../middleware/auth';
+import { signToken, signFleetUserToken, authenticateCustomer } from '../middleware/auth';
 import { logAndRespond } from '../lib/errors';
+import { fleetUsers, type FleetRole } from '../db/schema';
+import { and } from 'drizzle-orm';
+
+/**
+ * Who is signed in, alongside the fleet they belong to. The manager is the
+ * customer row itself; a fleet user carries their own name, role and title
+ * so the dashboard can open on their view and sign their actions.
+ */
+const signedInUser = (
+  customer: { name: string; email: string },
+  user?: { role: FleetRole; name: string; email: string; title: string | null }
+) =>
+  user
+    ? { role: user.role, name: user.name, email: user.email, title: user.title }
+    : { role: 'manager' as FleetRole, name: customer.name, email: customer.email, title: null };
 
 const router = express.Router();
 
@@ -87,7 +102,35 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
       .where(eq(customers.email, email.toLowerCase().trim()));
 
     if (!customer) {
-      res.status(401).json({ error: 'Invalid email or password' });
+      // Not the account holder — perhaps one of the people the fleet lets in.
+      const [user] = await db
+        .select({
+          id: fleetUsers.id,
+          customerId: fleetUsers.customerId,
+          email: fleetUsers.email,
+          name: fleetUsers.name,
+          role: fleetUsers.role,
+          title: fleetUsers.title,
+          passwordHash: fleetUsers.passwordHash,
+        })
+        .from(fleetUsers)
+        .where(and(eq(fleetUsers.email, email.toLowerCase().trim()), eq(fleetUsers.isActive, true)));
+      if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+        res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+      const [fleet] = await db
+        .select(customerPublicSelect)
+        .from(customers)
+        .where(eq(customers.id, user.customerId));
+      if (!fleet) {
+        res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+      const role = user.role as FleetRole;
+      const token = signFleetUserToken({ ...user, role });
+      const me = signedInUser(fleet, { ...user, role });
+      res.json({ token, customer: { ...fleet, ...me, user: me } });
       return;
     }
 
@@ -99,7 +142,8 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
 
     const { password_hash: _ph, ...customerData } = customer;
     const token = signToken(customerData as Parameters<typeof signToken>[0]);
-    res.json({ token, customer: customerData });
+    const me = signedInUser(customerData);
+    res.json({ token, customer: { ...customerData, role: me.role, user: me } });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
@@ -116,7 +160,20 @@ router.get('/me', authenticateCustomer, async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Customer not found' });
       return;
     }
-    res.json(customer);
+    let me = signedInUser(customer);
+    if (req.user.userId) {
+      const [user] = await db
+        .select({
+          role: fleetUsers.role,
+          name: fleetUsers.name,
+          email: fleetUsers.email,
+          title: fleetUsers.title,
+        })
+        .from(fleetUsers)
+        .where(eq(fleetUsers.id, req.user.userId));
+      if (user) me = signedInUser(customer, { ...user, role: user.role as FleetRole });
+    }
+    res.json({ ...customer, role: me.role, user: me });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

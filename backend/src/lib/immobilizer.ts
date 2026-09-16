@@ -347,6 +347,7 @@ async function setImmobilized(
     customerId,
     vehicleId,
     alertType: engage ? 'immobilizer_engaged' : 'immobilizer_released',
+    actor: actorLabel,
     message: engage
       ? `${plate} was remotely immobilized by ${actorLabel} (${text} on ${`DOUT${RELAY_OUTPUT}`}). ${delivery} The engine will not start until it is mobilized.`
       : `${plate} was mobilized by ${actorLabel} (${text} on ${`DOUT${RELAY_OUTPUT}`}). ${delivery} The engine can start normally once the tracker confirms.`,
@@ -410,6 +411,7 @@ export async function lockDoors(
     customerId,
     vehicleId,
     alertType: 'doors_locked',
+    actor: actorLabel,
     message: `${vehicle.licensePlate} doors were locked remotely by ${actorLabel} (${CMD_LOCK_DOORS} — a ${DOOR_LOCK_PULSE_SECONDS}s pulse on DOUT${DOOR_LOCK_OUTPUT}).`,
   });
 

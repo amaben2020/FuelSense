@@ -86,11 +86,92 @@ export const FLEET_DARK_MAP_STYLES_POI: google.maps.MapTypeStyle[] = [
   },
 ];
 
-export function fleetMapLayerProps(showPoi = false) {
+/**
+ * Light-mode basemap. The dashboard's light theme used to leave the map on
+ * the dark styles — a black tile in a white page. This is a steel-blue ramp
+ * (#364d70 → #d7dbe2): the lightest step is the ground, the roads sit one
+ * and two steps down, water and labels take the deep end. A single hue so
+ * the route accent is still the only thing on the map with its own colour.
+ */
+export const FLEET_LIGHT_MAP_STYLES: google.maps.MapTypeStyle[] = [
+  { elementType: 'geometry', stylers: [{ color: '#d7dbe2' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#364d70' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#d7dbe2' }] },
+  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  {
+    featureType: 'administrative',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#8694a9' }],
+  },
+  {
+    featureType: 'landscape',
+    elementType: 'geometry',
+    stylers: [{ color: '#d7dbe2' }],
+  },
+  {
+    featureType: 'poi',
+    stylers: [{ visibility: 'off' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry.fill',
+    stylers: [{ color: '#afb8c6' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#d7dbe2' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.fill',
+    stylers: [{ color: '#8694a9' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#5e718d' }],
+  },
+  {
+    featureType: 'transit',
+    stylers: [{ visibility: 'off' }],
+  },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{ color: '#5e718d' }],
+  },
+];
+
+export const FLEET_LIGHT_MAP_STYLES_POI: google.maps.MapTypeStyle[] = [
+  ...FLEET_LIGHT_MAP_STYLES.filter((s) => s.featureType !== 'poi'),
+  {
+    featureType: 'poi.business',
+    stylers: [{ visibility: 'on' }],
+  },
+  {
+    featureType: 'poi.business',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#364d70' }],
+  },
+  {
+    featureType: 'poi.business',
+    elementType: 'labels.icon',
+    stylers: [{ visibility: 'on' }],
+  },
+];
+
+export function fleetMapLayerProps(showPoi = false, light = false) {
   if (FLEET_MAP_ID) {
     return {
       mapId: FLEET_MAP_ID,
-      colorScheme: 'DARK' as const,
+      colorScheme: light ? ('LIGHT' as const) : ('DARK' as const),
+    };
+  }
+  if (light) {
+    return {
+      styles: showPoi ? FLEET_LIGHT_MAP_STYLES_POI : FLEET_LIGHT_MAP_STYLES,
+      backgroundColor: '#d7dbe2',
     };
   }
   return {
@@ -99,13 +180,17 @@ export function fleetMapLayerProps(showPoi = false) {
   };
 }
 
-export function fleetMapDefaults(overrides: Record<string, unknown> = {}, showPoi = false) {
+export function fleetMapDefaults(
+  overrides: Record<string, unknown> = {},
+  showPoi = false,
+  light = false,
+) {
   return {
     gestureHandling: 'greedy' as const,
     disableDefaultUI: false,
     zoomControl: true,
     scrollwheel: true,
-    ...fleetMapLayerProps(showPoi),
+    ...fleetMapLayerProps(showPoi, light),
     ...overrides,
   };
 }

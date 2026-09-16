@@ -1,8 +1,10 @@
 'use client';
 
 import { useProductName } from '@/lib/product-name';
+import { useAuthStore } from '@/store/authStore';
 
 import { BrandMark } from '@/components/BrandMark';
+import { BrandTheme } from '@/components/BrandTheme';
 
 /**
  * The wait before the dashboard has its data.
@@ -27,16 +29,26 @@ export function FleetCommandLoader({
   label?: string;
 }) {
   const productName = useProductName();
+  // A white-labelled account's own mark and colour, from the sign-in cache;
+  // every other account gets the FuelSense mark on lemon.
+  const customer = useAuthStore((s) => s.customer);
+  const logo = customer?.white_label ? customer.logo_url : null;
   return (
     <div
       className="flex min-h-screen flex-col items-center justify-center bg-canvas px-6"
       role="status"
       aria-live="polite"
     >
+      <BrandTheme customer={customer?.white_label ? customer : null} />
       <div className="flex w-full max-w-[280px] flex-col items-center">
-        <BrandMark className="h-9 w-9 text-brand" strokeWidth={4} />
+        {logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={logo} alt="" className="h-14 w-14 object-contain" />
+        ) : (
+          <BrandMark className="h-9 w-9 text-brand" strokeWidth={4} />
+        )}
 
-        <p className="mt-4 text-sm font-semibold tracking-tight text-ink">{productName}</p>
+        <p className="mt-4 text-center text-sm font-semibold tracking-tight text-ink">{productName}</p>
 
         {/* A single hairline sweep. Reads as progress without claiming a
             percentage we do not know. */}

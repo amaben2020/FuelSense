@@ -10,6 +10,7 @@ import {
   fleetMapContainerStyle,
   fleetMapDefaults,
 } from '@/lib/fleet-map-theme';
+import { useLightTheme } from '@/lib/use-light-theme';
 import {
   MapResizeFix,
   VehicleCarMarker,
@@ -27,6 +28,7 @@ export function FleetMap({
   theme?: 'light' | 'dark';
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const lightTheme = useLightTheme();
 
   const located = useMemo(
     () =>
@@ -115,10 +117,14 @@ export function FleetMap({
       </div>
       <APIProvider apiKey={FLEET_MAPS_KEY}>
         <Map
-          {...fleetMapDefaults({
-            center,
-            zoom: located.length <= 1 ? 14 : 12,
-          })}
+          {...fleetMapDefaults(
+            {
+              center,
+              zoom: located.length <= 1 ? 14 : 12,
+            },
+            false,
+            lightTheme,
+          )}
           style={fleetMapContainerStyle(420)}
           onClick={() => {
             setActiveId(null);

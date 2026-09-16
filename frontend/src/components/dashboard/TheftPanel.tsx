@@ -7,32 +7,52 @@ import {
   Check,
   Circle,
   DoorClosed,
+  History,
   Lock,
   LockOpen,
   Radio,
   ShieldAlert,
   Siren,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { ImmobilizerSceneModal } from './ImmobilizerSceneModal';
 import {
-  Alert,
   FleetVehicle,
   ImmobilizerStatus,
+  SecurityLogEntry,
+  SecurityLogType,
   engageImmobilizer,
   getImmobilizerStatus,
+  getSecurityLog,
   lockVehicleDoors,
   releaseImmobilizer,
 } from '@/lib/api';
 
-const THEFT_ALERT_TYPES = new Set([
-  'fuel_theft',
-  'receipt_fraud',
-  'immobilizer_engaged',
-  'immobilizer_released',
-  'doors_locked',
-]);
-
 type Action = 'engage' | 'release' | 'lock';
+
+/** How each audit line reads: the verb a buyer expects, and its colour. */
+const EVENT_META: Record<SecurityLogType, { label: string; Icon: LucideIcon; tone: string }> = {
+  immobilizer_engaged: { label: 'Immobilize requested', Icon: Lock, tone: 'text-bad' },
+  immobilizer_released: { label: 'Mobilize requested', Icon: LockOpen, tone: 'text-good' },
+  doors_locked: { label: 'Doors locked', Icon: DoorClosed, tone: 'text-accent-y' },
+  fuel_theft: { label: 'Fuel theft flagged', Icon: Siren, tone: 'text-bad' },
+  receipt_fraud: { label: 'Receipt mismatch flagged', Icon: Siren, tone: 'text-bad' },
+};
+
+/** "13 Sep, 10:02" — day and clock, no year, no seconds. */
+const formatWhen = (iso: string): string =>
+  new Date(iso).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+/** "Immobilize requested by Jane Doe" — or by the detector, when nobody asked. */
+const eventLine = (event: SecurityLogEntry): string =>
+  `${EVENT_META[event.alert_type]?.label ?? event.alert_type} ${
+    event.actor ? `by ${event.actor}` : 'automatically'
+  }`;
 
 const timeAgo = (iso: string): string => {
   const seconds = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -221,7 +241,55 @@ function ConfirmModal({
   );
 }
 
-function VehicleImmobilizer({ vehicle }: { vehicle: FleetVehicle }) {
+/**
+ * The card's own audit trail: every command a person has sent this vehicle,
+ * newest first. Who and when, on one line each — the answer to "how do we
+ * know who did this", which a security buyer asks before anything else.
+ */
+function AuditTrail({ events }: { events: SecurityLogEntry[] }) {
+  return (
+    <div className="mt-5 border-t border-edge pt-4">
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+        <History className="h-4 w-4 text-ink-mid" /> Audit trail
+      </p>
+      {events.length === 0 ? (
+        <p className="mt-1.5 text-xs text-ink-dim">
+          No remote commands have been sent to this vehicle yet.
+        </p>
+      ) : (
+        <ul className="mt-2 space-y-1.5">
+          {events.slice(0, 5).map((event) => {
+            const meta = EVENT_META[event.alert_type];
+            const Icon = meta?.Icon ?? Siren;
+            return (
+              <li
+                key={event.id}
+                className="flex items-start gap-2 text-xs"
+                title={event.message}
+              >
+                <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta?.tone ?? 'text-ink-mid'}`} />
+                <p className="min-w-0 text-ink-mid">
+                  <span className="text-ink">{eventLine(event)}</span>
+                  <span className="text-ink-dim"> · {formatWhen(event.created_at)}</span>
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function VehicleImmobilizer({
+  vehicle,
+  trail,
+  onActed,
+}: {
+  vehicle: FleetVehicle;
+  trail: SecurityLogEntry[];
+  onActed: () => void;
+}) {
   const [status, setStatus] = useState<ImmobilizerStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
@@ -266,6 +334,7 @@ function VehicleImmobilizer({ vehicle }: { vehicle: FleetVehicle }) {
             ? await lockVehicleDoors(vehicle.id, vehicle.license_plate)
             : await releaseImmobilizer(vehicle.id)
       );
+      onActed();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -415,6 +484,8 @@ function VehicleImmobilizer({ vehicle }: { vehicle: FleetVehicle }) {
         </div>
       )}
 
+      {!loading && status && <AuditTrail events={trail} />}
+
       {error && <p className="mt-3 text-xs text-bad">{error}</p>}
 
       {showScene && status && (
@@ -439,10 +510,25 @@ function VehicleImmobilizer({ vehicle }: { vehicle: FleetVehicle }) {
   );
 }
 
-export function TheftPanel({ fleet, alerts }: { fleet: FleetVehicle[]; alerts: Alert[] }) {
-  const theftAlerts = alerts.filter((a) => THEFT_ALERT_TYPES.has(a.alert_type));
+export function TheftPanel({ fleet }: { fleet: FleetVehicle[] }) {
   const [vehicleId, setVehicleId] = useState<string>('');
   const selected = fleet.find((v) => v.id === vehicleId) ?? fleet[0] ?? null;
+
+  // The audit log, not the inbox: it keeps every command whether or not the
+  // matching alert was resolved, so the trail survives a cleared queue.
+  const [log, setLog] = useState<SecurityLogEntry[]>([]);
+  const loadLog = async () => {
+    try {
+      setLog(await getSecurityLog());
+    } catch {
+      // The status card carries its own error; a stale log is not worth one.
+    }
+  };
+  useEffect(() => {
+    loadLog();
+    const interval = setInterval(loadLog, 20000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -482,7 +568,12 @@ export function TheftPanel({ fleet, alerts }: { fleet: FleetVehicle[]; alerts: A
       </div>
 
       {selected ? (
-        <VehicleImmobilizer key={selected.id} vehicle={selected} />
+        <VehicleImmobilizer
+          key={selected.id}
+          vehicle={selected}
+          trail={log.filter((e) => e.vehicle_id === selected.id)}
+          onActed={loadLog}
+        />
       ) : (
         <p className="text-sm text-ink-dim">No vehicles yet.</p>
       )}
@@ -491,21 +582,44 @@ export function TheftPanel({ fleet, alerts }: { fleet: FleetVehicle[]; alerts: A
         <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
           <Siren className="h-4 w-4 text-ink-mid" /> Recent theft activity
         </h3>
-        {theftAlerts.length === 0 ? (
+        <p className="mt-1 text-xs text-ink-dim">
+          Every remote command and theft flag across the fleet, with who sent it. Resolving
+          the matching alert clears it from the inbox, not from here.
+        </p>
+        {log.length === 0 ? (
           <p className="mt-2 text-sm text-ink-dim">No theft-related activity recorded.</p>
         ) : (
           <ul className="mt-3 space-y-2">
-            {theftAlerts.slice(0, 20).map((alert) => (
-              <li
-                key={alert.id}
-                className="rounded-lg border-l-2 border-l-bad bg-panel-deep p-3 text-sm"
-              >
-                <p className="text-ink">{alert.message}</p>
-                <p className="mt-1 text-xs text-ink-dim">
-                  {new Date(alert.created_at).toLocaleString()}
-                </p>
-              </li>
-            ))}
+            {log.slice(0, 20).map((event) => {
+              const meta = EVENT_META[event.alert_type];
+              const Icon = meta?.Icon ?? Siren;
+              const border =
+                event.alert_type === 'immobilizer_released'
+                  ? 'border-l-good'
+                  : event.alert_type === 'doors_locked'
+                    ? 'border-l-accent-y'
+                    : 'border-l-bad';
+              return (
+                <li
+                  key={event.id}
+                  className={`rounded-lg border-l-2 ${border} bg-panel-deep p-3 text-sm`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <p className="flex items-center gap-1.5 font-semibold text-ink">
+                      <Icon className={`h-3.5 w-3.5 ${meta?.tone ?? 'text-ink-mid'}`} />
+                      {event.license_plate && (
+                        <span className="font-mono">{event.license_plate}</span>
+                      )}
+                      <span className="font-normal text-ink-mid">{eventLine(event)}</span>
+                    </p>
+                    <p className="text-xs text-ink-dim">
+                      {formatWhen(event.created_at)} · {timeAgo(event.created_at)}
+                    </p>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-dim">{event.message}</p>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

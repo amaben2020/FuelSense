@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
-import type { JwtPayload, DriverJwtPayload } from '../types/index';
+import type { JwtPayload, DriverJwtPayload, FleetRole } from '../types/index';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -12,6 +12,14 @@ interface CustomerTokenInput {
   name: string;
 }
 
+interface FleetUserTokenInput {
+  id: string;
+  customerId: string;
+  email: string;
+  name: string;
+  role: FleetRole;
+}
+
 interface DriverTokenInput {
   id: string;
   customerId: string;
@@ -21,10 +29,24 @@ interface DriverTokenInput {
 
 export const signToken = (customer: CustomerTokenInput): string =>
   jwt.sign(
-    { customerId: customer.id, email: customer.email, name: customer.name },
+    { customerId: customer.id, email: customer.email, name: customer.name, role: 'manager' },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
   );
+
+export const signFleetUserToken = (user: FleetUserTokenInput): string =>
+  jwt.sign(
+    {
+      customerId: user.customerId,
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN } as jwt.SignOptions
+  );
+
 
 export const signDriverToken = (driver: DriverTokenInput): string =>
   jwt.sign(
@@ -52,15 +74,20 @@ export const authenticateCustomer = (req: Request, res: Response, next: NextFunc
 
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as JwtPayload & { role?: string };
+    const payload = jwt.verify(token, JWT_SECRET) as Omit<JwtPayload, 'role'> & {
+      role?: FleetRole | 'driver';
+    };
     if (payload.role === 'driver') {
       res.status(403).json({ error: 'Driver token cannot access fleet routes' });
       return;
     }
+    const role: FleetRole = payload.role ?? 'manager';
     req.user = {
       customerId: payload.customerId,
       email: payload.email,
       name: payload.name,
+      role,
+      userId: payload.userId,
     };
     next();
   } catch {

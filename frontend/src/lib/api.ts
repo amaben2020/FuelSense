@@ -197,10 +197,28 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   throw lastError;
 }
 
+/**
+ * Who a fleet login is. Every role has the whole dashboard; the role only
+ * chooses where it opens — a commander lands on the Command Summary, since
+ * reports and trends are what he is there for, everyone else on operations.
+ */
+export type FleetRole = 'manager' | 'commander';
+
+export interface SignedInUser {
+  role: FleetRole;
+  name: string;
+  email: string;
+  /** Rank, title or unit — for display under the name. */
+  title: string | null;
+}
+
 export interface Customer {
   id: string;
   name: string;
   email: string;
+  /** The signed-in person's role; absent on responses from older backends (manager). */
+  role?: FleetRole;
+  user?: SignedInUser;
   company_name?: string | null;
   /** White-label branding; null falls back to the FuelSense mark. */
   logo_url?: string | null;
@@ -376,6 +394,34 @@ export async function lockVehicleDoors(
 
 export async function releaseImmobilizer(vehicleId: string): Promise<ImmobilizerStatus> {
   return api(`/vehicles/${vehicleId}/immobilizer/release`, { method: 'POST' });
+}
+
+export type SecurityLogType =
+  | 'immobilizer_engaged'
+  | 'immobilizer_released'
+  | 'doors_locked'
+  | 'fuel_theft'
+  | 'receipt_fraud';
+
+/**
+ * One line of the theft-side audit trail. Read back regardless of whether
+ * the matching inbox alert was resolved — an immobilize does not stop having
+ * happened because someone cleared their queue.
+ */
+export interface SecurityLogEntry {
+  id: number;
+  vehicle_id: string | null;
+  alert_type: SecurityLogType;
+  message: string;
+  /** The person who sent the command; null when a detector raised it. */
+  actor: string | null;
+  is_resolved: boolean;
+  created_at: string;
+  license_plate: string | null;
+}
+
+export async function getSecurityLog(limit = 50): Promise<SecurityLogEntry[]> {
+  return api(`/alerts/security-log?limit=${limit}`);
 }
 
 /**

@@ -33,6 +33,7 @@ import {
   deviceFrames,
   devices,
   drivers,
+  fleetUsers,
   fuelPrices,
   fuelPurchases,
   telemetry,
@@ -40,7 +41,10 @@ import {
   virtualTanks,
 } from './db/schema';
 import {
+  BLUE_FLEET_BRAND_COLOR,
   BLUE_FLEET_COMPANY,
+  BLUE_FLEET_LOGO_URL,
+  BLUE_FLEET_USERS,
   driverPin,
   BLUE_FLEET_EMAIL,
   BLUE_FLEET_PASSWORD,
@@ -108,22 +112,60 @@ async function upsertAccount() {
         passwordHash: await bcrypt.hash(BLUE_FLEET_PASSWORD, 12),
         companyName: BLUE_FLEET_COMPANY,
         onboardingCompleted: true,
-        // The product calls itself Blue Fleet for this account — the demo
-        // is shown as the prospect's own tool.
+        // The product wears the prospect's name, crest and colour for this
+        // account — the demo is shown as their own tool.
         whiteLabel: true,
+        logoUrl: BLUE_FLEET_LOGO_URL,
+        brandColor: BLUE_FLEET_BRAND_COLOR,
       })
       .returning({ id: customers.id });
     console.log(`created customer ${BLUE_FLEET_COMPANY}`);
   } else if (FRESH) {
     await db
       .update(customers)
-      .set({ passwordHash: await bcrypt.hash(BLUE_FLEET_PASSWORD, 12), onboardingCompleted: true, whiteLabel: true })
+      .set({
+        passwordHash: await bcrypt.hash(BLUE_FLEET_PASSWORD, 12),
+        onboardingCompleted: true,
+        whiteLabel: true,
+        companyName: BLUE_FLEET_COMPANY,
+        logoUrl: BLUE_FLEET_LOGO_URL,
+        brandColor: BLUE_FLEET_BRAND_COLOR,
+      })
       .where(eq(customers.id, customer.id));
-    console.log(`customer ${BLUE_FLEET_COMPANY} exists — password reset to the documented one (--fresh)`);
+    console.log(`customer ${BLUE_FLEET_COMPANY} exists — password and branding reset (--fresh)`);
   } else {
     console.log(`customer ${BLUE_FLEET_COMPANY} exists — left as is`);
   }
+  await upsertFleetUsers(customer.id);
   return customer.id;
+}
+
+/** The commander and logistics logins. Created when missing; on --fresh their
+ *  passwords go back to the documented ones, like the manager's. */
+async function upsertFleetUsers(customerId: string) {
+  for (const u of BLUE_FLEET_USERS) {
+    const [existing] = await db
+      .select({ id: fleetUsers.id })
+      .from(fleetUsers)
+      .where(eq(fleetUsers.email, u.email));
+    const passwordHash = await bcrypt.hash(u.password, 12);
+    if (!existing) {
+      await db.insert(fleetUsers).values({
+        customerId,
+        email: u.email,
+        passwordHash,
+        name: u.name,
+        title: u.title,
+        role: u.role,
+      });
+      console.log(`created ${u.role} login ${u.email}`);
+    } else if (FRESH) {
+      await db
+        .update(fleetUsers)
+        .set({ passwordHash, name: u.name, title: u.title, role: u.role, isActive: true })
+        .where(eq(fleetUsers.id, existing.id));
+    }
+  }
 }
 
 async function upsertVehicle(customerId: string, p: BlueFleetProfile) {
@@ -447,6 +489,7 @@ const seed = async (): Promise<void> => {
 
   console.log(`\nBlue Fleet ready: ${total.rows} telemetry rows, ${total.events} driving events, ${total.refuels} receipts over ${HISTORY_DAYS} days`);
   console.log(`  Login:   ${BLUE_FLEET_EMAIL} / ${BLUE_FLEET_PASSWORD}`);
+  for (const u of BLUE_FLEET_USERS) console.log(`  ${u.role.padEnd(9)}${u.email} / ${u.password}`);
   console.log('  Drivers:');
   for (const p of BLUE_FLEET_PROFILES) console.log(`    ${p.driver.code}  PIN ${driverPin(p.driver.code)}  ${p.driver.name.padEnd(18)} ${p.label}`);
 };

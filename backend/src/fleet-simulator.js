@@ -14,7 +14,11 @@ const STAGGER_MS = Number(process.env.MOCK_STAGGER_MS || 800);
 const OFF_SHIFT_HEARTBEAT_MS = Number(process.env.MOCK_OFF_SHIFT_HEARTBEAT_MS || 10 * 60_000);
 
 const startVirtualDevice = (profile) => {
-  const simulator = new VehicleSimulator(profile);
+  // The simulator moves each tick by speed x tick length, so it has to know
+  // the real cadence. Left to its 4 s default while records went every 12 s,
+  // a car reporting 45 km/h crawled 45 m a tick — 13 km/h of actual movement,
+  // one pixel at city zoom, under a label claiming it was doing 45.
+  const simulator = new VehicleSimulator({ ...profile, tickIntervalMs: SEND_INTERVAL_MS });
   let client = null;
   let imeiAccepted = false;
   let intervalId = null;

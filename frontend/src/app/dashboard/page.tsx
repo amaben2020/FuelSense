@@ -11,6 +11,7 @@ import {
   Fuel,
   Gauge,
   History,
+  LandPlot,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -46,6 +47,7 @@ import {
   FuelPurchasesResponse,
   FeatureFlags,
   fetchFeatureFlags,
+  type FleetRole,
   getToken,
   TrackPoint,
   TripsResponse,
@@ -54,6 +56,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useLatest } from '@/lib/use-latest';
 import { buildVehicleTracks } from '@/lib/map-utils';
 import { BrandMark } from '@/components/BrandMark';
+import { BrandTheme } from '@/components/BrandTheme';
 import { AddDeviceModal } from '@/components/AddDeviceModal';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { FleetOperationsOverview } from '@/components/dashboard/FleetOperationsOverview';
@@ -99,6 +102,7 @@ import { VehicleRecordsPanel } from '@/components/dashboard/VehicleRecordsPanel'
 import { NotificationSettingsPanel } from '@/components/dashboard/NotificationSettingsPanel';
 import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
 import { TheftPanel } from '@/components/dashboard/TheftPanel';
+import { CommanderDashboard } from '@/components/dashboard/CommanderDashboard';
 import {
   IconRail,
   PageHeader,
@@ -124,6 +128,7 @@ const REFRESH_MS = 30000;
 const LIVE_REFRESH_MS = 20000;
 
 type DashboardView =
+  | 'command'
   | 'overview'
   | 'live'
   | 'vehicle'
@@ -177,6 +182,20 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
 /** Views that depend on hardware a BASIC fleet does not have. */
 const PRO_ONLY_VIEWS = new Set<DashboardView>(['anomalies']);
 
+/**
+ * Every role has the whole dashboard. The role only decides where it opens
+ * and whether the Command Summary — reports, totals and trends, for someone
+ * who reads the fleet rather than runs it — is on the rail at all.
+ */
+const ROLE_HOME: Record<FleetRole, DashboardView> = {
+  manager: 'overview',
+  commander: 'command',
+};
+const ROLE_LABEL: Record<FleetRole, string> = {
+  manager: 'Manager',
+  commander: 'Commander',
+};
+
 /** Immobilizer is still beta — one flag, flipped here, rather than tied to
  *  the subscription-tier logic `isPro()` drives. Swap for a real entitlement
  *  check once it graduates out of beta. */
@@ -192,6 +211,7 @@ const VIEW_META: Record<
   DashboardView,
   { icon: React.ComponentType<{ className?: string }>; nav: string; title: string }
 > = {
+  command: { icon: LandPlot, nav: 'Command summary', title: 'Command Summary' },
   overview: { icon: LayoutDashboard, nav: 'Fleet overview', title: 'Operations Dashboard' },
   live: { icon: RadioTower, nav: 'Live monitoring', title: 'Live monitoring' },
   vehicle: { icon: Truck, nav: 'Vehicle view', title: 'Vehicle view' },
@@ -213,6 +233,7 @@ const VIEW_META: Record<
 };
 
 const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
+  { id: 'command', label: 'Command summary', hash: 'command' },
   { id: 'overview', label: 'Operations', hash: 'overview' },
   { id: 'live', label: 'Live monitoring', hash: 'live' },
   { id: 'vehicle', label: 'Vehicle view', hash: 'vehicle' },
@@ -240,7 +261,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
  * rather than one undifferentiated list from Overview through Settings.
  */
 const NAV_GROUPS: { label: string; views: DashboardView[] }[] = [
-  { label: 'Overview', views: ['overview', 'live'] },
+  { label: 'Overview', views: ['command', 'overview', 'live'] },
   {
     label: 'Fleet',
     views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'records', 'geofences'],
@@ -283,6 +304,8 @@ export default function DashboardPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const lastUpdatedRef = useLatest(lastUpdated);
+  const refreshFailures = useRef(0);
   const [activeView, setActiveView] = useState<DashboardView>('overview');
   const [autoDrawZone, setAutoDrawZone] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -473,11 +496,15 @@ export default function DashboardPage() {
         /* keep whatever we already resolved */
       }
 
-      let trackPoints: TrackPoint[] = [];
+      // A failed tracks call used to reset the map to no tracks at all, which
+      // the live view renders as every vehicle "Offline" — a server restart
+      // mid-refresh emptied a fleet that was reporting fine. Hold the last
+      // positions instead; the live poller replaces them on its next tick.
+      let trackPoints: TrackPoint[] | null = null;
       try {
         trackPoints = await api<TrackPoint[]>('/telemetry/tracks?minutes=15');
       } catch {
-        trackPoints = [];
+        trackPoints = null;
       }
 
       setCustomer(me);
@@ -490,9 +517,10 @@ export default function DashboardPage() {
       setSummary(summaryRow);
       setTodaySummary(todayRow);
       setDrivers(driverRows);
-      setLiveTracks(buildVehicleTracks(trackPoints));
+      if (trackPoints) setLiveTracks(buildVehicleTracks(trackPoints));
       setLastUpdated(new Date());
       setTick((t) => t + 1);
+      refreshFailures.current = 0;
       setError(null);
 
       // A selection that no longer exists is dropped; none is never invented.
@@ -509,7 +537,14 @@ export default function DashboardPage() {
       }
       // The error object is kept whole, not flattened to a string: the banner
       // needs its kind to say whether the network or the server is at fault.
-      setError(err);
+      //
+      // With a dashboard already on screen, one missed refresh is a blip —
+      // a server restart, a dropped connection — and the data shown is at
+      // most a refresh old. The banner waits for a second miss in a row so a
+      // blip passes unannounced and an outage is still reported within a
+      // minute. The first load has nothing to show, so it reports at once.
+      refreshFailures.current += 1;
+      if (!lastUpdatedRef.current || refreshFailures.current >= 2) setError(err);
     } finally {
       setLoading(false);
     }
@@ -657,6 +692,18 @@ export default function DashboardPage() {
     }
   }, []);
 
+  // Open on the role's home. A commander's session starts on the Command
+  // Summary unless the URL asked for a specific view; a manager landing on a
+  // hash for the commander's page is sent to operations.
+  useEffect(() => {
+    if (!customer) return;
+    const r: FleetRole = customer.role ?? 'manager';
+    const hashed = globalThis.window?.location.hash.replace('#', '');
+    if (r === 'commander' && !hashed) switchView('command');
+    if (r !== 'commander' && activeView === 'command') switchView(ROLE_HOME[r]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.role]);
+
   // ⌘K / Ctrl-K focuses the quick-jump, matching the hint rendered in the field.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -675,7 +722,9 @@ export default function DashboardPage() {
 
   // Unmapped views and not-yet-loaded flags both show, so nothing disappears
   // on a slow response — only an explicit `false` hides an entry.
+  const role: FleetRole = customer?.role ?? 'manager';
   const isVisible = (view: DashboardView): boolean => {
+    if (view === 'command' && role !== 'commander') return false;
     // Replay events replays fuel *leaving* a tank, which needs a level sensor.
     // On GNSS-only hardware it has nothing to show, so it is held for PRO
     // rather than shipped as an empty screen.
@@ -936,10 +985,7 @@ export default function DashboardPage() {
           ) : (
             <BrandMark className="h-7 w-7 shrink-0 text-brand" strokeWidth={4} ariaLabel="FuelSense" />
           )}
-          <p
-            className={`text-2xl font-bold ${customer?.brand_color ? '' : 'neon-text'}`}
-            style={customer?.brand_color ? { color: customer.brand_color } : undefined}
-          >
+          <p className="neon-text text-2xl font-bold">
             {customer?.company_name || 'FuelSense'}
           </p>
         </div>
@@ -979,6 +1025,7 @@ export default function DashboardPage() {
     <div
       className={`bg-canvas text-ink ${activeView === 'live' ? 'h-dvh overflow-hidden' : 'min-h-screen'}`}
     >
+      <BrandTheme customer={customer} />
       <aside className="glass fixed left-0 top-0 z-40 hidden h-full rounded-none border-y-0 border-l-0 lg:block">
         {rail}
       </aside>
@@ -1116,9 +1163,11 @@ export default function DashboardPage() {
                 </span>
                 <div className="hidden leading-tight sm:block">
                   <p className="text-xs font-semibold text-ink">
-                    {customer?.company_name || customer?.name || 'FuelSense'}
+                    {customer?.user?.name || customer?.company_name || customer?.name || 'FuelSense'}
                   </p>
-                  <p className="text-[10px] text-ink-dim">Manager</p>
+                  <p className="text-[10px] text-ink-dim">
+                    {customer?.user?.title || ROLE_LABEL[role]}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1224,6 +1273,19 @@ export default function DashboardPage() {
             onRetry={() => loadDashboard()}
             className={activeView === 'live' ? 'mb-2 shrink-0' : 'mb-6'}
           />
+
+          {activeView === 'command' && (
+            <CommanderDashboard
+              customer={customer}
+              summary={summary}
+              efficiency={efficiency}
+              efficiencySummary={efficiencySummary}
+              fleet={fleet}
+              alerts={alerts}
+              periodDays={periodDays}
+              onPeriodChange={setPeriodDays}
+            />
+          )}
 
           {activeView === 'overview' && (
             <div className="space-y-6">
@@ -1398,7 +1460,7 @@ export default function DashboardPage() {
             />
           )}
 
-          {activeView === 'theft' && <TheftPanel fleet={fleet} alerts={alerts} />}
+          {activeView === 'theft' && <TheftPanel fleet={fleet} />}
 
           {activeView === 'alerts' && (
             <div className="rounded-lg border border-edge bg-panel p-6">

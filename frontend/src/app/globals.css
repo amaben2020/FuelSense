@@ -23,6 +23,7 @@
   --brand: #cde04a;
   --good: #cde04a;
   --warn: #ff9436;
+  --warn-deep: #996100;
   --traffic: #f5c518;  /* slow traffic — yellow, distinct from the orange warn */
   /* Chart marks. Deliberately a deeper step than --good: a wall of bars in the
      full-brightness lemon glares on a dark panel, and OKLCH L 0.865 sits well
@@ -78,6 +79,7 @@
   --brand: #5c7410;
   --good: #5c7410;
   --warn: #b4530a;
+  --warn-deep: #996100;
   --traffic: #9a7200;  /* slow traffic, light mode */
   /* Chosen for the light surface rather than flipped from the dark value.
      Validated against #ffffff. */
@@ -138,7 +140,7 @@
   --color-good: var(--good);
   --color-chart-bar: var(--chart-bar);
   --color-warn: var(--warn);
-  --color-warn-deep: #996100;
+  --color-warn-deep: var(--warn-deep);
   --color-flag: var(--flag);
   --color-flag-deep: #3d2a1f;
   --color-traffic: var(--traffic);

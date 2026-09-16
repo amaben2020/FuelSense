@@ -41,6 +41,34 @@ export const customers = pgTable('customers', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+/**
+ * People who sign in to a fleet account other than the account holder.
+ *
+ * A customer row is the fleet — its login is the manager who set it up. A
+ * fleet user is a person that fleet lets in under their own name, so every
+ * command they send is signed by them (the immobilizer audit trail reads
+ * it) rather than by a shared login. The role only chooses where the
+ * dashboard opens: a commander lands on the Command Summary, everyone else
+ * on the operations dashboard. It grants and withholds nothing.
+ */
+export const FLEET_ROLES = ['manager', 'commander'] as const;
+export type FleetRole = (typeof FLEET_ROLES)[number];
+
+export const fleetUsers = pgTable('fleet_users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  customerId: uuid('customer_id')
+    .notNull()
+    .references(() => customers.id, { onDelete: 'cascade' }),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  role: varchar('role', { length: 20 }).notNull(),
+  /** Rank, title or unit — shown under the name, never used for access. */
+  title: varchar('title', { length: 120 }),
+  isActive: boolean('is_active').default(true),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
 export const drivers = pgTable('drivers', {
   id: uuid('id').primaryKey().defaultRandom(),
   customerId: uuid('customer_id')
@@ -379,6 +407,14 @@ export const alerts = pgTable('alerts', {
   driverNote: text('driver_note'),
   driverNoteAt: timestamp('driver_note_at'),
   driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+  /**
+   * Who asked for this, when the alert records a person's command rather
+   * than something the fleet did — the manager behind an immobilize, a
+   * mobilize or a door lock. Null on every alert the detectors raise. Kept
+   * as its own column, not just inside the message, so the audit trail can
+   * answer "who did this" without parsing prose.
+   */
+  actor: text('actor'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
