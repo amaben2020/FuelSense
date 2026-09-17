@@ -27,7 +27,7 @@ import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../lib/fuel-metrics';
 import { calibrateTank, creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase } from '../lib/fuel-calibration';
 import { dailyActivitySql } from '../lib/daily-activity-sql';
-import { alertDefinition, DRIVER_RESOLVABLE_ALERTS } from '../lib/alert-catalogue';
+import { alertDefinition, DRIVER_EXPLAINABLE_ALERTS } from '../lib/alert-catalogue';
 import { notifyDriverExplanation } from '../lib/driver-explanation-notifier';
 import { logAndRespond } from '../lib/errors';
 import { getSerializedIoValue } from '../lib/avl-io';
@@ -846,13 +846,19 @@ router.get('/alerts', async (req: Request, res: Response) => {
         is_resolved: Boolean(row.is_resolved),
         driver_note: row.driver_note ?? null,
         driver_note_at: row.driver_note_at ?? null,
-        /** Answered alerts stay visible but can no longer be replied to. */
-        can_explain: !row.is_resolved && row.driver_note == null,
+        /** Only the few types that ask for an account, and only until it is
+         *  given — an answered alert stays visible but cannot be replied to. */
+        can_explain:
+          DRIVER_EXPLAINABLE_ALERTS.has(String(row.alert_type)) &&
+          !row.is_resolved &&
+          row.driver_note == null,
       };
     });
 
     // Counted across every page, not just this one — the tab badge would
-    // otherwise undercount once alerts moved past the first page.
+    // otherwise undercount once alerts moved past the first page. Only the
+    // types that ask for an answer count; the badge is a to-do, not a feed.
+    const explainable = [...DRIVER_EXPLAINABLE_ALERTS];
     const unansweredResult = await db.execute(sql`
       SELECT COUNT(*)::int AS unanswered
       FROM alerts
@@ -861,6 +867,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
         AND created_at > NOW() - (${days} || ' days')::INTERVAL
         AND is_resolved = false
         AND driver_note IS NULL
+        AND alert_type IN (${sql.join(explainable.map((t) => sql`${t}`), sql`, `)})
     `);
     const unanswered =
       Number((unansweredResult.rows[0] as Record<string, unknown>)?.unanswered) || 0;
@@ -879,7 +886,8 @@ router.get('/alerts', async (req: Request, res: Response) => {
   }
 });
 
-/** The driver's account of an alert. Answering it also closes it. */
+/** The driver's account of an alert. It goes to the manager's queue; the
+ *  manager accepting it is what closes the alert. */
 router.post('/alerts/:id/explain', async (req: Request, res: Response) => {
   const note = String((req.body ?? {}).note ?? '').trim();
   if (!note) {
@@ -898,8 +906,9 @@ router.post('/alerts/:id/explain', async (req: Request, res: Response) => {
       return;
     }
 
-    // Scoped to the driver's own vehicle and to alerts nobody has answered —
-    // a reply cannot overwrite an existing account or close someone else's.
+    // Scoped to the driver's own vehicle, to the types that ask for an
+    // account, and to alerts nobody has answered — a reply cannot overwrite an
+    // existing account or attach itself to an alert that never asked.
     const [existing] = await db
       .select({ id: alerts.id, alertType: alerts.alertType, message: alerts.message })
       .from(alerts)
@@ -908,20 +917,16 @@ router.post('/alerts/:id/explain', async (req: Request, res: Response) => {
           eq(alerts.id, Number(req.params.id)),
           eq(alerts.vehicleId, assignment.vehicle_id),
           eq(alerts.customerId, req.driver.customerId),
-          sql`driver_note IS NULL`
+          sql`driver_note IS NULL`,
+          sql`is_resolved = false`
         )
       )
       .limit(1);
 
-    if (!existing) {
+    if (!existing || !DRIVER_EXPLAINABLE_ALERTS.has(existing.alertType)) {
       res.status(404).json({ error: 'That alert is not open for a reply.' });
       return;
     }
-
-    // A theft allegation is not closed by the person it concerns typing into a
-    // phone. Their account is recorded and sent either way; only the everyday
-    // alerts are actually resolved by it.
-    const closes = DRIVER_RESOLVABLE_ALERTS.has(existing.alertType);
 
     const [row] = await db
       .update(alerts)
@@ -929,7 +934,6 @@ router.post('/alerts/:id/explain', async (req: Request, res: Response) => {
         driverNote: note,
         driverNoteAt: sql`NOW()`,
         driverId: req.driver.driverId,
-        ...(closes ? { isResolved: true, resolvedAt: sql`NOW()` } : {}),
       })
       .where(eq(alerts.id, existing.id))
       .returning({ id: alerts.id, alertType: alerts.alertType, message: alerts.message });
@@ -946,10 +950,8 @@ router.post('/alerts/:id/explain', async (req: Request, res: Response) => {
     res.json({
       success: true,
       id: Number(row.id),
-      resolved: closes,
-      message: closes
-        ? 'Sent to your manager. This one is now closed.'
-        : 'Sent to your manager. They will review it and decide.',
+      resolved: false,
+      message: 'Sent to your manager. They will review it and decide.',
     });
   } catch (error) {
     logAndRespond(res, req.path, error);

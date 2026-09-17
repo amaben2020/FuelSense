@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Fuel, Gauge, Loader2, MapPin, Navigation } from 'lucide-react';
+import { Gauge, Loader2, MapPin, Navigation } from 'lucide-react';
 import { DriverVehicleStatus, fetchDriverVehicleStatus } from '@/lib/driver-api';
-import { formatOdometerMiles, isInFuelReserve, usableFuelPercent } from '@/lib/api';
+import { formatOdometerMiles } from '@/lib/api';
 
 export function DriverVehicleScreen() {
   const [status, setStatus] = useState<DriverVehicleStatus | null>(null);
@@ -41,19 +41,10 @@ export function DriverVehicleScreen() {
 
   if (!status) return null;
 
-  const fuelPct = usableFuelPercent(status.fuel_level_liters, status.tank_capacity_liters);
-  const fuelInReserve = isInFuelReserve(status.fuel_level_liters);
-
-  // Every fuel figure here is modelled from distance and idle time — no tank
-  // sensor is fitted. Showing a bare percentage invites it to be read as a
-  // gauge, so the model's own confidence travels with the number.
-  //
-  // `confidence` is already stored as whole percent (94 means 94%), the same
-  // way the manager's gauge renders it — it is not a 0-1 fraction.
-  const confidenceLabel =
-    status.fuel_confidence != null
-      ? `${Math.round(status.fuel_confidence)}% confidence`
-      : 'not yet calibrated';
+  // No fuel figure on this screen. Every litre the platform shows is modelled
+  // from distance and idle time — nothing on the vehicle measures the tank —
+  // and a driver reading "38%" on their phone treats it as a gauge, then
+  // argues with it. The estimate stays a manager's tool.
 
   const mapsUrl =
     status.latitude != null && status.longitude != null
@@ -84,25 +75,6 @@ export function DriverVehicleScreen() {
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <StatCard
-            icon={Fuel}
-            label="Fuel, estimated"
-            value={
-              status.fuel_level_liters != null
-                ? `~${status.fuel_level_liters.toFixed(1)} L`
-                : '—'
-            }
-            // Modelled from GNSS burn, not read from a sensor, so it is not
-            // dressed up in the colour reserved for verified figures.
-            accent={fuelInReserve ? 'text-bad-bright' : 'text-ink'}
-            sub={
-              fuelInReserve
-                ? `In reserve — refuel soon · ${confidenceLabel}`
-                : fuelPct != null
-                  ? `about ${fuelPct}% usable · ${confidenceLabel}`
-                  : confidenceLabel
-            }
-          />
-          <StatCard
             icon={Gauge}
             label="Speed"
             value={status.speed_kph != null ? `${status.speed_kph} km/h` : '—'}
@@ -122,6 +94,7 @@ export function DriverVehicleScreen() {
           <StatCard
             icon={MapPin}
             label="Last GPS"
+            className="col-span-2"
             value={
               status.recorded_at
                 ? new Date(status.recorded_at).toLocaleTimeString('en-NG', {
@@ -139,30 +112,6 @@ export function DriverVehicleScreen() {
             }
           />
         </div>
-
-        {fuelPct != null && (
-          <div className="mt-5">
-            <div
-              className={`mb-1 flex justify-between text-xs ${fuelInReserve ? 'font-semibold text-bad-bright' : 'text-ink-dim'}`}
-            >
-              <span>
-                {fuelInReserve ? 'In reserve, estimated' : 'Tank level, estimated'}
-              </span>
-              <span className="tabular-nums">
-                {fuelPct}%
-                <span className="ml-1.5 font-normal text-ink-dim">· {confidenceLabel}</span>
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-canvas">
-              <div
-                className={`h-full rounded-full ${
-                  fuelInReserve ? 'bg-bad-bright' : 'bg-gradient-to-r from-good to-accent'
-                }`}
-                style={{ width: `${fuelPct}%` }}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       {mapsUrl && (
@@ -191,15 +140,17 @@ function StatCard({
   value,
   accent,
   sub,
+  className = '',
 }: {
-  icon: typeof Fuel;
+  icon: typeof Gauge;
   label: string;
   value: string;
   accent: string;
   sub?: string;
+  className?: string;
 }) {
   return (
-    <div className="rounded-xl bg-canvas p-3">
+    <div className={`rounded-xl bg-canvas p-3 ${className}`}>
       <Icon className={`mb-2 h-4 w-4 ${accent}`} />
       <p className="text-[10px] uppercase tracking-wider text-ink-dim">{label}</p>
       <p className={`mt-1 font-mono text-lg font-semibold ${accent}`}>{value}</p>

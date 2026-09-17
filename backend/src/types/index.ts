@@ -1,5 +1,9 @@
-/** Chooses the dashboard's landing view; every role has the whole app. */
-export type FleetRole = 'manager' | 'commander';
+/**
+ * Manager and commander have the whole app; the role only chooses where the
+ * dashboard opens. A viewer can see everything and change nothing — the auth
+ * middleware refuses every non-GET request their token makes.
+ */
+export type FleetRole = 'manager' | 'commander' | 'viewer';
 
 export interface JwtPayload {
   customerId: string;

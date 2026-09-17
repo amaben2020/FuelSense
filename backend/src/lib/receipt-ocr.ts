@@ -42,13 +42,13 @@ function getOcrSpaceApiKey(): string {
   return process.env.OCR_SPACE_API_KEY?.trim() || OCR_SPACE_DEMO_KEY;
 }
 
-interface OcrSpaceResult {
+export interface OcrSpaceResult {
   ocr_text: string;
   line_count: number;
   provider: string;
 }
 
-async function extractTextWithOcrSpace(dataUrl: string): Promise<OcrSpaceResult> {
+export async function extractTextWithOcrSpace(dataUrl: string): Promise<OcrSpaceResult> {
   const apiKey = getOcrSpaceApiKey();
   const body = new URLSearchParams({
     apikey: apiKey,

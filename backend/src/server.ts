@@ -39,6 +39,8 @@ import { startAlertRetentionSweep } from './lib/alert-retention';
 import { startDeviceFrameRetentionSweep } from './lib/frame-retention';
 import { startTelemetryPartitionSweep } from './lib/telemetry-partitions';
 import { startTelemetryRetentionSweep } from './lib/telemetry-retention';
+import { startCertificateExpirySweep } from './lib/certificate-expiry-sweep';
+import certificateRoutes from './routes/certificates';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -189,6 +191,7 @@ app.use('/api/places', placesRoutes);
 app.use('/api/features', featureRoutes);
 app.use('/api/fuel-price', fuelPriceRoutes);
 app.use('/api/contact', contactRoutes);
+app.use('/api/certificates', certificateRoutes);
 
 const start = async () => {
   await initDatabase();
@@ -234,6 +237,10 @@ const start = async () => {
   // the simulated fleet recycles a week at a time on a free tier; production
   // does not, and keeps the fleet's history whole.
   startTelemetryRetentionSweep();
+
+  // A week's notice before a vehicle licence lapses, in the alert feed and
+  // by email for those who opted in. Hourly; the deadline is in days.
+  startCertificateExpirySweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

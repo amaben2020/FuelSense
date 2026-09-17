@@ -240,22 +240,45 @@ function TripLayer({
  * and the visitor gets a black rectangle. Imagery from above exists
  * everywhere, and for "where did my vehicle stop for fourteen minutes" it is
  * the more useful picture anyway. Street View is offered only when coverage
- * genuinely exists.
+ * genuinely exists, and only once the visitor asks for it: a panorama is a
+ * Pro-tier SKU with a fifth of the free allowance a map load gets, and this
+ * sits on the public landing page where traffic is nobody's to control.
+ *
+ * One map and one panorama serve every stop. Google bills each `Map` and
+ * `StreetViewPanorama` construction, not each recentre, so the earlier
+ * remount-per-stop was paying for a fresh map load and a fresh panorama on
+ * every click down the stop list. Now a visit costs one load, plus one
+ * panorama the first time they choose Street View — the instances are held
+ * across stops and merely repointed.
  */
 function StopView({ stop }: { stop: Stop }) {
-  const mount = useRef<HTMLDivElement>(null);
-  const [panoId, setPanoId] = useState<string | null>(null);
-  const [mode, setMode] = useState<'satellite' | 'street'>('satellite');
+  const mapMount = useRef<HTMLDivElement>(null);
+  const panoMount = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const markerRef = useRef<google.maps.Marker | null>(null);
+  const panoRef = useRef<google.maps.StreetViewPanorama | null>(null);
+  // Mode and panorama belong to a stop. Every new stop opens on satellite:
+  // Street View is a deliberate click per stop, never a mode a visitor is
+  // left in while they walk the list.
+  const [view, setView] = useState<{ stop: Stop; mode: 'satellite' | 'street'; panoId: string | null }>({
+    stop,
+    mode: 'satellite',
+    panoId: null,
+  });
+  if (view.stop !== stop) setView({ stop, mode: 'satellite', panoId: null });
+  const { mode, panoId } = view.stop === stop ? view : { mode: 'satellite' as const, panoId: null };
+  const setMode = (next: 'satellite' | 'street') => setView((v) => ({ ...v, mode: next }));
 
   useEffect(() => {
     if (typeof google === 'undefined') return;
 
+    // Metadata only — free, and the reason the button appears at all.
     let cancelled = false;
     new google.maps.StreetViewService()
       .getPanorama({ location: stop.position, radius: 120 })
       .then((result) => {
         const id = result.data.location?.pano;
-        if (!cancelled && id) setPanoId(id);
+        if (!cancelled && id) setView((v) => (v.stop === stop ? { ...v, panoId: id } : v));
       })
       .catch(() => {
         // Expected across most of the country, so it is not an error state.
@@ -267,11 +290,45 @@ function StopView({ stop }: { stop: Stop }) {
   }, [stop]);
 
   useEffect(() => {
-    const container = mount.current;
+    const container = mapMount.current;
     if (!container || typeof google === 'undefined') return;
 
-    if (mode === 'street' && panoId) {
-      const panorama = new google.maps.StreetViewPanorama(container, {
+    if (!mapRef.current) {
+      mapRef.current = new google.maps.Map(container, {
+        center: stop.position,
+        zoom: 18,
+        mapTypeId: google.maps.MapTypeId.HYBRID,
+        disableDefaultUI: true,
+        gestureHandling: 'cooperative',
+      });
+      // A ring rather than a pin, so the imagery underneath stays readable.
+      markerRef.current = new google.maps.Marker({
+        map: mapRef.current,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 12,
+          fillColor: '#cde04a',
+          fillOpacity: 0.18,
+          strokeColor: '#cde04a',
+          strokeWeight: 2.5,
+        },
+      });
+    }
+
+    mapRef.current.setCenter(stop.position);
+    markerRef.current?.setPosition(stop.position);
+  }, [stop]);
+
+  useEffect(() => {
+    const container = panoMount.current;
+    if (!container || typeof google === 'undefined') return;
+    if (mode !== 'street' || !panoId) {
+      panoRef.current?.setVisible(false);
+      return;
+    }
+
+    if (!panoRef.current) {
+      panoRef.current = new google.maps.StreetViewPanorama(container, {
         pano: panoId,
         pov: { heading: 30, pitch: 0 },
         addressControl: false,
@@ -283,45 +340,19 @@ function StopView({ stop }: { stop: Stop }) {
         zoomControl: false,
         enableCloseButton: false,
       });
-      return () => {
-        panorama.setVisible(false);
-        container.innerHTML = '';
-      };
+    } else {
+      panoRef.current.setPano(panoId);
+      panoRef.current.setPov({ heading: 30, pitch: 0 });
     }
-
-    const map = new google.maps.Map(container, {
-      center: stop.position,
-      zoom: 18,
-      mapTypeId: google.maps.MapTypeId.HYBRID,
-      disableDefaultUI: true,
-      gestureHandling: 'cooperative',
-    });
-
-    // A ring rather than a pin, so the imagery underneath stays readable.
-    const marker = new google.maps.Marker({
-      position: stop.position,
-      map,
-      icon: {
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: 12,
-        fillColor: '#cde04a',
-        fillOpacity: 0.18,
-        strokeColor: '#cde04a',
-        strokeWeight: 2.5,
-      },
-    });
-
-    return () => {
-      marker.setMap(null);
-      container.innerHTML = '';
-    };
-  }, [stop, mode, panoId]);
+    panoRef.current.setVisible(true);
+  }, [mode, panoId]);
 
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${stop.position.lat},${stop.position.lng}`;
 
   return (
     <div className="fs-pano">
-      <div className="fs-pano__frame" ref={mount} />
+      <div className="fs-pano__frame" ref={mapMount} hidden={mode === 'street' && panoId != null} />
+      <div className="fs-pano__frame" ref={panoMount} hidden={mode !== 'street' || panoId == null} />
 
       {panoId && (
         <div className="fs-pano__modes">
@@ -427,7 +458,7 @@ export function LiveMapDemo() {
           ))}
         </div>
 
-        {selected && <StopView key={selected.id} stop={selected} />}
+        {selected && <StopView stop={selected} />}
       </div>
 
       <aside className="fs-trace__gauge">

@@ -4,14 +4,27 @@
 // restarts on every deploy, and a manager receiving the same report three times
 // because we shipped at 6am would stop opening any of them.
 import { db, sql } from './db-helpers';
-import { sendMail, mailerReady } from './mailer';
+import { sendMail, mailerReady, isDeliverable } from './mailer';
 import { atAGlanceSummary, buildDailyReport, DailyReport } from './daily-report';
 import { renderDailyReportPdf, dailyReportFilename } from './daily-report-pdf';
 
-/** Hour in Lagos time to send yesterday's report. */
-const SEND_HOUR_WAT = Number(process.env.DAILY_REPORT_HOUR || 6);
+/**
+ * Hour in Lagos time to send the report. 21:00 by default: the day's driving
+ * is done and the manager reads it that evening rather than the next morning.
+ *
+ * Which day the report covers follows from the hour. An evening send reports
+ * the day it goes out — the working day just finished; a morning send (any
+ * hour before noon) reports the day before, the way the old 06:00 default did.
+ * Activity after an evening send is not in that day's report and not in the
+ * next day's either, so a fleet that runs late at night should send later.
+ */
+export const SEND_HOUR_WAT = Number(process.env.DAILY_REPORT_HOUR || 21);
+const COVERS_SAME_DAY = SEND_HOUR_WAT >= 12;
 /** Overrides every recipient. Useful while the fleet's own addresses are seeds. */
 const REPORT_TO = process.env.DAILY_REPORT_TO || '';
+
+/** The notification_preferences row that carries the report's own address and opt-out. */
+export const DAILY_REPORT_PREF = 'daily_report';
 
 const naira = (n: number): string => `₦${Math.round(n).toLocaleString('en-NG')}`;
 
@@ -212,15 +225,49 @@ async function alreadySent(customerId: string, day: string): Promise<boolean> {
   return rows.rows.length > 0;
 }
 
-/** Sends yesterday's report to every customer, once the hour has passed. */
+/**
+ * Where a customer's report goes, and whether it goes at all.
+ *
+ * DAILY_REPORT_TO wins when set (a whole-deployment override). Otherwise the
+ * address the manager typed under Settings → Notifications → Daily report,
+ * falling back to the account email. The production account's email is a
+ * seed placeholder, so without a Settings address nothing was ever sent from
+ * the server — the mailer refused it every fifteen minutes, forever.
+ */
+export async function dailyReportRecipient(
+  customerId: string,
+  accountEmail: string
+): Promise<{ to: string | null; enabled: boolean }> {
+  const rows = await db.execute(sql`
+    SELECT email_enabled, email_address FROM notification_preferences
+    WHERE customer_id = ${customerId} AND alert_type = ${DAILY_REPORT_PREF}
+    LIMIT 1
+  `);
+  const pref = rows.rows[0] as { email_enabled: boolean; email_address: string | null } | undefined;
+  // No row means nobody has turned it off: the report is on by default.
+  const enabled = pref ? Boolean(pref.email_enabled) : true;
+  const candidate = REPORT_TO || pref?.email_address || accountEmail;
+  return { to: isDeliverable(candidate) ? candidate : null, enabled };
+}
+
+/** The Lagos calendar day a report sent at `now` covers, or null before the hour. */
+export function reportDateFor(now = new Date()): Date | null {
+  // Lagos is UTC+1 with no daylight saving.
+  const lagosNow = new Date(now.getTime() + 60 * 60 * 1000);
+  if (lagosNow.getUTCHours() < SEND_HOUR_WAT) return null;
+  return COVERS_SAME_DAY ? lagosNow : new Date(lagosNow.getTime() - 24 * 60 * 60 * 1000);
+}
+
+/** Customers already warned about today, so a bad address is logged once a
+ *  day rather than once a sweep. */
+const warnedFor = new Set<string>();
+
+/** Sends the day's report to every customer, once the hour has passed. */
 export async function runDailyReports(now = new Date()): Promise<number> {
   if (!mailerReady()) return 0;
 
-  // Lagos is UTC+1 with no daylight saving.
-  const lagosNow = new Date(now.getTime() + 60 * 60 * 1000);
-  if (lagosNow.getUTCHours() < SEND_HOUR_WAT) return 0;
-
-  const reportDate = new Date(lagosNow.getTime() - 24 * 60 * 60 * 1000);
+  const reportDate = reportDateFor(now);
+  if (!reportDate) return 0;
   const day = reportDate.toISOString().slice(0, 10);
 
   const customers = (
@@ -232,7 +279,21 @@ export async function runDailyReports(now = new Date()): Promise<number> {
   for (const customer of customers) {
     if (await alreadySent(customer.id, day)) continue;
 
-    const ok = await sendDailyReport(customer.id, reportDate, customer.email).catch((error) => {
+    const { to, enabled } = await dailyReportRecipient(customer.id, customer.email);
+    if (!enabled) continue;
+    if (!to) {
+      const key = `${customer.id}:${day}`;
+      if (!warnedFor.has(key)) {
+        warnedFor.add(key);
+        console.warn(
+          `[daily_report] no deliverable address for customer ${customer.id} — ` +
+            `set one under Settings → Notifications → Daily report, or DAILY_REPORT_TO.`
+        );
+      }
+      continue;
+    }
+
+    const ok = await sendDailyReport(customer.id, reportDate, to).catch((error) => {
       console.error('[daily_report] failed:', (error as Error).message);
       return false;
     });

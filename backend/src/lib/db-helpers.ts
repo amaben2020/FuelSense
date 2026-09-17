@@ -18,6 +18,7 @@ import {
   featureFlags,
   notificationPreferences,
   fuelPrices,
+  vehicleCertificates,
 } from '../db/schema';
 import { eq, and, desc, sql, isNull, inArray } from 'drizzle-orm';
 import { serializeForApi } from './serialize';
@@ -209,6 +210,7 @@ export {
   featureFlags,
   notificationPreferences,
   fuelPrices,
+  vehicleCertificates,
   eq,
   and,
   desc,

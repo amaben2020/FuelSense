@@ -27,6 +27,8 @@ export function isAuthenticated(): boolean {
 
 interface ApiOptions extends RequestInit {
   auth?: boolean;
+  /** Per-call override for the slow ones — OCR round-trips take longer than a list. */
+  timeoutMs?: number;
 }
 
 /**
@@ -112,7 +114,7 @@ async function attempt<T>(path: string, options: ApiOptions): Promise<T> {
   // A request that hangs forever reads to a user as a frozen page, so it is
   // given a deadline and reported as a timeout rather than never resolving.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
@@ -163,6 +165,13 @@ async function attempt<T>(path: string, options: ApiOptions): Promise<T> {
       }
     }
 
+    // A view-only login's refused write. Announced here, once, so every panel
+    // that quietly swallows a failed save still tells the person why nothing
+    // happened — the dashboard shell listens and shows the notice.
+    if (response.status === 403 && typeof window !== 'undefined' && /view-only/i.test(String(data.error ?? ''))) {
+      window.dispatchEvent(new CustomEvent(VIEW_ONLY_EVENT, { detail: String(data.error) }));
+    }
+
     const kind: ApiErrorKind = response.status >= 500 ? 'server' : 'request';
     throw new ApiError(
       kind,
@@ -198,11 +207,21 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
 }
 
 /**
- * Who a fleet login is. Every role has the whole dashboard; the role only
- * chooses where it opens — a commander lands on the Command Summary, since
- * reports and trends are what he is there for, everyone else on operations.
+ * Who a fleet login is. A manager or commander has the whole dashboard; the
+ * role only chooses where it opens — a commander lands on the Command
+ * Summary, since reports and trends are what he is there for, everyone else
+ * on operations. A viewer sees every page and changes nothing: the backend
+ * refuses their writes, and the dashboard hides the controls that would make
+ * them.
  */
-export type FleetRole = 'manager' | 'commander';
+export type FleetRole = 'manager' | 'commander' | 'viewer';
+
+/** Fired on `window` when the backend refuses a write from a view-only login. */
+export const VIEW_ONLY_EVENT = 'fuelsense:view-only';
+
+/** True for a login that can look but not touch. */
+export const isViewOnly = (customer: { role?: FleetRole } | null | undefined): boolean =>
+  customer?.role === 'viewer';
 
 export interface SignedInUser {
   role: FleetRole;
@@ -537,6 +556,10 @@ export interface Alert {
   fuel_drop_liters?: string | number | null;
   estimated_loss_ngn?: number | null;
   created_at: string;
+  driver_note?: string | null;
+  driver_note_at?: string | null;
+  /** 'escalated' once a manager has flagged the driver's account; 'accepted' closes the alert so it leaves this list. */
+  manager_action?: 'accepted' | 'escalated' | null;
 }
 
 export interface DashboardSummary {
@@ -1643,8 +1666,26 @@ export interface NotificationAlert {
 }
 
 /** The alert catalogue with this account's email preferences applied. */
+export interface DailyReportSetting {
+  enabled: boolean;
+  /** Where the report goes; null means the account email. */
+  email_address: string | null;
+  account_email: string | null;
+  /** False when the account email is a placeholder the mailer will refuse. */
+  account_email_deliverable: boolean;
+  send_hour_wat: number;
+  last_report_date: string | null;
+  last_sent_at: string | null;
+}
+
 export const fetchNotificationSettings = () =>
-  api<{ alerts: NotificationAlert[] }>('/features/documentation');
+  api<{ alerts: NotificationAlert[]; daily_report: DailyReportSetting }>('/features/documentation');
+
+export const setDailyReportPreference = (emailEnabled: boolean, emailAddress: string | null) =>
+  api<{ success: boolean }>('/features/notifications/daily_report', {
+    method: 'PATCH',
+    body: JSON.stringify({ emailEnabled, emailAddress }),
+  });
 
 /**
  * Turn an alert's email on or off, and optionally change how long it waits.
@@ -2067,4 +2108,146 @@ export interface VehicleCatalogue {
 
 export function fetchVehicleCatalogue(): Promise<VehicleCatalogue> {
   return api<VehicleCatalogue>('/vehicles/catalogue');
+}
+
+// ---------------------------------------------------------------------------
+// Team access
+// ---------------------------------------------------------------------------
+
+export interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: FleetRole;
+  title: string | null;
+  is_active: boolean | null;
+  created_at: string | null;
+}
+
+export const fetchTeam = () => api<{ members: TeamMember[] }>('/auth/team');
+
+export function addTeamMember(input: {
+  name: string;
+  email: string;
+  password: string;
+  role: FleetRole;
+  title?: string;
+}): Promise<{ member: TeamMember }> {
+  return api('/auth/team', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateTeamMember(
+  id: string,
+  patch: { is_active?: boolean; role?: FleetRole }
+): Promise<{ member: TeamMember }> {
+  return api(`/auth/team/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+// ---------------------------------------------------------------------------
+// Driver explanations awaiting a manager
+// ---------------------------------------------------------------------------
+
+export interface DriverExplanation {
+  id: number;
+  vehicle_id: string | null;
+  alert_type: string;
+  label: string;
+  severity: 'critical' | 'warning' | 'info';
+  message: string;
+  latitude: string | number | null;
+  longitude: string | number | null;
+  created_at: string;
+  is_resolved: boolean | null;
+  driver_note: string;
+  driver_note_at: string;
+  driver_name: string | null;
+  driver_phone: string | null;
+  license_plate: string | null;
+}
+
+export const fetchExplanations = () =>
+  api<{ pending: number; explanations: DriverExplanation[] }>('/alerts/explanations');
+
+export function actOnExplanation(
+  id: number,
+  action: 'accepted' | 'escalated',
+  comment?: string
+): Promise<{ ok: true; id: number; action: string; resolved: boolean }> {
+  return api(`/alerts/${id}/act`, { method: 'POST', body: JSON.stringify({ action, comment }) });
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle licence (VIO) certificates
+// ---------------------------------------------------------------------------
+
+export interface CertificateFields {
+  owner_name: string | null;
+  owner_address: string | null;
+  file_number: string | null;
+  registration_number: string | null;
+  engine_number: string | null;
+  chassis_number: string | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  vehicle_type: string | null;
+  issuing_state: string | null;
+  issued_on: string | null;
+  expires_on: string | null;
+}
+
+export interface CertificateScan {
+  fields: CertificateFields & {
+    expires_on_source: 'printed' | 'sticker' | 'issued_plus_year' | null;
+  };
+  ocr_text: string;
+  provider: string;
+}
+
+export interface VehicleCertificate extends CertificateFields {
+  id: string;
+  kind: 'vio';
+  vehicle_id: string | null;
+  driver_id: string | null;
+  license_plate: string | null;
+  driver_name: string | null;
+  expires_on: string;
+  has_image: boolean;
+  days_to_expiry: number;
+  status: 'valid' | 'expiring' | 'expired';
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export const fetchCertificates = () =>
+  api<{ warning_days: number; expiring: number; expired: number; certificates: VehicleCertificate[] }>(
+    '/certificates'
+  );
+
+export const fetchCertificateImage = (id: string) => api<{ image: string }>(`/certificates/${id}/image`);
+
+export function scanCertificate(image: string): Promise<CertificateScan> {
+  return api('/certificates/scan', { method: 'POST', body: JSON.stringify({ image }), timeoutMs: 45_000 });
+}
+
+export function createCertificate(
+  input: Partial<CertificateFields> & {
+    vehicle_id?: string | null;
+    driver_id?: string | null;
+    image?: string | null;
+    ocr_text?: string | null;
+  }
+): Promise<{ id: string }> {
+  return api('/certificates', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateCertificate(
+  id: string,
+  patch: Partial<CertificateFields> & { vehicle_id?: string | null; driver_id?: string | null }
+): Promise<{ id: string }> {
+  return api(`/certificates/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
+export function deleteCertificate(id: string): Promise<{ ok: true }> {
+  return api(`/certificates/${id}`, { method: 'DELETE' });
 }

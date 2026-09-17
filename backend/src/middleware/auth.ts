@@ -4,6 +4,7 @@ import type { JwtPayload, DriverJwtPayload, FleetRole } from '../types/index';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const DRIVER_JWT_EXPIRES_IN = process.env.DRIVER_JWT_EXPIRES_IN || '30d';
 
 interface CustomerTokenInput {
@@ -82,6 +83,13 @@ export const authenticateCustomer = (req: Request, res: Response, next: NextFunc
       return;
     }
     const role: FleetRole = payload.role ?? 'manager';
+    // A viewer's token opens every page and moves nothing. Enforced here, on
+    // the method, rather than route by route: a read-only account that could
+    // still reach one forgotten PATCH is not read-only.
+    if (role === 'viewer' && !READ_METHODS.has(req.method)) {
+      res.status(403).json({ error: 'This is a view-only account. Ask a manager to make that change.' });
+      return;
+    }
     req.user = {
       customerId: payload.customerId,
       email: payload.email,

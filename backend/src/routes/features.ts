@@ -15,6 +15,8 @@ import {
 } from '../lib/device-offline-watchdog';
 import { db, notificationPreferences, eq, and, sql } from '../lib/db-helpers';
 import { logAndRespond } from '../lib/errors';
+import { isDeliverable } from '../lib/mailer';
+import { DAILY_REPORT_PREF, SEND_HOUR_WAT } from '../lib/daily-report-mailer';
 
 const router = express.Router();
 
@@ -93,7 +95,31 @@ router.get('/documentation', async (req: Request, res: Response) => {
 
     const prefBy = new Map(prefs.map((p) => [p.alertType, p]));
 
+    const lastRun = (
+      await db.execute(sql`
+        SELECT report_date, sent_at FROM report_runs
+        WHERE customer_id = ${req.user.customerId} AND report_type = 'daily'
+        ORDER BY sent_at DESC LIMIT 1
+      `)
+    ).rows[0] as { report_date: string; sent_at: string } | undefined;
+    const reportPref = prefBy.get(DAILY_REPORT_PREF);
+    // The fallback recipient is the account's email, not whoever is signed in.
+    const account = (
+      await db.execute(sql`SELECT email FROM customers WHERE id = ${req.user.customerId}`)
+    ).rows[0] as { email: string } | undefined;
+
     res.json({
+      /** The evening fleet report: on unless switched off, sent to the address
+       *  here or else the account email. */
+      daily_report: {
+        enabled: reportPref?.emailEnabled ?? true,
+        email_address: reportPref?.emailAddress ?? null,
+        account_email: account?.email ?? null,
+        account_email_deliverable: isDeliverable(account?.email),
+        send_hour_wat: SEND_HOUR_WAT,
+        last_report_date: lastRun?.report_date ?? null,
+        last_sent_at: lastRun?.sent_at ?? null,
+      },
       alerts: ALERT_CATALOGUE.map((a) => ({
         ...a,
         email_enabled: prefBy.get(a.type)?.emailEnabled ?? false,
@@ -195,8 +221,14 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
     res.status(400).json({ error: 'emailEnabled must be a boolean' });
     return;
   }
-  if (!ALERT_CATALOGUE.some((a) => a.type === alertType)) {
+  if (alertType !== DAILY_REPORT_PREF && !ALERT_CATALOGUE.some((a) => a.type === alertType)) {
     res.status(400).json({ error: `Unknown alert type "${alertType}"` });
+    return;
+  }
+  // The address is checked here, not at send time: a typo should fail the
+  // form, not silently stop the report months later.
+  if (emailAddress != null && emailAddress !== '' && !isDeliverable(String(emailAddress))) {
+    res.status(400).json({ error: 'That email address does not look deliverable.' });
     return;
   }
   // Rejected rather than clamped: a manager who picks 5 minutes should be told
@@ -242,7 +274,7 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
         .update(notificationPreferences)
         .set({
           emailEnabled,
-          emailAddress: emailAddress ?? null,
+          emailAddress: emailAddress?.trim() || null,
           ...(touchesThreshold ? { thresholdMinutes: threshold } : {}),
           updatedAt: sql`NOW()`,
         })
@@ -252,7 +284,7 @@ router.patch('/notifications/:alertType', async (req: Request, res: Response) =>
         customerId: req.user.customerId,
         alertType,
         emailEnabled,
-        emailAddress: emailAddress ?? null,
+        emailAddress: emailAddress?.trim() || null,
         thresholdMinutes: touchesThreshold ? threshold : null,
       });
     }

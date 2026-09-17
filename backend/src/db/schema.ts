@@ -14,6 +14,7 @@ import {
   index,
   uniqueIndex,
   jsonb,
+  date,
 } from 'drizzle-orm/pg-core';
 
 export const customers = pgTable('customers', {
@@ -47,11 +48,13 @@ export const customers = pgTable('customers', {
  * A customer row is the fleet — its login is the manager who set it up. A
  * fleet user is a person that fleet lets in under their own name, so every
  * command they send is signed by them (the immobilizer audit trail reads
- * it) rather than by a shared login. The role only chooses where the
- * dashboard opens: a commander lands on the Command Summary, everyone else
- * on the operations dashboard. It grants and withholds nothing.
+ * it) rather than by a shared login. For a manager or commander the role only
+ * chooses where the dashboard opens: a commander lands on the Command Summary,
+ * everyone else on the operations dashboard. A viewer is the exception — they
+ * can open every page and change nothing, which the auth middleware enforces
+ * by refusing any request that is not a read.
  */
-export const FLEET_ROLES = ['manager', 'commander'] as const;
+export const FLEET_ROLES = ['manager', 'commander', 'viewer'] as const;
 export type FleetRole = (typeof FLEET_ROLES)[number];
 
 export const fleetUsers = pgTable('fleet_users', {
@@ -402,11 +405,21 @@ export const alerts = pgTable('alerts', {
    * An alert is a question about a vehicle, and the person who can answer it
    * is the one who was driving. Letting them answer turns "left the depot zone
    * at 19:40" from something a manager has to chase into something already
-   * explained by the time it is read — and answering closes it.
+   * explained by the time it is read. Only the alert types in
+   * DRIVER_EXPLAINABLE_ALERTS ask for one.
    */
   driverNote: text('driver_note'),
   driverNoteAt: timestamp('driver_note_at'),
   driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+  /**
+   * What the manager made of the driver's account. `accepted` closes the
+   * alert with the note on record; `escalated` keeps it open and flagged.
+   * Null while the explanation is still waiting in the manager's queue.
+   */
+  managerAction: varchar('manager_action', { length: 20 }),
+  managerActionAt: timestamp('manager_action_at'),
+  managerActionBy: text('manager_action_by'),
+  managerComment: text('manager_comment'),
   /**
    * Who asked for this, when the alert records a person's command rather
    * than something the fleet did — the manager behind an immobilize, a
@@ -719,5 +732,59 @@ export const geofenceStates = pgTable(
   },
   (table) => [
     uniqueIndex('geofence_state_zone_vehicle_idx').on(table.geofenceId, table.vehicleId),
+  ]
+);
+
+/**
+ * Roadworthiness and licence papers, one row per certificate.
+ *
+ * The "VIO" a Nigerian fleet means is the vehicle licence a state's Vehicle
+ * Inspection Office issues — the paper a checkpoint asks for, and the one a
+ * fleet gets fined over when it lapses. The fields mirror the printed stub:
+ * owner, reg and chassis numbers, make and model, the issuing state, and the
+ * two dates. A manager photographs the paper; OCR fills these in and the
+ * manager corrects whatever the photo garbled before saving.
+ *
+ * `expires_on` is the whole point. The expiry sweep raises an alert a week
+ * before it and again the day it passes, and the two `*_alert_sent_at`
+ * columns are what stop a nightly sweep raising the same alert nightly.
+ */
+export const CERTIFICATE_KINDS = ['vio'] as const;
+export type CertificateKind = (typeof CERTIFICATE_KINDS)[number];
+
+export const vehicleCertificates = pgTable(
+  'vehicle_certificates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    vehicleId: uuid('vehicle_id').references(() => vehicles.id, { onDelete: 'cascade' }),
+    driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    kind: varchar('kind', { length: 20 }).notNull().default('vio'),
+    ownerName: varchar('owner_name', { length: 255 }),
+    ownerAddress: text('owner_address'),
+    fileNumber: varchar('file_number', { length: 80 }),
+    registrationNumber: varchar('registration_number', { length: 40 }),
+    engineNumber: varchar('engine_number', { length: 80 }),
+    chassisNumber: varchar('chassis_number', { length: 80 }),
+    vehicleMake: varchar('vehicle_make', { length: 80 }),
+    vehicleModel: varchar('vehicle_model', { length: 80 }),
+    vehicleType: varchar('vehicle_type', { length: 80 }),
+    /** The state whose Vehicle Inspection Office issued it — the "location". */
+    issuingState: varchar('issuing_state', { length: 80 }),
+    issuedOn: date('issued_on'),
+    expiresOn: date('expires_on').notNull(),
+    /** Compressed data URL, the same storage as receipt and licence photos. */
+    imageUrl: text('image_url'),
+    ocrText: text('ocr_text'),
+    expiryAlertSentAt: timestamp('expiry_alert_sent_at'),
+    expiredAlertSentAt: timestamp('expired_alert_sent_at'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => [
+    index('vehicle_certificates_customer_expires_idx').on(t.customerId, t.expiresOn),
   ]
 );

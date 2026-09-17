@@ -470,6 +470,39 @@ export const initDatabase = async (): Promise<void> => {
   }
 
   await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS vehicle_certificates (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID REFERENCES vehicles(id) ON DELETE CASCADE,
+      driver_id UUID REFERENCES drivers(id) ON DELETE SET NULL,
+      kind VARCHAR(20) NOT NULL DEFAULT 'vio',
+      owner_name VARCHAR(255),
+      owner_address TEXT,
+      file_number VARCHAR(80),
+      registration_number VARCHAR(40),
+      engine_number VARCHAR(80),
+      chassis_number VARCHAR(80),
+      vehicle_make VARCHAR(80),
+      vehicle_model VARCHAR(80),
+      vehicle_type VARCHAR(80),
+      issuing_state VARCHAR(80),
+      issued_on DATE,
+      expires_on DATE NOT NULL,
+      image_url TEXT,
+      ocr_text TEXT,
+      expiry_alert_sent_at TIMESTAMP,
+      expired_alert_sent_at TIMESTAMP,
+      created_by TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS vehicle_certificates_customer_expires_idx
+      ON vehicle_certificates (customer_id, expires_on)
+  `);
+
+  await db.execute(sql`
     CREATE TABLE IF NOT EXISTS notification_preferences (
       id BIGSERIAL PRIMARY KEY,
       customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
@@ -548,6 +581,10 @@ export const initDatabase = async (): Promise<void> => {
   // existed carry the name only inside the message ("… by Jane Doe (setdigout
   // …"); lift it out once so the audit trail is complete for them too.
   await ensureColumn('alerts', 'actor', 'TEXT');
+  await ensureColumn('alerts', 'manager_action', 'VARCHAR(20)');
+  await ensureColumn('alerts', 'manager_action_at', 'TIMESTAMP');
+  await ensureColumn('alerts', 'manager_action_by', 'TEXT');
+  await ensureColumn('alerts', 'manager_comment', 'TEXT');
   await db.execute(sql`
     UPDATE alerts
     SET actor = substring(message from ' by ([^(]+) \\(')

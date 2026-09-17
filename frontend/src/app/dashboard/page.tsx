@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Bell,
+  FileBadge,
+  MessageSquareText,
   Calculator,
   ClipboardList,
   Clock,
@@ -47,6 +49,8 @@ import {
   FuelPurchasesResponse,
   FeatureFlags,
   fetchFeatureFlags,
+  isViewOnly,
+  VIEW_ONLY_EVENT,
   type FleetRole,
   getToken,
   TrackPoint,
@@ -81,6 +85,9 @@ import { TripHistoryPanel } from '@/components/dashboard/TripHistoryPanel';
 import { FleetEfficiencyReport } from '@/components/dashboard/FleetEfficiencyReport';
 import { SavingsDashboard } from '@/components/dashboard/SavingsDashboard';
 import { SiphonEventsSidebar } from '@/components/dashboard/SiphonEventsSidebar';
+import { DriverExplanationsSidebar } from '@/components/dashboard/DriverExplanationsSidebar';
+import { TeamAccessPanel } from '@/components/dashboard/TeamAccessPanel';
+import { VioCertificatesPanel } from '@/components/dashboard/VioCertificatesPanel';
 import {
   countActiveFuelEvents,
   FuelAnomaliesPanel,
@@ -137,6 +144,7 @@ type DashboardView =
   | 'drivers'
   | 'intel'
   | 'records'
+  | 'certificates'
   | 'geofences'
   | 'fuel'
   | 'estimate'
@@ -190,10 +198,12 @@ const PRO_ONLY_VIEWS = new Set<DashboardView>(['anomalies']);
 const ROLE_HOME: Record<FleetRole, DashboardView> = {
   manager: 'overview',
   commander: 'command',
+  viewer: 'overview',
 };
 const ROLE_LABEL: Record<FleetRole, string> = {
   manager: 'Manager',
   commander: 'Commander',
+  viewer: 'View only',
 };
 
 /** Immobilizer is still beta — one flag, flipped here, rather than tied to
@@ -220,6 +230,7 @@ const VIEW_META: Record<
   drivers: { icon: Users, nav: 'Driver management', title: 'Driver Management' },
   intel: { icon: Gauge, nav: 'Fleet intelligence', title: 'Fleet Intelligence' },
   records: { icon: ClipboardList, nav: 'Vehicle records', title: 'Vehicle records' },
+  certificates: { icon: FileBadge, nav: 'Certificates', title: 'Certificates' },
   geofences: { icon: Pentagon, nav: 'Geofencing', title: 'Geofencing' },
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
   estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
@@ -242,6 +253,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'drivers', label: 'Driver management', hash: 'drivers' },
   { id: 'intel', label: 'Fleet intelligence', hash: 'intel' },
   { id: 'records', label: 'Vehicle records', hash: 'records' },
+  { id: 'certificates', label: 'Certificates', hash: 'certificates' },
   { id: 'geofences', label: 'Geofencing', hash: 'geofences' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
@@ -264,7 +276,7 @@ const NAV_GROUPS: { label: string; views: DashboardView[] }[] = [
   { label: 'Overview', views: ['command', 'overview', 'live'] },
   {
     label: 'Fleet',
-    views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'records', 'geofences'],
+    views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'records', 'certificates', 'geofences'],
   },
   { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'accounting', 'anomalies'] },
   { label: 'Security', views: ['theft', 'alerts'] },
@@ -338,6 +350,21 @@ export default function DashboardPage() {
   const [tripFallback, setTripFallback] = useState(false);
   const tripFallbackRef = useLatest(tripFallback);
   const [siphonSidebarOpen, setSiphonSidebarOpen] = useState(false);
+  const [explanationsOpen, setExplanationsOpen] = useState(false);
+  const [pendingExplanations, setPendingExplanations] = useState(0);
+  // What a viewer sees when they press something that would have changed the
+  // fleet. One notice for every write path, rather than one per button.
+  const [viewOnlyNotice, setViewOnlyNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const onRefused = (e: Event) => setViewOnlyNotice((e as CustomEvent<string>).detail);
+    window.addEventListener(VIEW_ONLY_EVENT, onRefused);
+    return () => window.removeEventListener(VIEW_ONLY_EVENT, onRefused);
+  }, []);
+  useEffect(() => {
+    if (!viewOnlyNotice) return;
+    const t = setTimeout(() => setViewOnlyNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [viewOnlyNotice]);
   const [fuelEventCount, setFuelEventCount] = useState(0);
   const { setCustomer: cacheCustomer, clearAuth } = useAuthStore();
   const activeViewRef = useLatest(activeView);
@@ -723,6 +750,7 @@ export default function DashboardPage() {
   // Unmapped views and not-yet-loaded flags both show, so nothing disappears
   // on a slow response — only an explicit `false` hides an entry.
   const role: FleetRole = customer?.role ?? 'manager';
+  const readOnly = isViewOnly(customer);
   const isVisible = (view: DashboardView): boolean => {
     if (view === 'command' && role !== 'commander') return false;
     // Replay events replays fuel *leaving* a tank, which needs a level sensor.
@@ -1140,6 +1168,21 @@ export default function DashboardPage() {
                   Driving. */}
               <GreenDrivingBadge />
               <div className="relative">
+                {/* What drivers have said about their alerts, waiting on a
+                    decision. Its own button rather than a row in the alerts
+                    list, because it is a to-do with a count, not a feed. */}
+                <RoundButton
+                  icon={MessageSquareText}
+                  label={`From drivers${pendingExplanations ? ` (${pendingExplanations} waiting)` : ''}`}
+                  onClick={() => setExplanationsOpen(true)}
+                />
+                {pendingExplanations > 0 && (
+                  <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-[1.15rem] justify-center rounded-full bg-accent-y px-1 text-[10px] font-bold leading-[1.15rem] text-accent-y-ink">
+                    {pendingExplanations > 99 ? '99+' : pendingExplanations}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
                 {/* Unseen, not open — same reasoning as the rail badge. A
                     permanent red "22" on the bell is indistinguishable from a
                     red "22" that means something new just happened, so the
@@ -1258,12 +1301,14 @@ export default function DashboardPage() {
               >
                 Buy trackers
               </Link>
-              <button
-                onClick={() => setModalOpen(true)}
-                className="flex items-center gap-2 rounded-full bg-accent-y px-4 py-2 text-sm font-semibold text-accent-y-ink transition-opacity hover:opacity-90"
-              >
-                <Plus className="h-4 w-4" /> Add vehicle
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => setModalOpen(true)}
+                  className="flex items-center gap-2 rounded-full bg-accent-y px-4 py-2 text-sm font-semibold text-accent-y-ink transition-opacity hover:opacity-90"
+                >
+                  <Plus className="h-4 w-4" /> Add vehicle
+                </button>
+              )}
             </div>
           </header>
 
@@ -1408,6 +1453,9 @@ export default function DashboardPage() {
           {activeView === 'intel' && <FleetIntelligencePanel />}
 
           {activeView === 'records' && <VehicleRecordsPanel fleet={fleet} />}
+          {activeView === 'certificates' && (
+            <VioCertificatesPanel fleet={fleet} drivers={drivers} readOnly={readOnly} />
+          )}
 
           {activeView === 'calibration' && <CalibrationGuidePanel fleet={fleet} />}
 
@@ -1487,6 +1535,13 @@ export default function DashboardPage() {
                pages. One Panel shell, one column width, and the shortcuts as a
                uniform icon grid pulls it back into a single screen. */
             <div className="mx-auto max-w-4xl space-y-4">
+              {readOnly && (
+                <p className="rounded-xl border border-edge bg-panel px-4 py-3 text-sm text-ink-mid">
+                  This is a view-only login. Settings are shown for reference; ask a manager to
+                  change them.
+                </p>
+              )}
+              <TeamAccessPanel customer={customer} />
               <Panel
                 icon={Settings}
                 title="Fleet setup"
@@ -1570,6 +1625,27 @@ export default function DashboardPage() {
       />
 
       <AlertToasts incoming={freshAlerts} driverFor={driverForVehicle} />
+
+      {viewOnlyNotice && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-full border border-edge bg-panel px-4 py-2 text-sm text-ink shadow-2xl"
+        >
+          {viewOnlyNotice}
+        </div>
+      )}
+
+      <DriverExplanationsSidebar
+        isOpen={explanationsOpen}
+        onClose={() => setExplanationsOpen(false)}
+        readOnly={readOnly}
+        onCountChange={setPendingExplanations}
+        onViewOnMap={(lat, lng, vehicleId) => {
+          setSelectedVehicleId(vehicleId);
+          setExplanationsOpen(false);
+          switchView('live');
+        }}
+      />
 
       <SiphonEventsSidebar
         isOpen={siphonSidebarOpen}

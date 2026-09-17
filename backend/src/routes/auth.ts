@@ -9,8 +9,8 @@ import {
 } from '../lib/db-helpers';
 import { signToken, signFleetUserToken, authenticateCustomer } from '../middleware/auth';
 import { logAndRespond } from '../lib/errors';
-import { fleetUsers, type FleetRole } from '../db/schema';
-import { and } from 'drizzle-orm';
+import { fleetUsers, FLEET_ROLES, type FleetRole } from '../db/schema';
+import { and, desc } from 'drizzle-orm';
 
 /**
  * Who is signed in, alongside the fleet they belong to. The manager is the
@@ -144,6 +144,153 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     const token = signToken(customerData as Parameters<typeof signToken>[0]);
     const me = signedInUser(customerData);
     res.json({ token, customer: { ...customerData, role: me.role, user: me } });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * The people this fleet lets in, managed by the account holder or a manager.
+ *
+ * The account holder signs in on the customer row and has no fleet_users row,
+ * so `req.user.userId` is unset for them; a fleet user has one. Either way the
+ * role on the token decides: only a manager adds or removes people, so a
+ * commander cannot quietly grant themselves a second login and a viewer is
+ * already refused by the middleware before reaching here.
+ */
+const requireManager = (req: Request, res: Response): boolean => {
+  if (req.user.role !== 'manager') {
+    res.status(403).json({ error: 'Only a manager can manage who signs in.' });
+    return false;
+  }
+  return true;
+};
+
+const teamMemberSelect = {
+  id: fleetUsers.id,
+  email: fleetUsers.email,
+  name: fleetUsers.name,
+  role: fleetUsers.role,
+  title: fleetUsers.title,
+  is_active: fleetUsers.isActive,
+  created_at: fleetUsers.createdAt,
+};
+
+router.get('/team', authenticateCustomer, async (req: Request, res: Response) => {
+  try {
+    const members = await db
+      .select(teamMemberSelect)
+      .from(fleetUsers)
+      .where(eq(fleetUsers.customerId, req.user.customerId))
+      .orderBy(desc(fleetUsers.createdAt));
+    res.json({ members });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+router.post('/team', authenticateCustomer, async (req: Request, res: Response) => {
+  if (!requireManager(req, res)) return;
+
+  const body = (req.body ?? {}) as {
+    name?: string;
+    email?: string;
+    password?: string;
+    role?: string;
+    title?: string;
+  };
+  const name = String(body.name ?? '').trim();
+  const email = String(body.email ?? '').trim().toLowerCase();
+  const password = String(body.password ?? '');
+  const role = String(body.role ?? 'viewer') as FleetRole;
+  const title = String(body.title ?? '').trim() || null;
+
+  if (!name || !email || !password) {
+    res.status(400).json({ error: 'Name, email and a password are required.' });
+    return;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400).json({ error: 'That email address does not look right.' });
+    return;
+  }
+  if (password.length < 8) {
+    res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    return;
+  }
+  if (!FLEET_ROLES.includes(role)) {
+    res.status(400).json({ error: `Role must be one of: ${FLEET_ROLES.join(', ')}.` });
+    return;
+  }
+
+  try {
+    // One address signs in as one person. The account holder's own email is
+    // reserved too, or a second login could be created for it here.
+    const [takenByFleet] = await db
+      .select({ id: fleetUsers.id })
+      .from(fleetUsers)
+      .where(eq(fleetUsers.email, email))
+      .limit(1);
+    const [takenByAccount] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.email, email))
+      .limit(1);
+    if (takenByFleet || takenByAccount) {
+      res.status(409).json({ error: 'Someone already signs in with that email.' });
+      return;
+    }
+
+    const [member] = await db
+      .insert(fleetUsers)
+      .values({
+        customerId: req.user.customerId,
+        email,
+        passwordHash: await bcrypt.hash(password, 10),
+        name,
+        role,
+        title,
+      })
+      .returning(teamMemberSelect);
+    res.status(201).json({ member });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/** Deactivating rather than deleting keeps the name on every action they signed. */
+router.patch('/team/:id', authenticateCustomer, async (req: Request, res: Response) => {
+  if (!requireManager(req, res)) return;
+
+  const body = (req.body ?? {}) as { is_active?: boolean; role?: string };
+  const patch: Partial<{ isActive: boolean; role: string }> = {};
+  if (typeof body.is_active === 'boolean') patch.isActive = body.is_active;
+  if (body.role != null) {
+    if (!FLEET_ROLES.includes(body.role as FleetRole)) {
+      res.status(400).json({ error: `Role must be one of: ${FLEET_ROLES.join(', ')}.` });
+      return;
+    }
+    patch.role = body.role;
+  }
+  if (Object.keys(patch).length === 0) {
+    res.status(400).json({ error: 'Nothing to change.' });
+    return;
+  }
+  if (req.user.userId === String(req.params.id) && patch.role && patch.role !== 'manager') {
+    res.status(400).json({ error: 'You cannot demote your own login.' });
+    return;
+  }
+
+  try {
+    const [member] = await db
+      .update(fleetUsers)
+      .set(patch)
+      .where(and(eq(fleetUsers.id, String(req.params.id)), eq(fleetUsers.customerId, req.user.customerId)))
+      .returning(teamMemberSelect);
+    if (!member) {
+      res.status(404).json({ error: 'No such person on this fleet.' });
+      return;
+    }
+    res.json({ member });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

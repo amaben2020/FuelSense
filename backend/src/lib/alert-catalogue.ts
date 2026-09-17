@@ -260,33 +260,54 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     source: 'device',
     emailable: false,
   },
+  {
+    type: 'vio_cert_expiring',
+    label: 'Vehicle licence expiring',
+    severity: 'warning',
+    meaning:
+      'A vehicle licence (VIO paper) on file runs out within the week. There is still time to renew it before a checkpoint asks for it.',
+    trigger:
+      'The expiry date on a saved certificate is seven days away or fewer (CERT_EXPIRY_WARNING_DAYS). Raised once per certificate; editing the expiry date re-arms it.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
+    type: 'vio_cert_expired',
+    label: 'Vehicle licence expired',
+    severity: 'critical',
+    meaning:
+      'A vehicle licence on file has lapsed. The vehicle is liable to be impounded or fined until it is renewed.',
+    trigger:
+      'The expiry date on a saved certificate is in the past. Raised once per certificate, the first sweep after the date passes.',
+    source: 'analysis',
+    emailable: true,
+  },
 ];
 
 export const EMAILABLE_ALERTS = ALERT_CATALOGUE.filter((a) => a.emailable);
 
 /**
- * Alerts a driver's own explanation is allowed to close.
+ * Alerts that ask the driver what happened.
  *
- * These are the ones where the driver genuinely holds the answer and the
- * answer ends it: they left the depot zone because the customer moved the
- * collection, they idled because they were loading. Left open, each is a
- * manager chasing a question the driver could have answered in a sentence.
+ * Every alert used to prompt for an explanation, which made the prompt
+ * noise: a driver asked to account for "vehicle started a trip" stops
+ * answering the ones that matter. These are the few where the driver
+ * genuinely holds the answer and a manager genuinely needs it — leaving or
+ * entering a zone, and the tracker losing vehicle power while parked.
  *
- * Everything absent from this list — fuel theft, receipt fraud, crash, towing,
- * jamming — still accepts the driver's account and shows it to the manager,
- * but stays open. An allegation of stolen fuel must not be dismissed by the
- * person it concerns typing something into a phone; the explanation is
- * evidence for the manager to weigh, not a resolution.
+ * The driver's account never closes the alert on its own. It lands in the
+ * manager's queue, and the manager accepts it (closing the alert with the
+ * note on record) or escalates it (keeping it open and flagged). The
+ * explanation is evidence for a person to weigh, not a resolution.
  */
-export const DRIVER_RESOLVABLE_ALERTS = new Set<string>([
+export const DRIVER_EXPLAINABLE_ALERTS = new Set<string>([
   'geofence_exit',
   'geofence_entry',
-  'excessive_idle',
-  'idle_fuel_waste',
-  'route_deviation',
-  'low_fuel',
-  'trip_start',
+  'power_unplug',
 ]);
+
+export type ManagerAction = 'accepted' | 'escalated';
+export const MANAGER_ACTIONS: ManagerAction[] = ['accepted', 'escalated'];
 
 export function alertDefinition(type: string): AlertDefinition | undefined {
   return ALERT_CATALOGUE.find((a) => a.type === type);

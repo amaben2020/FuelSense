@@ -1,7 +1,8 @@
 import express, { Request, Response } from 'express';
 import { authenticateCustomer } from '../middleware/auth';
-import { db, alerts, vehicles, eq, and, desc } from '../lib/db-helpers';
-import { inArray } from 'drizzle-orm';
+import { db, alerts, vehicles, drivers, eq, and, desc } from '../lib/db-helpers';
+import { inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { alertDefinition, MANAGER_ACTIONS, type ManagerAction } from '../lib/alert-catalogue';
 import { withCache, invalidate, cacheKey } from '../lib/redis';
 import { logAndRespond } from '../lib/errors';
 
@@ -216,6 +217,7 @@ router.get('/', async (req: Request, res: Response) => {
           created_at: alerts.createdAt,
           driver_note: alerts.driverNote,
           driver_note_at: alerts.driverNoteAt,
+          manager_action: alerts.managerAction,
           license_plate: vehicles.licensePlate,
         })
         .from(alerts)
@@ -227,6 +229,117 @@ router.get('/', async (req: Request, res: Response) => {
         .limit(limit)
     );
     res.json(rows);
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * Driver explanations waiting on a manager's judgement.
+ *
+ * A driver's account of a zone exit or a power loss is not the end of the
+ * matter; someone has to read it and decide. This is that queue: every alert
+ * carrying a note nobody has acted on, newest first, with who wrote it and
+ * for which vehicle. Acting on one removes it from here.
+ */
+router.get('/explanations', async (req: Request, res: Response) => {
+  try {
+    const rows = await db
+      .select({
+        id: alerts.id,
+        vehicle_id: alerts.vehicleId,
+        alert_type: alerts.alertType,
+        message: alerts.message,
+        latitude: alerts.latitude,
+        longitude: alerts.longitude,
+        created_at: alerts.createdAt,
+        is_resolved: alerts.isResolved,
+        driver_note: alerts.driverNote,
+        driver_note_at: alerts.driverNoteAt,
+        driver_name: drivers.fullName,
+        driver_phone: drivers.phone,
+        license_plate: vehicles.licensePlate,
+      })
+      .from(alerts)
+      .leftJoin(vehicles, eq(alerts.vehicleId, vehicles.id))
+      .leftJoin(drivers, eq(alerts.driverId, drivers.id))
+      .where(
+        and(
+          eq(alerts.customerId, req.user.customerId),
+          isNotNull(alerts.driverNote),
+          isNull(alerts.managerAction)
+        )
+      )
+      .orderBy(desc(alerts.driverNoteAt))
+      .limit(100);
+
+    res.json({
+      pending: rows.length,
+      explanations: rows.map((r) => {
+        const def = alertDefinition(r.alert_type);
+        return {
+          ...r,
+          label: def?.label ?? r.alert_type.replace(/_/g, ' '),
+          severity: def?.severity ?? 'info',
+        };
+      }),
+    });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * The manager's verdict on a driver's explanation.
+ *
+ * Accepting closes the alert with the note on record. Escalating keeps it
+ * open, flagged, with the manager's reason — the alert stays in the feed
+ * until someone resolves it the ordinary way. Both are signed by whoever
+ * was logged in, so the audit trail reads a name rather than "the system".
+ */
+router.post('/:id/act', async (req: Request, res: Response) => {
+  const alertId = Number(req.params.id);
+  const body = (req.body ?? {}) as { action?: string; comment?: string };
+  const action = String(body.action ?? '') as ManagerAction;
+  const comment = String(body.comment ?? '').trim().slice(0, 500) || null;
+
+  if (!Number.isFinite(alertId)) {
+    res.status(400).json({ error: 'Invalid alert id' });
+    return;
+  }
+  if (!MANAGER_ACTIONS.includes(action)) {
+    res.status(400).json({ error: `action must be one of: ${MANAGER_ACTIONS.join(', ')}` });
+    return;
+  }
+
+  try {
+    const actor = req.user.name || req.user.email;
+    const [updated] = await db
+      .update(alerts)
+      .set({
+        managerAction: action,
+        managerActionAt: sql`NOW()`,
+        managerActionBy: actor,
+        managerComment: comment,
+        ...(action === 'accepted' ? { isResolved: true, resolvedAt: sql`NOW()` } : {}),
+      })
+      .where(
+        and(
+          eq(alerts.id, alertId),
+          eq(alerts.customerId, req.user.customerId),
+          isNotNull(alerts.driverNote),
+          isNull(alerts.managerAction)
+        )
+      )
+      .returning({ id: alerts.id, is_resolved: alerts.isResolved });
+
+    if (!updated) {
+      res.status(404).json({ error: 'That explanation has already been dealt with.' });
+      return;
+    }
+
+    await invalidate(req.user.customerId, 'alerts', 'anomalies');
+    res.json({ ok: true, id: updated.id, action, resolved: Boolean(updated.is_resolved) });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

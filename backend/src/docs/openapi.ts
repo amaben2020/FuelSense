@@ -112,6 +112,7 @@ export const openApiSpec = {
     { name: 'Orders', description: 'Tracker hardware orders.' },
     { name: 'Places', description: 'Proxied Google Places and imagery.' },
     { name: 'Features', description: 'Feature flags, config and notification prefs.' },
+    { name: 'Certificates', description: 'Vehicle licence (VIO) papers, OCR and expiry reminders.' },
   ],
   components: {
     securitySchemes: {
@@ -362,6 +363,49 @@ export const openApiSpec = {
           ...ok('Signed in.', { $ref: '#/components/schemas/AuthResponse' }),
           '401': { description: 'Email or password rejected.' },
         },
+      },
+    },
+    '/auth/team': {
+      get: {
+        tags: ['Auth'],
+        summary: 'People who sign in to this fleet',
+        security: bearer,
+        responses: { ...ok('Team members.'), ...errors },
+      },
+      post: {
+        tags: ['Auth'],
+        summary: 'Add a person (manager only)',
+        description:
+          'Roles: manager, commander, viewer. A viewer sees every page and is refused every non-GET request.',
+        security: bearer,
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['name', 'email', 'password'],
+                properties: {
+                  name: { type: 'string' },
+                  email: { type: 'string', format: 'email' },
+                  password: { type: 'string', minLength: 8 },
+                  role: { type: 'string', enum: ['manager', 'commander', 'viewer'], default: 'viewer' },
+                  title: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+        responses: { ...ok('Created.'), ...errors },
+      },
+    },
+    '/auth/team/{id}': {
+      patch: {
+        tags: ['Auth'],
+        summary: 'Deactivate, reactivate or change the role of a person (manager only)',
+        security: bearer,
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { ...ok('Updated.'), ...errors },
       },
     },
     '/auth/me': {
@@ -1115,6 +1159,40 @@ export const openApiSpec = {
         responses: { ...ok('Anomalies.'), ...errors },
       },
     },
+    '/alerts/explanations': {
+      get: {
+        tags: ['Alerts'],
+        summary: 'Driver explanations awaiting a manager',
+        description:
+          'Alerts carrying a driver note nobody has acted on, newest first. Only geofence and tracker-power alerts ask drivers for one.',
+        responses: { ...ok('Pending explanations.'), ...errors },
+      },
+    },
+    '/alerts/{id}/act': {
+      post: {
+        tags: ['Alerts'],
+        summary: 'Accept or escalate a driver explanation',
+        description:
+          'accepted closes the alert with the note on record; escalated keeps it open and flagged with the manager comment. Signed by the logged-in user.',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer' } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['action'],
+                properties: {
+                  action: { type: 'string', enum: ['accepted', 'escalated'] },
+                  comment: { type: 'string', maxLength: 500 },
+                },
+              },
+            },
+          },
+        },
+        responses: { ...ok('Recorded.'), ...errors },
+      },
+    },
     '/alerts/{id}/acknowledge': {
       patch: {
         tags: ['Alerts'],
@@ -1123,6 +1201,51 @@ export const openApiSpec = {
           { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
         ],
         responses: { ...ok('Acknowledged.'), ...errors },
+      },
+    },
+
+    // -------------------------------------------------------- certificates
+    '/certificates': {
+      get: {
+        tags: ['Certificates'],
+        summary: 'Certificates on file, soonest expiry first',
+        responses: { ...ok('Certificates with days_to_expiry and status.'), ...errors },
+      },
+      post: {
+        tags: ['Certificates'],
+        summary: 'Save a certificate',
+        description: 'expires_on is required; attach to a vehicle_id or driver_id. Optional image (data URL) and ocr_text.',
+        responses: { ...ok('Created.'), ...errors },
+      },
+    },
+    '/certificates/scan': {
+      post: {
+        tags: ['Certificates'],
+        summary: 'OCR a photographed vehicle licence',
+        description: 'Returns parsed fields and the raw text. Nothing is saved.',
+        responses: { ...ok('Parsed fields.'), ...errors },
+      },
+    },
+    '/certificates/{id}': {
+      patch: {
+        tags: ['Certificates'],
+        summary: 'Edit a certificate',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { ...ok('Updated.'), ...errors },
+      },
+      delete: {
+        tags: ['Certificates'],
+        summary: 'Delete a certificate',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { ...ok('Deleted.'), ...errors },
+      },
+    },
+    '/certificates/{id}/image': {
+      get: {
+        tags: ['Certificates'],
+        summary: 'The certificate photo',
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        responses: { ...ok('Data URL.'), ...errors },
       },
     },
 
