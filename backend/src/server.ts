@@ -41,6 +41,7 @@ import { startTelemetryPartitionSweep } from './lib/telemetry-partitions';
 import { startTelemetryRetentionSweep } from './lib/telemetry-retention';
 import { startCertificateExpirySweep } from './lib/certificate-expiry-sweep';
 import certificateRoutes from './routes/certificates';
+import adminRoutes from './routes/admin';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -192,6 +193,7 @@ app.use('/api/features', featureRoutes);
 app.use('/api/fuel-price', fuelPriceRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/certificates', certificateRoutes);
+app.use('/api/admin', adminRoutes);
 
 const start = async () => {
   await initDatabase();

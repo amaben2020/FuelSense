@@ -6,6 +6,7 @@ import {
   customers,
   customerPublicSelect,
   eq,
+  sql,
 } from '../lib/db-helpers';
 import { signToken, signFleetUserToken, authenticateCustomer } from '../middleware/auth';
 import { logAndRespond } from '../lib/errors';
@@ -128,6 +129,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
         return;
       }
       const role = user.role as FleetRole;
+      await db.update(fleetUsers).set({ lastLoginAt: sql`NOW()` }).where(eq(fleetUsers.id, user.id));
       const token = signFleetUserToken({ ...user, role });
       const me = signedInUser(fleet, { ...user, role });
       res.json({ token, customer: { ...fleet, ...me, user: me } });
@@ -139,6 +141,8 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
       res.status(401).json({ error: 'Invalid email or password' });
       return;
     }
+
+    await db.update(customers).set({ lastLoginAt: sql`NOW()` }).where(eq(customers.id, customer.id));
 
     const { password_hash: _ph, ...customerData } = customer;
     const token = signToken(customerData as Parameters<typeof signToken>[0]);

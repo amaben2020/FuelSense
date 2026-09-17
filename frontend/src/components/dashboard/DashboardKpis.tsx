@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { DashboardSummary, formatNgn } from '@/lib/api';
 
-function KpiCard({
+export function KpiCard({
   title,
   value,
   hint,

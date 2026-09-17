@@ -8,8 +8,7 @@ import {
   Fuel,
   Loader2,
   MessageSquareWarning,
-  Phone,
-  ReceiptText,
+  RefreshCw,
   Wallet,
   X,
 } from 'lucide-react';
@@ -21,7 +20,8 @@ import {
   formatOdometerMiles,
   requestRefuelFigureChange,
 } from '@/lib/api';
-import { Panel, StatPills, StatusChip, TabRow } from '@/components/ui/chrome';
+import { StatusChip, TabRow } from '@/components/ui/chrome';
+import { KpiCard } from './DashboardKpis';
 import { LoadErrorBanner } from './LoadErrorBanner';
 import { FleetIntelligencePanel } from './FleetIntelligencePanel';
 
@@ -105,228 +105,181 @@ export function RefuelPlanningPanel({ readOnly = false }: { readOnly?: boolean }
 
   return (
     <div className="space-y-4">
-      <Panel
-        icon={Fuel}
-        title="Refuel planning"
-        subtitle={
-          data
-            ? `Fuel at ${formatNgn(data.price_per_liter_ngn)}/L${data.price_source === 'latest_receipt' ? ' (latest receipt)' : ' (default — no receipt price yet)'} · tank estimates hold back a ${data.reserve_liters} L reserve`
-            : 'Who last refuelled, how far they have gone since, and who needs money next'
-        }
-        onRefresh={load}
-        refreshing={loading}
-      >
-        <TabRow<Tab>
-          className="mb-4"
-          items={[
-            { id: 'plan', label: 'Who needs fuel' },
-            { id: 'working', label: 'How we calculate' },
-          ]}
-          active={tab}
-          onChange={setTab}
-        />
+      {s && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            title="Need fuel now"
+            value={s.due_now}
+            hint={s.due_now ? 'Tank at or below reserve' : 'Nobody is running on reserve'}
+            icon={AlertTriangle}
+            tone={s.due_now ? 'critical' : 'default'}
+          />
+          <KpiCard
+            title="Due this week"
+            value={s.due_this_week}
+            hint="Expected to refuel within 7 days"
+            icon={CalendarClock}
+            tone={s.due_this_week ? 'warning' : 'default'}
+          />
+          <KpiCard
+            title="Refuel budget this week"
+            value={formatNgn(s.cash_needed_this_week_ngn)}
+            hint="Each due driver's usual purchase, added up"
+            icon={Wallet}
+          />
+          <KpiCard
+            title="Spent last 30 days"
+            value={formatNgn(s.spend_30d_ngn)}
+            hint={`${s.liters_30d} L across all receipts`}
+            icon={Fuel}
+          />
+        </div>
+      )}
+
+      <div className="rounded-lg border border-edge bg-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-5 py-4">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-semibold text-ink">
+              <Fuel className="h-4 w-4 text-accent-y" /> Refuel planning
+            </h2>
+            <p className="mt-1 text-xs text-ink-dim">
+              {data
+                ? `Fuel at ${formatNgn(data.price_per_liter_ngn)}/L${data.price_source === 'latest_receipt' ? ' from the latest receipt' : ' (default until a receipt carries a price)'}`
+                : 'Who last refuelled, how far they have gone since, and who is due next'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <TabRow<Tab>
+              items={[
+                { id: 'plan', label: 'Who needs fuel' },
+                { id: 'working', label: 'How we calculate' },
+              ]}
+              active={tab}
+              onChange={setTab}
+              className="border-b-0"
+            />
+            <button
+              type="button"
+              onClick={load}
+              className="rounded-lg border border-edge p-2 text-ink-mid hover:bg-panel-hover"
+              aria-label="Refresh"
+              title="Refresh"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
 
         {tab === 'working' && data && (
-          <WorkingTab data={data} readOnly={readOnly} onDispute={setDisputing} />
-        )}
-
-        {tab === 'plan' && s && (
-          <StatPills
-            className="mb-4"
-            items={[
-              { icon: AlertTriangle, label: 'Need fuel now', value: String(s.due_now) },
-              { icon: CalendarClock, label: 'Due this week', value: String(s.due_this_week) },
-              { icon: Wallet, label: 'Cash to have ready this week', value: formatNgn(s.cash_needed_this_week_ngn) },
-              { icon: Fuel, label: 'Spent last 30 days', value: `${formatNgn(s.spend_30d_ngn)} · ${s.liters_30d} L` },
-              ...(s.no_receipts
-                ? [{ icon: ReceiptText, label: 'Vehicles with no receipts', value: String(s.no_receipts) }]
-                : []),
-            ]}
-          />
-        )}
-
-        {tab !== 'plan' ? null : !data && loading ? (
-          <p className="rounded-xl bg-panel-deep px-4 py-6 text-center text-sm text-ink-dim">Loading…</p>
-        ) : !data || data.vehicles.length === 0 ? (
-          <p className="rounded-xl bg-panel-deep px-4 py-6 text-center text-sm text-ink-dim">
-            No vehicles yet.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] text-left text-sm">
-              <thead className="text-[11px] uppercase tracking-wider text-ink-dim">
-                <tr>
-                  <th className="py-2 pr-3 font-medium">Driver · vehicle</th>
-                  <th className="py-2 pr-3 font-medium">Last refuel (receipt)</th>
-                  <th className="py-2 pr-3 font-medium">Since then</th>
-                  <th className="py-2 pr-3 font-medium">Tank now (est.)</th>
-                  <th className="py-2 pr-3 font-medium">Next refuel (est.)</th>
-                  <th className="py-2 pr-3 font-medium">Money to have ready</th>
-                  <th className="py-2 font-medium">Last 30 days</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-edge">
-                {data.vehicles.map((v) => {
-                  const st = STATUS[v.next_refuel.status];
-                  const n = v.next_refuel;
-                  return (
-                    <tr key={v.vehicle_id} className={n.status === 'overdue' ? 'bg-bad-deep/10' : ''}>
-                      <td className="py-3 pr-3 align-top">
-                        <p className="font-medium text-ink">{v.driver_name}</p>
-                        <p className="text-xs text-ink-dim">
-                          {v.license_plate}
-                          {v.make ? ` · ${v.make} ${v.model ?? ''}` : ''}
-                        </p>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          <StatusChip tone={st.tone} dot>
-                            {st.label}
-                          </StatusChip>
-                          {v.driver_phone && (
-                            <a
-                              href={`tel:${v.driver_phone}`}
-                              className="inline-flex items-center gap-1 rounded-full border border-edge px-2 py-0.5 text-[11px] text-ink-mid hover:bg-panel-hover"
-                            >
-                              <Phone className="h-3 w-3" /> Call
-                            </a>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="py-3 pr-3 align-top">
-                        {v.last_refuel ? (
-                          <>
-                            <p className="text-ink">
-                              {lagosDate(v.last_refuel.at, true)}{' '}
-                              <span className="text-ink-dim">· {ago(v.last_refuel.days_ago)}</span>
-                            </p>
-                            <p className="text-xs text-ink-mid">
-                              {v.last_refuel.liters} L
-                              {v.last_refuel.amount_ngn != null && ` · ${formatNgn(v.last_refuel.amount_ngn)}`}
-                              {v.last_refuel.price_per_liter != null && ` @ ${formatNgn(v.last_refuel.price_per_liter)}/L`}
-                            </p>
-                            {v.last_refuel.merchant && (
-                              <p className="truncate text-xs text-ink-dim" title={v.last_refuel.merchant}>
-                                <ReceiptText className="mr-1 inline h-3 w-3" />
-                                {v.last_refuel.merchant}
-                              </p>
-                            )}
-                          </>
-                        ) : (
-                          <p className="text-xs text-ink-dim">No receipt on file. The driver logs one from the app.</p>
-                        )}
-                      </td>
-
-                      <td className="py-3 pr-3 align-top tabular-nums">
-                        {v.since_refuel ? (
-                          <>
-                            <p className="text-ink">{v.since_refuel.km} km</p>
-                            <p className="text-xs text-ink-dim">
-                              ~{v.since_refuel.fuel_used_l} L used
-                              {v.since_refuel.idle_hours >= 0.5 && ` · ${v.since_refuel.idle_hours} h idling`}
-                            </p>
-                          </>
-                        ) : (
-                          <span className="text-ink-dim">—</span>
-                        )}
-                      </td>
-
-                      <td className="py-3 pr-3 align-top">
-                        {v.tank.level_l != null ? (
-                          <>
-                            <p className="tabular-nums text-ink">
-                              ~{v.tank.level_l} L
-                              {v.tank.percent != null && <span className="text-ink-dim"> · {v.tank.percent}%</span>}
-                            </p>
-                            {v.tank.capacity_l != null && v.tank.percent != null && (
-                              <div className="mt-1 h-1.5 w-28 overflow-hidden rounded-full bg-canvas">
-                                <div
-                                  className={`h-full rounded-full ${v.tank.percent <= 20 ? 'bg-bad-bright' : 'bg-gradient-to-r from-good to-accent'}`}
-                                  style={{ width: `${Math.min(100, v.tank.percent)}%` }}
-                                />
-                              </div>
-                            )}
-                            <p className="text-xs text-ink-dim">
-                              {v.tank.range_km != null && `~${v.tank.range_km} km to reserve · `}
-                              {v.tank.rate_l_per_100km} L/100 km
-                              {v.tank.rate_source === 'calibrated' ? ' (from receipts)' : ' (preset)'}
-                            </p>
-                          </>
-                        ) : (
-                          <span className="text-xs text-ink-dim">No tank model yet</span>
-                        )}
-                      </td>
-
-                      <td className="py-3 pr-3 align-top">
-                        {n.in_days != null && n.at ? (
-                          <>
-                            <p className={`font-medium ${n.status === 'overdue' ? 'text-bad-bright' : n.status === 'soon' ? 'text-warn' : 'text-ink'}`}>
-                              {inDays(n.in_days)}
-                              <span className="font-normal text-ink-dim"> · {lagosDate(n.at)}</span>
-                            </p>
-                            <p className="text-xs text-ink-dim">
-                              {n.basis === 'model'
-                                ? `at ${v.usage.km_per_day ?? 0} km/day (${v.usage.active_days} active of ${v.usage.window_days})`
-                                : `refuels every ~${n.avg_gap_days} days`}
-                            </p>
-                          </>
-                        ) : (
-                          <p className="text-xs text-ink-dim">
-                            {v.last_refuel ? 'Not enough driving or receipts to say yet' : '—'}
-                          </p>
-                        )}
-                      </td>
-
-                      <td className="py-3 pr-3 align-top">
-                        {n.cash_ngn != null ? (
-                          <>
-                            <p className="flex items-center gap-1 font-semibold tabular-nums text-ink">
-                              <Wallet className="h-3.5 w-3.5 text-accent-y" />
-                              {formatNgn(n.cash_ngn)}
-                            </p>
-                            <p className="text-xs text-ink-dim">
-                              {n.cash_basis === 'typical'
-                                ? `usual buy · ~${n.cash_liters} L`
-                                : `to fill · ${n.cash_liters} L`}
-                              {n.cash_basis === 'typical' && n.fill_cost_ngn != null && (
-                                <span className="block">full tank {formatNgn(n.fill_cost_ngn)}</span>
-                              )}
-                            </p>
-                          </>
-                        ) : (
-                          <span className="text-ink-dim">—</span>
-                        )}
-                      </td>
-
-                      <td className="py-3 align-top tabular-nums">
-                        <p className="text-ink">{formatNgn(v.last_30_days.spend_ngn)}</p>
-                        <p className="text-xs text-ink-dim">
-                          {v.last_30_days.receipts} receipt{v.last_30_days.receipts === 1 ? '' : 's'} · {v.last_30_days.liters} L
-                        </p>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="p-5">
+            <WorkingTab data={data} readOnly={readOnly} onDispute={setDisputing} />
           </div>
         )}
 
-        {tab === 'plan' && (
-        <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
-          Receipts and kilometres are recorded. Tank level, range and the date are estimates: the
-          vehicle carries no fuel sensor, so litres are distance × the vehicle&apos;s rate, re-anchored
-          each time a receipt or a gauge reading is logged. A rate marked &ldquo;from receipts&rdquo; was
-          measured full-to-full on this vehicle; &ldquo;preset&rdquo; is the class default until it is.
-        </p>
-        )}
-      </Panel>
+        {tab === 'plan' &&
+          (!data && loading ? (
+            <p className="p-6 text-sm text-ink-dim">Loading…</p>
+          ) : !data || data.vehicles.length === 0 ? (
+            <p className="p-6 text-sm text-ink-dim">No vehicles yet.</p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1180px] text-left text-sm">
+                  <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim whitespace-nowrap">
+                    <tr>
+                      <th className="px-3 py-3">Vehicle</th>
+                      <th className="px-3 py-3">Driver</th>
+                      <th className="px-3 py-3">Last refuel</th>
+                      <th className="px-3 py-3">Litres</th>
+                      <th className="px-3 py-3">Paid</th>
+                      <th className="px-3 py-3">Station</th>
+                      <th className="px-3 py-3">Km since</th>
+                      <th className="px-3 py-3">Tank now</th>
+                      <th className="px-3 py-3">Next refuel</th>
+                      <th className="px-3 py-3">Usual refuel</th>
+                      <th className="px-3 py-3">30-day spend</th>
+                      <th className="px-3 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-divider text-ink-mid">
+                    {data.vehicles.map((v) => {
+                      const st = STATUS[v.next_refuel.status];
+                      const n = v.next_refuel;
+                      return (
+                        <tr key={v.vehicle_id} className="hover:bg-panel-hover">
+                          <td className="px-3 py-3 font-medium text-brand">{v.license_plate}</td>
+                          <td className="px-3 py-3 text-ink">{v.driver_name}</td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            {v.last_refuel ? (
+                              <>
+                                <span className="text-ink">{lagosDate(v.last_refuel.at)}</span>
+                                <span className="ml-1.5 text-xs text-ink-dim">{ago(v.last_refuel.days_ago)}</span>
+                              </>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-3 font-mono">{v.last_refuel ? `${v.last_refuel.liters} L` : '—'}</td>
+                          <td className="px-3 py-3 font-mono">
+                            {v.last_refuel?.amount_ngn != null ? formatNgn(v.last_refuel.amount_ngn) : '—'}
+                          </td>
+                          <td className="max-w-[160px] truncate px-3 py-3" title={v.last_refuel?.merchant ?? undefined}>
+                            {v.last_refuel?.merchant ?? '—'}
+                          </td>
+                          <td className="px-3 py-3 font-mono">{v.since_refuel ? `${v.since_refuel.km} km` : '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            {v.tank.level_l != null ? (
+                              <span className="inline-flex items-center gap-2">
+                                <span className="font-mono text-ink">{v.tank.level_l} L</span>
+                                {v.tank.percent != null && (
+                                  <span className="inline-block h-1.5 w-14 overflow-hidden rounded-full bg-canvas align-middle">
+                                    <span
+                                      className={`block h-full ${v.tank.percent <= 20 ? 'bg-bad-bright' : 'bg-good'}`}
+                                      style={{ width: `${Math.min(100, v.tank.percent)}%` }}
+                                    />
+                                  </span>
+                                )}
+                                {v.tank.percent != null && <span className="text-xs text-ink-dim">{v.tank.percent}%</span>}
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            {n.in_days != null && n.at ? (
+                              <>
+                                <span className={`font-medium ${n.status === 'overdue' ? 'text-bad-bright' : n.status === 'soon' ? 'text-warn' : 'text-ink'}`}>
+                                  {inDays(n.in_days)}
+                                </span>
+                                <span className="ml-1.5 text-xs text-ink-dim">{lagosDate(n.at)}</span>
+                              </>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-3 py-3 font-mono">{n.cash_ngn != null ? formatNgn(n.cash_ngn) : '—'}</td>
+                          <td className="px-3 py-3 font-mono">{formatNgn(v.last_30_days.spend_ngn)}</td>
+                          <td className="px-3 py-3">
+                            <StatusChip tone={st.tone} dot>
+                              {st.label}
+                            </StatusChip>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="border-t border-edge px-5 py-3 text-xs text-ink-dim">
+                Last refuel, litres, paid, station and km since are recorded. Tank now and next refuel are
+                estimates — the vehicle has no fuel sensor. Usual refuel is the average of the driver&apos;s
+                recent receipts. See &ldquo;How we calculate&rdquo; for the working.
+              </p>
+            </>
+          ))}
+      </div>
 
-      {disputing && (
-        <DisputeModal
-          vehicle={disputing}
-          onClose={() => setDisputing(null)}
-        />
-      )}
+      {disputing && <DisputeModal vehicle={disputing} onClose={() => setDisputing(null)} />}
 
       {/* The old signals — jamming candidates, working hours, utilisation,
           zone events — still exist for whoever wants them, folded away. */}
@@ -389,11 +342,11 @@ function WorkingTab({
           how?: React.ReactNode;
           kind: 'measured' | 'setting' | 'estimate';
         }) => (
-          <tr>
-            <td className="w-52 py-2 pr-3 align-top text-ink-mid">{label}</td>
-            <td className="w-40 py-2 pr-3 align-top font-medium tabular-nums text-ink">{value}</td>
-            <td className="py-2 pr-3 align-top text-xs text-ink-dim">{how}</td>
-            <td className="w-24 py-2 align-top">
+          <tr className="hover:bg-panel-hover">
+            <td className="w-52 px-3 py-2.5 align-top text-ink-mid">{label}</td>
+            <td className="w-40 px-3 py-2.5 align-top font-mono font-medium text-ink">{value}</td>
+            <td className="px-3 py-2.5 align-top text-xs text-ink-dim">{how}</td>
+            <td className="w-24 px-3 py-2.5 align-top">
               <StatusChip tone={kind === 'measured' ? 'good' : kind === 'setting' ? 'info' : 'warn'}>
                 {kind}
               </StatusChip>
@@ -401,7 +354,7 @@ function WorkingTab({
           </tr>
         );
         return (
-          <div key={v.vehicle_id} className="rounded-xl border border-edge bg-panel-deep p-4">
+          <div key={v.vehicle_id} className="rounded-lg border border-edge bg-panel-deep p-4">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <p className="font-semibold text-ink">
@@ -425,9 +378,17 @@ function WorkingTab({
               )}
             </div>
 
-            <div className="mt-3 overflow-x-auto">
+            <div className="mt-3 overflow-x-auto rounded-lg border border-edge">
               <table className="w-full min-w-[720px] text-left text-sm">
-                <tbody className="divide-y divide-edge">
+                <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim whitespace-nowrap">
+                  <tr>
+                    <th className="px-3 py-2.5">Step</th>
+                    <th className="px-3 py-2.5">Value</th>
+                    <th className="px-3 py-2.5">How</th>
+                    <th className="px-3 py-2.5">Kind</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-divider">
                   <Row
                     kind="measured"
                     label="Last receipt"

@@ -584,6 +584,8 @@ export const initDatabase = async (): Promise<void> => {
   // …"); lift it out once so the audit trail is complete for them too.
   await ensureColumn('alerts', 'actor', 'TEXT');
   await ensureColumn('customers', 'notification_emails', "TEXT[] NOT NULL DEFAULT '{}'");
+  await ensureColumn('customers', 'last_login_at', 'TIMESTAMP');
+  await ensureColumn('fleet_users', 'last_login_at', 'TIMESTAMP');
   await ensureColumn('alerts', 'manager_action', 'VARCHAR(20)');
   await ensureColumn('alerts', 'manager_action_at', 'TIMESTAMP');
   await ensureColumn('alerts', 'manager_action_by', 'TEXT');

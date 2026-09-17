@@ -2364,3 +2364,31 @@ export function requestRefuelFigureChange(input: {
 }): Promise<{ ok: true; sent_to: string }> {
   return api('/intelligence/refuels/feedback', { method: 'POST', body: JSON.stringify(input) });
 }
+
+// ---------------------------------------------------------------------------
+// Developer monitoring (not a product feature)
+// ---------------------------------------------------------------------------
+
+export interface MonitoredFleet {
+  id: string;
+  company: string;
+  account_name: string;
+  email: string;
+  subscription_status: string;
+  created_at: string;
+  onboarding_completed: boolean;
+  last_login_at: string | null;
+  team_members: number;
+  vehicles: number;
+  drivers: number;
+  devices: number;
+  active_devices: number;
+  tracker_last_online_at: string | null;
+  readings_24h: number;
+  open_alerts: number;
+  receipts_30d: number;
+  last_receipt_at: string | null;
+}
+
+export const fetchMonitoredFleets = () =>
+  api<{ generated_at: string; fleets: MonitoredFleet[] }>('/admin/fleets');

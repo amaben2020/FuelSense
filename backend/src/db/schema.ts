@@ -26,6 +26,8 @@ export const customers = pgTable('customers', {
    * nothing can deliver to; the list is how a real inbox gets on the wire.
    */
   notificationEmails: text('notification_emails').array().notNull().default([]),
+  /** Set on every successful sign-in; the developer's monitoring page reads it. */
+  lastLoginAt: timestamp('last_login_at'),
   name: varchar('name', { length: 255 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
@@ -76,6 +78,7 @@ export const fleetUsers = pgTable('fleet_users', {
   /** Rank, title or unit — shown under the name, never used for access. */
   title: varchar('title', { length: 120 }),
   isActive: boolean('is_active').default(true),
+  lastLoginAt: timestamp('last_login_at'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
