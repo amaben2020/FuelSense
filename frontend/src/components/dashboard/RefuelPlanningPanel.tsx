@@ -184,7 +184,7 @@ export function RefuelPlanningPanel({ readOnly = false }: { readOnly?: boolean }
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1180px] text-left text-sm">
+                <table className="w-full min-w-[1040px] text-left text-sm">
                   <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim whitespace-nowrap">
                     <tr>
                       <th className="px-3 py-3">Vehicle</th>
@@ -192,7 +192,6 @@ export function RefuelPlanningPanel({ readOnly = false }: { readOnly?: boolean }
                       <th className="px-3 py-3">Last refuel</th>
                       <th className="px-3 py-3">Litres</th>
                       <th className="px-3 py-3">Paid</th>
-                      <th className="px-3 py-3">Station</th>
                       <th className="px-3 py-3">Km since</th>
                       <th className="px-3 py-3">Tank now</th>
                       <th className="px-3 py-3">Next refuel</th>
@@ -222,9 +221,6 @@ export function RefuelPlanningPanel({ readOnly = false }: { readOnly?: boolean }
                           <td className="px-3 py-3 font-mono">{v.last_refuel ? `${v.last_refuel.liters} L` : '—'}</td>
                           <td className="px-3 py-3 font-mono">
                             {v.last_refuel?.amount_ngn != null ? formatNgn(v.last_refuel.amount_ngn) : '—'}
-                          </td>
-                          <td className="max-w-[160px] truncate px-3 py-3" title={v.last_refuel?.merchant ?? undefined}>
-                            {v.last_refuel?.merchant ?? '—'}
                           </td>
                           <td className="px-3 py-3 font-mono">{v.since_refuel ? `${v.since_refuel.km} km` : '—'}</td>
                           <td className="px-3 py-3 whitespace-nowrap">
@@ -271,7 +267,7 @@ export function RefuelPlanningPanel({ readOnly = false }: { readOnly?: boolean }
                 </table>
               </div>
               <p className="border-t border-edge px-5 py-3 text-xs text-ink-dim">
-                Last refuel, litres, paid, station and km since are recorded. Tank now and next refuel are
+                Last refuel, litres, paid and km since are recorded. Tank now and next refuel are
                 estimates — the vehicle has no fuel sensor. Usual refuel is the average of the driver&apos;s
                 recent receipts. See &ldquo;How we calculate&rdquo; for the working.
               </p>
