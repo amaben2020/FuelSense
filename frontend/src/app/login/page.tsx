@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { api, AuthResponse, setToken } from '@/lib/api';
-import { AuthLayout, Field, inputClass } from '@/components/AuthLayout';
+import { AuthError, AuthFooter, AuthLayout, AuthSubmit, Field, inputClass } from '@/components/AuthLayout';
 import { useAuthStore } from '@/store/authStore';
 
 export default function LoginPage() {
@@ -43,15 +43,12 @@ export default function LoginPage() {
 
   return (
     <AuthLayout
-      title="Sign in"
-      subtitle="Access your fleet fuel monitoring dashboard"
+      title="Sign in to your"
+      accent="fleet"
+      subtitle="Every litre, every kilometre and every receipt, in one place."
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      <form onSubmit={handleSubmit}>
+        {error && <AuthError>{error}</AuthError>}
 
         <Field label="Email">
           <input
@@ -71,25 +68,18 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className={inputClass}
-            placeholder="••••••••"
+            placeholder="Your password"
           />
         </Field>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-brand px-4 py-2.5 font-semibold text-canvas transition-colors hover:bg-brand/90 disabled:opacity-60"
-        >
-          {loading ? 'Signing in...' : 'Sign in'}
-        </button>
+        <AuthSubmit loading={loading} loadingLabel="Signing in…">
+          Sign in
+        </AuthSubmit>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-600">
-        No account?{' '}
-        <Link href="/register" className="font-medium text-brand hover:underline">
-          Create one
-        </Link>
-      </p>
+      <AuthFooter>
+        No account? <Link href="/register">Create one</Link>
+      </AuthFooter>
     </AuthLayout>
   );
 }

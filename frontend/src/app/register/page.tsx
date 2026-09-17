@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import { api, AuthResponse, setToken } from '@/lib/api';
-import { AuthLayout, Field, inputClass } from '@/components/AuthLayout';
+import { AuthError, AuthFooter, AuthLayout, AuthSubmit, Field, inputClass } from '@/components/AuthLayout';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -36,15 +36,12 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout
-      title="Create account"
-      subtitle="Register your fleet and start monitoring fuel"
+      title="Start with"
+      accent="one vehicle"
+      subtitle="Register the fleet, add a tracker, and the first trip is on the map."
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      <form onSubmit={handleSubmit}>
+        {error && <AuthError>{error}</AuthError>}
 
         <Field label="Company / Name">
           <input
@@ -68,7 +65,7 @@ export default function RegisterPage() {
           />
         </Field>
 
-        <Field label="Password">
+        <Field label="Password" hint="8+ characters">
           <input
             type="password"
             required
@@ -80,21 +77,14 @@ export default function RegisterPage() {
           />
         </Field>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-lg bg-brand px-4 py-2.5 font-semibold text-canvas transition-colors hover:bg-brand/90 disabled:opacity-60"
-        >
-          {loading ? 'Creating account...' : 'Create account'}
-        </button>
+        <AuthSubmit loading={loading} loadingLabel="Creating account…">
+          Create account
+        </AuthSubmit>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-600">
-        Already have an account?{' '}
-        <Link href="/login" className="font-medium text-brand hover:underline">
-          Sign in
-        </Link>
-      </p>
+      <AuthFooter>
+        Already have an account? <Link href="/login">Sign in</Link>
+      </AuthFooter>
     </AuthLayout>
   );
 }
