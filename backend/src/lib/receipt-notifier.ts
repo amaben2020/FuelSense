@@ -14,6 +14,7 @@ import {
   and,
 } from './db-helpers';
 import { sendMail, mailerReady, alertEmail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 import { lookupPlace } from './place-lookup';
 
 export const RECEIPT_UPLOADED_ALERT = 'receipt_uploaded';
@@ -80,30 +81,7 @@ async function emailReceiptUploaded(
 ): Promise<void> {
   if (!mailerReady()) return;
 
-  const [pref] = await db
-    .select({
-      enabled: notificationPreferences.emailEnabled,
-      address: notificationPreferences.emailAddress,
-    })
-    .from(notificationPreferences)
-    .where(
-      and(
-        eq(notificationPreferences.customerId, ctx.customerId),
-        eq(notificationPreferences.alertType, RECEIPT_UPLOADED_ALERT)
-      )
-    )
-    .limit(1);
-
-  // No row means not opted in — notifications are never on by default.
-  if (!pref?.enabled) return;
-
-  const [account] = await db
-    .select({ email: customers.email })
-    .from(customers)
-    .where(eq(customers.id, ctx.customerId))
-    .limit(1);
-
-  const to = pref.address || account?.email;
+  const to = await resolveAlertRecipient(ctx.customerId, RECEIPT_UPLOADED_ALERT);
   if (!to) return;
 
   // The driver's typed address is the first source of truth; the coordinate

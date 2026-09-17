@@ -19,6 +19,13 @@ import {
 
 export const customers = pgTable('customers', {
   id: uuid('id').primaryKey().defaultRandom(),
+  /**
+   * Everyone who should receive this fleet's email — alerts and the daily
+   * report alike. Set under Settings → Notifications. When empty, mail falls
+   * back to the account email, which on a seeded account is a placeholder
+   * nothing can deliver to; the list is how a real inbox gets on the wire.
+   */
+  notificationEmails: text('notification_emails').array().notNull().default([]),
   name: varchar('name', { length: 255 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
@@ -376,6 +383,13 @@ export const virtualTanks = pgTable('virtual_tanks', {
   // this counter does by construction rather than by offsetting resets.
   modelledBurnMl: bigint('modelled_burn_ml', { mode: 'number' }).notNull().default(0),
   anchorModelledMl: bigint('anchor_modelled_ml', { mode: 'number' }),
+  /**
+   * When and why the level was last pinned — a receipt credit or a
+   * calibration. `calibrated_at` only moves on calibrations, so before this
+   * column existed the working page had no honest date for a receipt anchor.
+   */
+  anchoredAt: timestamp('anchored_at'),
+  anchorSource: varchar('anchor_source', { length: 30 }),
   // Previous odometer reading, for the distance half of the model.
   lastOdometerM: bigint('last_odometer_m', { mode: 'number' }),
   // AVL 12 restarts at zero on every power cycle, so the running total is the

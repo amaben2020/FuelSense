@@ -16,6 +16,7 @@ import {
 import { db, notificationPreferences, eq, and, sql } from '../lib/db-helpers';
 import { logAndRespond } from '../lib/errors';
 import { isDeliverable } from '../lib/mailer';
+import { customers } from '../db/schema';
 import { DAILY_REPORT_PREF, SEND_HOUR_WAT } from '../lib/daily-report-mailer';
 
 const router = express.Router();
@@ -105,12 +106,16 @@ router.get('/documentation', async (req: Request, res: Response) => {
     const reportPref = prefBy.get(DAILY_REPORT_PREF);
     // The fallback recipient is the account's email, not whoever is signed in.
     const account = (
-      await db.execute(sql`SELECT email FROM customers WHERE id = ${req.user.customerId}`)
-    ).rows[0] as { email: string } | undefined;
+      await db.execute(sql`SELECT email, notification_emails FROM customers WHERE id = ${req.user.customerId}`)
+    ).rows[0] as { email: string; notification_emails: string[] | null } | undefined;
 
     res.json({
+      /** Everyone this fleet's email goes to — alerts and the daily report. */
+      recipients: account?.notification_emails ?? [],
+      account_email: account?.email ?? null,
+      account_email_deliverable: isDeliverable(account?.email),
       /** The evening fleet report: on unless switched off, sent to the address
-       *  here or else the account email. */
+       *  here plus the recipient list, or else the account email. */
       daily_report: {
         enabled: reportPref?.emailEnabled ?? true,
         email_address: reportPref?.emailAddress ?? null,
@@ -203,6 +208,38 @@ router.get('/calibration-status', async (req: Request, res: Response) => {
     });
 
     res.json({ calibration_min_purchases: CALIBRATION_MIN_PURCHASES, vehicles });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * The fleet's recipient list. Whole-list replace, so removing an address is
+ * the same call as adding one; the UI sends what it shows.
+ */
+router.put('/recipients', async (req: Request, res: Response) => {
+  if (req.user.role !== 'manager') {
+    res.status(403).json({ error: 'Only a manager can change who receives email.' });
+    return;
+  }
+  const raw = (req.body ?? {}).emails;
+  if (!Array.isArray(raw)) {
+    res.status(400).json({ error: 'emails must be an array of addresses' });
+    return;
+  }
+  const emails = [...new Set(raw.map((e) => String(e ?? '').trim().toLowerCase()).filter(Boolean))];
+  const bad = emails.filter((e) => !isDeliverable(e));
+  if (bad.length) {
+    res.status(400).json({ error: `Not a deliverable address: ${bad.join(', ')}` });
+    return;
+  }
+  if (emails.length > 20) {
+    res.status(400).json({ error: 'Up to 20 addresses.' });
+    return;
+  }
+  try {
+    await db.update(customers).set({ notificationEmails: emails }).where(eq(customers.id, req.user.customerId));
+    res.json({ success: true, recipients: emails });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

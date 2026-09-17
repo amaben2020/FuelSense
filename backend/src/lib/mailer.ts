@@ -30,7 +30,7 @@ export interface MailAttachment {
 }
 
 export interface MailInput {
-  to: string;
+  to: string | string[];
   subject: string;
   text: string;
   html?: string;
@@ -56,9 +56,10 @@ export async function sendMail({
     return false;
   }
 
-  const recipient = bypassOverride ? to : OVERRIDE_TO || to;
-  if (!isDeliverable(recipient)) {
-    console.warn(`[mailer] "${recipient}" is not a deliverable address — skipping.`);
+  const wanted = Array.isArray(to) ? to : [to];
+  const recipient = bypassOverride || !OVERRIDE_TO ? wanted.filter(isDeliverable) : [OVERRIDE_TO];
+  if (!recipient.length) {
+    console.warn(`[mailer] "${wanted.join(', ')}" is not a deliverable address — skipping.`);
     return false;
   }
 

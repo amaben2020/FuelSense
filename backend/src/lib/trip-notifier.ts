@@ -15,6 +15,7 @@ import {
   sql,
 } from './db-helpers';
 import { sendMail, mailerReady, alertEmail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 import { lookupPlace } from './place-lookup';
 
 // Ignition can flicker (stall-and-restart, cranking, a driver moving the car a
@@ -133,30 +134,7 @@ export async function handleIgnitionForTripStart(
 async function emailTripStart(ctx: TripStartContext, plate: string): Promise<void> {
   if (!mailerReady()) return;
 
-  const [pref] = await db
-    .select({
-      enabled: notificationPreferences.emailEnabled,
-      address: notificationPreferences.emailAddress,
-    })
-    .from(notificationPreferences)
-    .where(
-      and(
-        eq(notificationPreferences.customerId, ctx.customerId),
-        eq(notificationPreferences.alertType, 'trip_start')
-      )
-    )
-    .limit(1);
-
-  // No row means not opted in — notifications are never on by default.
-  if (!pref?.enabled) return;
-
-  const [account] = await db
-    .select({ email: customers.email, name: customers.name })
-    .from(customers)
-    .where(eq(customers.id, ctx.customerId))
-    .limit(1);
-
-  const to = pref.address || account?.email;
+  const to = await resolveAlertRecipient(ctx.customerId, 'trip_start');
   if (!to) return;
 
   // Turn the coordinates into somewhere a person recognises. Cached, and it

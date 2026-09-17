@@ -883,6 +883,8 @@ export async function calibrateTank(
       // threw the calibration away.
       anchorLevelMl: null,
       anchorAccumulatorMl: null,
+      anchoredAt: sql`NOW()`,
+      anchorSource: source,
       calibratedAt: sql`NOW()`,
       calibrationSource: source,
       consumedSinceCalibrationMl: 0,
@@ -995,6 +997,8 @@ export async function creditRefuel(
         state.accumulatorOffsetMl
       ),
       anchorModelledMl: sql`modelled_burn_ml`,
+      anchoredAt: sql`NOW()`,
+      anchorSource: 'receipt',
       consumedSinceCalibrationMl: 0,
       updatedAt: sql`NOW()`,
     })

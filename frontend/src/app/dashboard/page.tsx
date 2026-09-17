@@ -104,7 +104,7 @@ import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPane
 import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPanel';
 import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
-import { FleetIntelligencePanel } from '@/components/dashboard/FleetIntelligencePanel';
+import { RefuelPlanningPanel } from '@/components/dashboard/RefuelPlanningPanel';
 import { VehicleRecordsPanel } from '@/components/dashboard/VehicleRecordsPanel';
 import { NotificationSettingsPanel } from '@/components/dashboard/NotificationSettingsPanel';
 import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
@@ -228,7 +228,7 @@ const VIEW_META: Record<
   trips: { icon: Route, nav: 'Trip history', title: 'Trip history' },
   behavior: { icon: ShieldAlert, nav: 'Driving behavior', title: 'Driving behavior' },
   drivers: { icon: Users, nav: 'Driver management', title: 'Driver Management' },
-  intel: { icon: Gauge, nav: 'Fleet intelligence', title: 'Fleet Intelligence' },
+  intel: { icon: Fuel, nav: 'Refuel planning', title: 'Refuel planning' },
   records: { icon: ClipboardList, nav: 'Vehicle records', title: 'Vehicle records' },
   certificates: { icon: FileBadge, nav: 'Certificates', title: 'Certificates' },
   geofences: { icon: Pentagon, nav: 'Geofencing', title: 'Geofencing' },
@@ -251,7 +251,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'trips', label: 'Trip history', hash: 'trips' },
   { id: 'behavior', label: 'Driving behavior', hash: 'behavior' },
   { id: 'drivers', label: 'Driver management', hash: 'drivers' },
-  { id: 'intel', label: 'Fleet intelligence', hash: 'intel' },
+  { id: 'intel', label: 'Refuel planning', hash: 'intel' },
   { id: 'records', label: 'Vehicle records', hash: 'records' },
   { id: 'certificates', label: 'Certificates', hash: 'certificates' },
   { id: 'geofences', label: 'Geofencing', hash: 'geofences' },
@@ -1450,7 +1450,7 @@ export default function DashboardPage() {
             <DrivingBehaviorPanel />
           )}
 
-          {activeView === 'intel' && <FleetIntelligencePanel />}
+          {activeView === 'intel' && <RefuelPlanningPanel readOnly={readOnly} />}
 
           {activeView === 'records' && <VehicleRecordsPanel fleet={fleet} />}
           {activeView === 'certificates' && (
@@ -1605,7 +1605,7 @@ export default function DashboardPage() {
               </Panel>
 
               <CompanySettingsPanel customer={customer} onChanged={setCustomer} />
-              <NotificationSettingsPanel />
+              <NotificationSettingsPanel readOnly={readOnly} />
               <FuelPricePanel />
               <OdometerSettingsPanel fleet={fleet} onChanged={loadDashboard} />
               <DriverSettingsPanel

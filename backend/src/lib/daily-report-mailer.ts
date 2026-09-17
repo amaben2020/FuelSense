@@ -4,7 +4,8 @@
 // restarts on every deploy, and a manager receiving the same report three times
 // because we shipped at 6am would stop opening any of them.
 import { db, sql } from './db-helpers';
-import { sendMail, mailerReady, isDeliverable } from './mailer';
+import { sendMail, mailerReady } from './mailer';
+import { fleetRecipients } from './alert-mail';
 import { atAGlanceSummary, buildDailyReport, DailyReport } from './daily-report';
 import { renderDailyReportPdf, dailyReportFilename } from './daily-report-pdf';
 
@@ -190,7 +191,7 @@ export function reportEmailText(report: DailyReport): string {
 export async function sendDailyReport(
   customerId: string,
   date: Date,
-  recipient: string
+  recipient: string | string[]
 ): Promise<boolean> {
   const report = await buildDailyReport(customerId, date);
   if (!report) return false;
@@ -229,15 +230,15 @@ async function alreadySent(customerId: string, day: string): Promise<boolean> {
  * Where a customer's report goes, and whether it goes at all.
  *
  * DAILY_REPORT_TO wins when set (a whole-deployment override). Otherwise the
- * address the manager typed under Settings → Notifications → Daily report,
- * falling back to the account email. The production account's email is a
+ * address the manager typed under Settings → Notifications → Daily report
+ * plus everyone on the fleet's recipient list, falling back to the account
+ * email. The production account's email is a
  * seed placeholder, so without a Settings address nothing was ever sent from
  * the server — the mailer refused it every fifteen minutes, forever.
  */
 export async function dailyReportRecipient(
-  customerId: string,
-  accountEmail: string
-): Promise<{ to: string | null; enabled: boolean }> {
+  customerId: string
+): Promise<{ to: string[]; enabled: boolean }> {
   const rows = await db.execute(sql`
     SELECT email_enabled, email_address FROM notification_preferences
     WHERE customer_id = ${customerId} AND alert_type = ${DAILY_REPORT_PREF}
@@ -246,8 +247,8 @@ export async function dailyReportRecipient(
   const pref = rows.rows[0] as { email_enabled: boolean; email_address: string | null } | undefined;
   // No row means nobody has turned it off: the report is on by default.
   const enabled = pref ? Boolean(pref.email_enabled) : true;
-  const candidate = REPORT_TO || pref?.email_address || accountEmail;
-  return { to: isDeliverable(candidate) ? candidate : null, enabled };
+  const to = REPORT_TO ? [REPORT_TO] : await fleetRecipients(customerId, [pref?.email_address]);
+  return { to, enabled };
 }
 
 /** The Lagos calendar day a report sent at `now` covers, or null before the hour. */
@@ -279,15 +280,15 @@ export async function runDailyReports(now = new Date()): Promise<number> {
   for (const customer of customers) {
     if (await alreadySent(customer.id, day)) continue;
 
-    const { to, enabled } = await dailyReportRecipient(customer.id, customer.email);
+    const { to, enabled } = await dailyReportRecipient(customer.id);
     if (!enabled) continue;
-    if (!to) {
+    if (!to.length) {
       const key = `${customer.id}:${day}`;
       if (!warnedFor.has(key)) {
         warnedFor.add(key);
         console.warn(
           `[daily_report] no deliverable address for customer ${customer.id} — ` +
-            `set one under Settings → Notifications → Daily report, or DAILY_REPORT_TO.`
+            `add one under Settings → Notifications, or set DAILY_REPORT_TO.`
         );
       }
       continue;

@@ -9,6 +9,7 @@
 import type { SQL } from 'drizzle-orm';
 import { db, sql, alerts, eq, and, customers, notificationPreferences } from './db-helpers';
 import { sendMail, mailerReady, alertEmail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 
 export const DEVICE_OFFLINE_ALERT = 'device_offline';
 
@@ -155,30 +156,7 @@ async function raiseOfflineAlerts(): Promise<StaleDeviceRow[]> {
 async function emailOffline(row: StaleDeviceRow, plate: string, lastSeen: Date): Promise<void> {
   if (!mailerReady()) return;
 
-  const [pref] = await db
-    .select({
-      enabled: notificationPreferences.emailEnabled,
-      address: notificationPreferences.emailAddress,
-    })
-    .from(notificationPreferences)
-    .where(
-      and(
-        eq(notificationPreferences.customerId, row.customer_id),
-        eq(notificationPreferences.alertType, DEVICE_OFFLINE_ALERT)
-      )
-    )
-    .limit(1);
-
-  // No row means not opted in — notifications are never on by default.
-  if (!pref?.enabled) return;
-
-  const [account] = await db
-    .select({ email: customers.email })
-    .from(customers)
-    .where(eq(customers.id, row.customer_id))
-    .limit(1);
-
-  const to = pref.address || account?.email;
+  const to = await resolveAlertRecipient(row.customer_id, DEVICE_OFFLINE_ALERT);
   if (!to) return;
 
   const { text, html } = alertEmail({

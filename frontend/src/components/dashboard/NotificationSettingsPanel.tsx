@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Bell, BellOff, FileText, Loader2 } from 'lucide-react';
+import { Bell, BellOff, FileText, Loader2, Mail, Plus, X } from 'lucide-react';
 import {
   DailyReportSetting,
   NotificationAlert,
   fetchNotificationSettings,
   setDailyReportPreference,
   setNotificationPreference,
+  setNotificationRecipients,
 } from '@/lib/api';
 import { Panel } from '@/components/ui/chrome';
 import { LoadErrorBanner } from './LoadErrorBanner';
@@ -27,8 +28,13 @@ function waitLabel(minutes: number): string {
  * Documentation page, a screen nobody visits to change a setting. So the email
  * gave one instruction and it was a dead end. This is that screen.
  */
-export function NotificationSettingsPanel() {
+export function NotificationSettingsPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [alerts, setAlerts] = useState<NotificationAlert[] | null>(null);
+  const [recipients, setRecipients] = useState<string[] | null>(null);
+  const [accountEmail, setAccountEmail] = useState<{ email: string | null; deliverable: boolean }>({ email: null, deliverable: false });
+  const [newRecipient, setNewRecipient] = useState('');
+  const [recipientsSaving, setRecipientsSaving] = useState(false);
+  const [recipientsError, setRecipientsError] = useState<string | null>(null);
   const [report, setReport] = useState<DailyReportSetting | null>(null);
   const [reportAddress, setReportAddress] = useState('');
   const [reportSaving, setReportSaving] = useState(false);
@@ -44,6 +50,8 @@ export function NotificationSettingsPanel() {
         setAlerts(d.alerts.filter((a) => a.emailable));
         setReport(d.daily_report);
         setReportAddress(d.daily_report.email_address ?? '');
+        setRecipients(d.recipients ?? []);
+        setAccountEmail({ email: d.account_email, deliverable: d.account_email_deliverable });
         setError(null);
       })
       .catch(setError)
@@ -90,6 +98,31 @@ export function NotificationSettingsPanel() {
     }
   };
 
+  const saveRecipients = async (next: string[]) => {
+    setRecipientsSaving(true);
+    setRecipientsError(null);
+    try {
+      const res = await setNotificationRecipients(next);
+      setRecipients(res.recipients);
+      setNewRecipient('');
+    } catch (err) {
+      setRecipientsError(err instanceof Error ? err.message : 'Could not save');
+    } finally {
+      setRecipientsSaving(false);
+    }
+  };
+
+  const addRecipient = (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = newRecipient.trim().toLowerCase();
+    if (!email || !recipients) return;
+    if (recipients.includes(email)) {
+      setNewRecipient('');
+      return;
+    }
+    void saveRecipients([...recipients, email]);
+  };
+
   const saveReport = async (enabled: boolean) => {
     if (!report) return;
     setReportSaving(true);
@@ -112,7 +145,8 @@ export function NotificationSettingsPanel() {
   // placeholder account email with no address here means nothing is sent —
   // said plainly, rather than a manager waiting for a report that never comes.
   const reportDestination = report
-    ? report.email_address || (report.account_email_deliverable ? report.account_email : null)
+    ? [report.email_address, ...(recipients ?? [])].filter(Boolean).join(', ') ||
+      (report.account_email_deliverable ? report.account_email : null)
     : null;
   const sendHour = report ? `${report.send_hour_wat}:00` : '21:00';
 
@@ -130,6 +164,66 @@ export function NotificationSettingsPanel() {
       onRefresh={load}
       refreshing={loading}
     >
+      {recipients && (
+        <div className="mb-4 rounded-xl border border-edge bg-panel-deep p-4">
+          <p className="flex items-center gap-1.5 font-medium text-ink">
+            <Mail className="h-4 w-4 text-accent-y" /> Who receives email
+          </p>
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-dim">
+            Every alert switched on below, and the daily report, goes to each address here.
+            {recipients.length === 0 &&
+              (accountEmail.deliverable
+                ? ` Nobody is listed, so mail goes to the account email, ${accountEmail.email}.`
+                : ` Nobody is listed and the account email (${accountEmail.email}) is a placeholder — add at least one address or nothing is sent.`)}
+          </p>
+          {recipients.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2">
+              {recipients.map((email) => (
+                <li
+                  key={email}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-edge bg-panel px-3 py-1 text-xs text-ink"
+                >
+                  {email}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${email}`}
+                      disabled={recipientsSaving}
+                      onClick={() => void saveRecipients(recipients.filter((e) => e !== email))}
+                      className="rounded-full p-0.5 text-ink-dim hover:bg-divider hover:text-bad disabled:opacity-40"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!readOnly && (
+            <form onSubmit={addRecipient} className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="min-w-[240px] flex-1 text-xs text-ink-mid">
+                Add an address
+                <input
+                  type="email"
+                  value={newRecipient}
+                  onChange={(e) => setNewRecipient(e.target.value)}
+                  placeholder="ops@yourcompany.com"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink placeholder-ink-dim"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={recipientsSaving || !newRecipient.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-good px-4 py-2 text-xs font-semibold text-accent-y-ink disabled:opacity-50"
+              >
+                {recipientsSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Add
+              </button>
+            </form>
+          )}
+          {recipientsError && <p className="mt-2 text-xs text-bad">{recipientsError}</p>}
+        </div>
+      )}
+
       {report && (
         <div className="mb-4 rounded-xl border border-edge bg-panel-deep p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -139,7 +233,8 @@ export function NotificationSettingsPanel() {
               </p>
               <p className="mt-0.5 text-xs leading-relaxed text-ink-dim">
                 Every evening at {sendHour} West Africa Time: distance, trips, fuel and spend per
-                driver, with the PDF attached.
+                driver, with the PDF attached. Goes to everyone listed above; add an address here
+                only if the report should reach someone the alerts should not.
                 {report.last_sent_at
                   ? ` Last sent ${new Date(report.last_sent_at).toLocaleString('en-NG', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} for ${report.last_report_date}.`
                   : ' Not sent yet.'}
@@ -169,7 +264,7 @@ export function NotificationSettingsPanel() {
             className="mt-3 flex flex-wrap items-end gap-2"
           >
             <label className="min-w-[240px] flex-1 text-xs text-ink-mid">
-              Send to
+              Also send to
               <input
                 type="email"
                 value={reportAddress}
@@ -190,7 +285,7 @@ export function NotificationSettingsPanel() {
           {report.enabled && !reportDestination && (
             <p className="mt-2 text-xs text-warn">
               No address to send to — the account email ({report.account_email}) is a placeholder.
-              Enter one above or the report is skipped.
+              Add one to the recipient list or here, or the report is skipped.
             </p>
           )}
           {report.enabled && reportDestination && (

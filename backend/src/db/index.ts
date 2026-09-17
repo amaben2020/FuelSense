@@ -570,6 +570,8 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('virtual_tanks', 'modelled_burn_ml', 'BIGINT NOT NULL DEFAULT 0');
   await ensureColumn('virtual_tanks', 'anchor_modelled_ml', 'BIGINT');
   await ensureColumn('virtual_tanks', 'last_odometer_m', 'BIGINT');
+  await ensureColumn('virtual_tanks', 'anchored_at', 'TIMESTAMP');
+  await ensureColumn('virtual_tanks', 'anchor_source', 'VARCHAR(30)');
 
   await ensureColumn('alerts', 'is_resolved', 'BOOLEAN DEFAULT false');
   await ensureColumn('alerts', 'resolved_at', 'TIMESTAMP');
@@ -581,6 +583,7 @@ export const initDatabase = async (): Promise<void> => {
   // existed carry the name only inside the message ("… by Jane Doe (setdigout
   // …"); lift it out once so the audit trail is complete for them too.
   await ensureColumn('alerts', 'actor', 'TEXT');
+  await ensureColumn('customers', 'notification_emails', "TEXT[] NOT NULL DEFAULT '{}'");
   await ensureColumn('alerts', 'manager_action', 'VARCHAR(20)');
   await ensureColumn('alerts', 'manager_action_at', 'TIMESTAMP');
   await ensureColumn('alerts', 'manager_action_by', 'TEXT');

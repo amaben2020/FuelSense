@@ -1679,7 +1679,20 @@ export interface DailyReportSetting {
 }
 
 export const fetchNotificationSettings = () =>
-  api<{ alerts: NotificationAlert[]; daily_report: DailyReportSetting }>('/features/documentation');
+  api<{
+    alerts: NotificationAlert[];
+    daily_report: DailyReportSetting;
+    /** Everyone this fleet's email goes to — alerts and the daily report. */
+    recipients: string[];
+    account_email: string | null;
+    account_email_deliverable: boolean;
+  }>('/features/documentation');
+
+export const setNotificationRecipients = (emails: string[]) =>
+  api<{ success: boolean; recipients: string[] }>('/features/recipients', {
+    method: 'PUT',
+    body: JSON.stringify({ emails }),
+  });
 
 export const setDailyReportPreference = (emailEnabled: boolean, emailAddress: string | null) =>
   api<{ success: boolean }>('/features/notifications/daily_report', {
@@ -2250,4 +2263,104 @@ export function updateCertificate(
 
 export function deleteCertificate(id: string): Promise<{ ok: true }> {
   return api(`/certificates/${id}`, { method: 'DELETE' });
+}
+
+// ---------------------------------------------------------------------------
+// Refuel planning
+// ---------------------------------------------------------------------------
+
+export interface RefuelVehicle {
+  vehicle_id: string;
+  license_plate: string;
+  make: string | null;
+  model: string | null;
+  driver_id: string | null;
+  driver_name: string;
+  driver_phone: string | null;
+  last_refuel: {
+    receipt_id: string;
+    at: string;
+    days_ago: number;
+    liters: number;
+    amount_ngn: number | null;
+    price_per_liter: number | null;
+    merchant: string | null;
+    status: string | null;
+  } | null;
+  since_refuel: { km: number; idle_hours: number; fuel_used_l: number } | null;
+  tank: {
+    level_l: number | null;
+    capacity_l: number | null;
+    percent: number | null;
+    range_km: number | null;
+    rate_l_per_100km: number;
+    rate_source: string;
+    calibrated_at: string | null;
+    last_reading_at: string | null;
+  };
+  usage: { km_per_day: number | null; active_days: number; window_days: number };
+  next_refuel: {
+    status: 'no_receipts' | 'overdue' | 'soon' | 'ok' | 'unknown';
+    basis: 'model' | 'cadence' | null;
+    in_days: number | null;
+    at: string | null;
+    cash_liters: number | null;
+    cash_ngn: number | null;
+    cash_basis: 'typical' | 'fill';
+    fill_liters: number | null;
+    fill_cost_ngn: number | null;
+    avg_gap_days: number | null;
+  };
+  /** Every number behind the estimate, for the "How we calculate" tab. */
+  calculation: RefuelCalculation;
+  last_30_days: { receipts: number; liters: number; spend_ngn: number };
+}
+
+export interface RefuelCalculation {
+  odometer_now_km: number | null;
+  odometer_now_at: string | null;
+  odometer_at_refuel_km: number | null;
+  km_since_refuel: number;
+  km_since_source: string;
+  rate_l_per_100km: number;
+  rate_mpg: number;
+  rate_source: string;
+  liters_used_since_refuel: number;
+  anchor: { at: string | null; source: string | null; level_l: number | null };
+  burned_since_anchor_l: number | null;
+  level_now_l: number | null;
+  reserve_l: number;
+  usable_l: number | null;
+  range_km: number | null;
+  km_per_day: number | null;
+  days_by_model: number | null;
+  days_by_cadence: number | null;
+  price_per_liter_ngn: number;
+}
+
+export interface RefuelPlanning {
+  generated_at: string;
+  price_per_liter_ngn: number;
+  price_source: 'latest_receipt' | 'default';
+  reserve_liters: number;
+  summary: {
+    vehicles: number;
+    due_now: number;
+    due_this_week: number;
+    cash_needed_this_week_ngn: number;
+    spend_30d_ngn: number;
+    liters_30d: number;
+    no_receipts: number;
+  };
+  vehicles: RefuelVehicle[];
+}
+
+export const fetchRefuelPlanning = () => api<RefuelPlanning>('/intelligence/refuels');
+
+export function requestRefuelFigureChange(input: {
+  vehicle_id: string;
+  message: string;
+  actual_liters?: number | null;
+}): Promise<{ ok: true; sent_to: string }> {
+  return api('/intelligence/refuels/feedback', { method: 'POST', body: JSON.stringify(input) });
 }

@@ -8,6 +8,8 @@ import {
 } from '../lib/fleet-intelligence-sql';
 import { round1, round2 } from '../lib/fuel-metrics';
 import { localDate } from '../lib/telemetry-deltas-sql';
+import { buildRefuelPlanning } from '../lib/refuel-planning';
+import { sendMail, mailerReady } from '../lib/mailer';
 import { withCache, cacheKey } from '../lib/redis';
 import { logAndRespond } from '../lib/errors';
 
@@ -258,6 +260,93 @@ router.get('/utilisation', async (req: Request, res: Response) => {
       }
     );
     res.json(payload);
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+router.get('/refuels', async (req: Request, res: Response) => {
+  try {
+    const customerId = req.user.customerId;
+    const payload = await withCache(cacheKey(customerId, 'intel-refuels'), 60, () =>
+      buildRefuelPlanning(customerId)
+    );
+    res.json(payload);
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/** Where a manager's "this figure is wrong" goes: the developer, with the working attached. */
+const DEVELOPER_EMAIL = process.env.DEVELOPER_EMAIL || process.env.CONTACT_EMAIL_TO || 'uzochukwubenamara@gmail.com';
+
+/**
+ * A manager disputing a modelled figure. The message goes to the developer
+ * with the vehicle's full working — every number the page showed — so the
+ * conversation starts from the same facts rather than a screenshot.
+ */
+router.post('/refuels/feedback', async (req: Request, res: Response) => {
+  const body = (req.body ?? {}) as { vehicle_id?: string; message?: string; actual_liters?: number | string | null };
+  const message = String(body.message ?? '').trim();
+  const vehicleId = String(body.vehicle_id ?? '').trim();
+  if (!vehicleId || !message) {
+    res.status(400).json({ error: 'Say which vehicle and what looks wrong.' });
+    return;
+  }
+  if (message.length > 2000) {
+    res.status(400).json({ error: 'Keep it under 2000 characters.' });
+    return;
+  }
+  if (!mailerReady()) {
+    res.status(503).json({ error: 'Email is not configured on this server, so the request cannot be sent.' });
+    return;
+  }
+
+  try {
+    const planning = await buildRefuelPlanning(req.user.customerId);
+    const vehicle = planning.vehicles.find((v) => v.vehicle_id === vehicleId);
+    if (!vehicle) {
+      res.status(404).json({ error: 'No such vehicle on this fleet.' });
+      return;
+    }
+    const actual = body.actual_liters != null && body.actual_liters !== '' ? Number(body.actual_liters) : null;
+    const c = vehicle.calculation;
+    const lines = [
+      `From: ${req.user.name || req.user.email} (${req.user.email}), customer ${req.user.customerId}`,
+      `Vehicle: ${vehicle.license_plate} · ${vehicle.driver_name}`,
+      '',
+      'Their message:',
+      message,
+      '',
+      ...(actual != null && Number.isFinite(actual) ? [`Tank actually holds (their reading): ${actual} L`, ''] : []),
+      'What the page showed:',
+      `  Last receipt: ${vehicle.last_refuel ? `${vehicle.last_refuel.at} · ${vehicle.last_refuel.liters} L · ₦${vehicle.last_refuel.amount_ngn ?? '?'} · ${vehicle.last_refuel.merchant ?? ''}` : 'none'}`,
+      `  Odometer now: ${c.odometer_now_km ?? '?'} km (at ${c.odometer_now_at ?? '?'}) · at refuel: ${c.odometer_at_refuel_km ?? '?'} km`,
+      `  Km since refuel: ${c.km_since_refuel} (${c.km_since_source})`,
+      `  Rate: ${c.rate_l_per_100km} L/100 km = ${c.rate_mpg} mpg (${c.rate_source})`,
+      `  Litres used since refuel: ${c.liters_used_since_refuel}`,
+      `  Anchor: ${c.anchor.level_l ?? '?'} L at ${c.anchor.at ?? '?'} (${c.anchor.source ?? '?'}) · burned since anchor: ${c.burned_since_anchor_l ?? '?'} L`,
+      `  Level now: ${c.level_now_l ?? '?'} L · reserve ${c.reserve_l} L · usable ${c.usable_l ?? '?'} L · range ${c.range_km ?? '?'} km`,
+      `  Usage: ${c.km_per_day ?? '?'} km/day · days by model ${c.days_by_model ?? '?'} · by receipt cadence ${c.days_by_cadence ?? '?'}`,
+      `  Price: ₦${c.price_per_liter_ngn}/L`,
+      '',
+      `Generated ${planning.generated_at}`,
+    ];
+    const text = lines.join('\n');
+    const ok = await sendMail({
+      to: DEVELOPER_EMAIL,
+      subject: `[FuelSense] ${vehicle.license_plate}: fuel figure disputed by ${req.user.name || req.user.email}`,
+      text,
+      html: `<pre style="font-family:ui-monospace,Menlo,monospace;font-size:13px;white-space:pre-wrap">${text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')}</pre>`,
+      bypassOverride: true,
+    });
+    if (!ok) {
+      res.status(502).json({ error: 'The email could not be sent. Try again in a moment.' });
+      return;
+    }
+    res.json({ ok: true, sent_to: DEVELOPER_EMAIL });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

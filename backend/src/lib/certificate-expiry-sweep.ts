@@ -9,6 +9,7 @@
 // cleared when the expiry date is edited, so a renewed paper starts clean.
 import { db, sql, alerts, customers, notificationPreferences, eq, and } from './db-helpers';
 import { sendMail, mailerReady, alertEmail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 
 export const CERT_EXPIRING_ALERT = 'vio_cert_expiring';
 export const CERT_EXPIRED_ALERT = 'vio_cert_expired';
@@ -55,15 +56,7 @@ function describe(row: DueRow): { subject: string; message: string } {
 
 async function email(row: DueRow, alertType: string, subject: string, message: string): Promise<void> {
   if (!mailerReady()) return;
-  const [pref] = await db
-    .select({ enabled: notificationPreferences.emailEnabled, address: notificationPreferences.emailAddress })
-    .from(notificationPreferences)
-    .where(and(eq(notificationPreferences.customerId, row.customer_id), eq(notificationPreferences.alertType, alertType)))
-    .limit(1);
-  if (!pref?.enabled) return;
-
-  const [account] = await db.select({ email: customers.email }).from(customers).where(eq(customers.id, row.customer_id)).limit(1);
-  const to = pref.address || account?.email;
+  const to = await resolveAlertRecipient(row.customer_id, alertType);
   if (!to) return;
 
   const { text, html } = alertEmail({

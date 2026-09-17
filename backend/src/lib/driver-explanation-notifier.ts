@@ -7,6 +7,7 @@
 // opens already carries the answer.
 import { db, customers, eq, and, notificationPreferences } from './db-helpers';
 import { sendMail, mailerReady, alertEmail } from './mailer';
+import { resolveAlertRecipient } from './alert-mail';
 import { alertDefinition } from './alert-catalogue';
 
 interface ExplanationContext {
@@ -26,29 +27,7 @@ interface ExplanationContext {
 export async function notifyDriverExplanation(ctx: ExplanationContext): Promise<void> {
   if (!mailerReady()) return;
 
-  const [pref] = await db
-    .select({
-      enabled: notificationPreferences.emailEnabled,
-      address: notificationPreferences.emailAddress,
-    })
-    .from(notificationPreferences)
-    .where(
-      and(
-        eq(notificationPreferences.customerId, ctx.customerId),
-        eq(notificationPreferences.alertType, ctx.alertType)
-      )
-    )
-    .limit(1);
-
-  if (!pref?.enabled) return;
-
-  const [account] = await db
-    .select({ email: customers.email })
-    .from(customers)
-    .where(eq(customers.id, ctx.customerId))
-    .limit(1);
-
-  const to = pref.address || account?.email;
+  const to = await resolveAlertRecipient(ctx.customerId, ctx.alertType);
   if (!to) return;
 
   const label = alertDefinition(ctx.alertType)?.label ?? ctx.alertType.replace(/_/g, ' ');
