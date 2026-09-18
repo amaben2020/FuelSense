@@ -12,6 +12,7 @@ import {
   Truck,
   Users,
   X,
+  ReceiptText,
 } from 'lucide-react';
 import {
   Alert,
@@ -795,15 +796,23 @@ export function FleetOperationsOverview({
                   )} km`
                 : 'No distance in this window, so this is idling'}
             </p>
-            {/* Bought and burned are different questions. Keeping the receipt
-                total visible but subordinate stops the two being read as one. */}
-            {pumpSpend > 0 ? (
-              <p className="mt-1 text-xs text-ink-dim">
-                {formatNgn(pumpSpend)} paid at the pump this period — the rest is still in the tank
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-ink-dim">No fuel bought in this period</p>
-            )}
+            {/* Bought and burned are different questions. The receipt total is
+                the one figure on this card that is real money, so it gets its
+                own labelled block rather than a grey footnote a manager reads
+                as part of the estimate. */}
+            <div className="mt-3 flex items-baseline gap-3 rounded-lg border border-edge bg-canvas px-3 py-2">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-accent-y">
+                <ReceiptText className="h-3.5 w-3.5" /> Bought · receipts
+              </span>
+              {pumpSpend > 0 ? (
+                <>
+                  <span className="font-mono text-lg font-semibold text-ink">{formatNgn(pumpSpend)}</span>
+                  <span className="text-xs text-ink-dim">paid at the pump this period — the rest is still in the tank</span>
+                </>
+              ) : (
+                <span className="text-xs text-ink-dim">No receipts logged this period</span>
+              )}
+            </div>
 
             {fuelContext && (
               <div className="mt-6 border-t border-edge pt-5">
