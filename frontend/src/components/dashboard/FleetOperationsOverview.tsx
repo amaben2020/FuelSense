@@ -1272,8 +1272,12 @@ export function FleetOperationsOverview({
               stopping short of it. */}
           <Tile className="p-5 lg:flex-1">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
-              <Users className="h-4 w-4 text-accent-y" /> Driver efficiency
+              <Users className="h-4 w-4 text-accent-y" /> Fuel economy vs baseline
             </h2>
+            <p className="mt-1 text-xs text-ink-dim">
+              Actual km/L as a share of the vehicle&apos;s baseline, last {periodDays} days. The
+              ranked efficiency score is on Driver management.
+            </p>
             <ol className="mt-3 divide-y divide-divider">
               {driverRanking.length === 0 ? (
                 <li className="text-sm text-ink-dim">No driver data.</li>
@@ -1293,7 +1297,7 @@ export function FleetOperationsOverview({
                             : 'text-bad'
                       }`}
                     >
-                      {d.score}/100
+                      {d.score}%
                       {d.score < 50 ? ' ⚠' : ''}
                     </span>
                   </li>
