@@ -199,13 +199,28 @@ export function ServiceRecordPanel({ fleet = [], readOnly = false }: { fleet?: F
             {unanchored.map(([, plate]) => plate).join(', ')} — distance counts from when the tracker was fitted. Anchor it once and every countdown reads true.
           </p>
           {!readOnly && (
-            <button
-              type="button"
-              onClick={() => setAnchoring({ id: unanchored[0][0], plate: unanchored[0][1] })}
-              className="rounded-full border border-warn/60 px-3 py-1 text-xs font-medium text-warn hover:bg-warn/10"
-            >
-              Anchor odometer
-            </button>
+            <span className="flex gap-2">
+              <button
+                type="button"
+                disabled={busy === 'confirm-odo'}
+                onClick={() => {
+                  const km = currentKmOf(byId.get(unanchored[0][0]));
+                  if (km == null) return setNotice('No odometer reading from the tracker yet.');
+                  void act('confirm-odo', () => setVehicleOdometer(unanchored[0][0], Math.round(km)), 'Confirmed — the tracker reading is now the dashboard mileage.');
+                }}
+                className="rounded-full border border-edge px-3 py-1 text-xs text-ink-mid hover:bg-panel-hover disabled:opacity-40"
+                title="The tracker was set up with the dashboard total, so its reading is already right"
+              >
+                Tracker already matches the dash
+              </button>
+              <button
+                type="button"
+                onClick={() => setAnchoring({ id: unanchored[0][0], plate: unanchored[0][1] })}
+                className="rounded-full border border-warn/60 px-3 py-1 text-xs font-medium text-warn hover:bg-warn/10"
+              >
+                Enter dashboard mileage
+              </button>
+            </span>
           )}
         </div>
       )}

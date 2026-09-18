@@ -60,39 +60,36 @@ export function DriverTripsScreen() {
         <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
           <Calendar className="h-3.5 w-3.5" /> Daily history
         </h3>
-        <div className="space-y-2">
-          {data.daily_history.length === 0 ? (
-            <p className="text-sm text-ink-dim">No trip data yet.</p>
-          ) : (
-            data.daily_history.map((day) => (
-              <div
-                key={String(day.activity_date)}
-                className="rounded-xl border border-edge bg-panel px-4 py-3"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-ink">
-                    {formatDay(String(day.activity_date))}
-                  </p>
-                  <span className="text-xs text-brand">{day.trip_count} trips</span>
+        {data.daily_history.length === 0 ? (
+          <p className="text-sm text-ink-dim">No trip data yet.</p>
+        ) : (
+          /* A timeline rather than a card per day: a phone screen shows a
+             fortnight at a glance instead of two days. */
+          <ol className="relative ml-2 border-l border-edge">
+            {data.daily_history.map((day) => (
+              <li key={String(day.activity_date)} className="relative pl-4 pb-3 last:pb-0">
+                <span
+                  className={`absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-canvas ${
+                    Number(day.distance_km) > 0 ? 'bg-brand' : 'bg-ink-dim'
+                  }`}
+                />
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-medium text-ink">{formatDay(String(day.activity_date))}</p>
+                  <span className="text-[11px] text-ink-dim">
+                    {day.trip_count} trip{Number(day.trip_count) === 1 ? '' : 's'}
+                  </span>
                 </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div>
-                    <p className="text-ink-dim">Distance</p>
-                    <p className="font-mono text-ink">{day.distance_km} km</p>
-                  </div>
-                  <div>
-                    <p className="text-ink-dim">Fuel used</p>
-                    <p className="font-mono text-good">{day.fuel_used_liters} L</p>
-                  </div>
-                  <div>
-                    <p className="text-ink-dim">Idle</p>
-                    <p className="font-mono text-warn">{day.idle_hours} h</p>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+                <p className="mt-0.5 font-mono text-xs text-ink-mid">
+                  {day.distance_km} km
+                  <span className="text-ink-dim"> · </span>
+                  <span className="text-good">{day.fuel_used_liters} L</span>
+                  <span className="text-ink-dim"> · </span>
+                  <span className={Number(day.idle_hours) >= 1 ? 'text-warn' : 'text-ink-mid'}>{day.idle_hours} h idle</span>
+                </p>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
 
       <div>

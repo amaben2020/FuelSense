@@ -733,22 +733,6 @@ export function FleetOperationsOverview({
           <p className="text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
         </div>
 
-        {/* Level 1 — the single verdict. Everything it absorbs (health score,
-            preventable loss, active alerts) used to sit in the grid below at
-            the same weight as everything else, so the page opened with six
-            peer numbers and no answer to "is my fleet okay". */}
-        <FleetStatusCard
-          score={healthScore}
-          concerningAlerts={health?.concerningAlerts ?? 0}
-          theftAlerts={health?.theftAlerts ?? 0}
-          preventableLossNgn={preventableLoss}
-          periodDays={periodDays}
-          causeParts={lossCauseParts}
-          harshEventCount={harshEventCount}
-          harshEventEstimatedNgn={harshEventEstimatedNgn}
-          onOpenAlerts={onOpenAlerts}
-        />
-
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
           <Tile
             tone="hero"
@@ -919,6 +903,23 @@ export function FleetOperationsOverview({
             className="sm:col-span-2 lg:col-span-6"
           />
         </div>
+
+        {/* The verdict sits under the fuel figures: fuel is what a manager
+            opens this page for, and the health score is context for it,
+            not the other way round. */}
+        <FleetStatusCard
+          className="mt-3"
+          score={healthScore}
+          concerningAlerts={health?.concerningAlerts ?? 0}
+          theftAlerts={health?.theftAlerts ?? 0}
+          preventableLossNgn={preventableLoss}
+          periodDays={periodDays}
+          causeParts={lossCauseParts}
+          harshEventCount={harshEventCount}
+          harshEventEstimatedNgn={harshEventEstimatedNgn}
+          onOpenAlerts={onOpenAlerts}
+        />
+
 
         {/* Every naira figure on this page is this price times some litres, so
             its own trend earns a full-width look rather than the small

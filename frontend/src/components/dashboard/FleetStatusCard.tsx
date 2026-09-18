@@ -47,7 +47,9 @@ export function FleetStatusCard({
   harshEventEstimatedNgn,
   onOpenDetail,
   onOpenAlerts,
+  className = '',
 }: {
+  className?: string;
   score: number | null;
   concerningAlerts: number;
   theftAlerts: number;
@@ -82,7 +84,7 @@ export function FleetStatusCard({
   return (
     <section
       aria-label="Fleet status"
-      className={`rounded-xl border ${edge} bg-panel-deep p-5 sm:p-6`}
+      className={`rounded-xl border ${edge} bg-panel-deep p-5 sm:p-6 ${className}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-4">

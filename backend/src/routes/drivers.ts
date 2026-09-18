@@ -51,7 +51,10 @@ function parseDateParam(value: unknown): Date | null {
  */
 const MIN_PLACE_FIXES = 6;
 /** A stop longer than this ends a trip and the next movement starts a new one. */
-const TRIP_GAP_MINUTES = 10;
+// Same rule as the Trip history page (TRIP_BREAK_MS): a halt only ends a
+// trip after half an hour. At ten minutes, one Abuja commute in traffic
+// counted as twenty-two trips.
+const TRIP_GAP_MINUTES = 30;
 /**
  * Minimum share of the fuel a month's distance should have burned that must
  * actually appear as level deltas before the km/L ratio is reported at all.
@@ -372,6 +375,20 @@ router.get('/reports', async (req: Request, res: Response) => {
       const monthly = await db.execute(sql`
         WITH ${driverPeriodCte({ customerId, bucket, from, to, periods })},
         ${driverTripsCte({ gapMinutes: TRIP_GAP_MINUTES })},
+        harsh_counts AS (
+          SELECT
+            COALESCE(dr.full_name, v.driver_name) AS driver_name,
+            date_trunc(${bucket}, e.occurred_at) AS period,
+            COUNT(*)::int AS harsh_events
+          FROM device_events e
+          JOIN vehicles v ON v.id = e.vehicle_id
+          LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
+          WHERE e.customer_id = ${customerId}
+            AND e.event_type IN ('harsh_braking', 'harsh_acceleration', 'harsh_cornering')
+            AND e.occurred_at >= ${from ?? sql`NOW() - (${periods} || ' ${sql.raw(bucket)}s')::INTERVAL`}
+            ${to ? sql`AND e.occurred_at <= ${to}` : sql``}
+          GROUP BY 1, 2
+        ),
         totals AS (
           SELECT
             driver_id,
@@ -404,11 +421,14 @@ router.get('/reports', async (req: Request, res: Response) => {
           t.idle_seconds,
           t.moving_seconds,
           COALESCE(tc.trips, 0) AS trips,
+          COALESCE(hc.harsh_events, 0) AS harsh_events,
           t.active_days,
           t.last_seen_at
         FROM totals t
         LEFT JOIN trip_counts tc
           ON tc.driver_name = t.driver_name AND tc.period = t.period
+        LEFT JOIN harsh_counts hc
+          ON hc.driver_name = t.driver_name AND hc.period = t.period
         ORDER BY t.driver_name, t.period DESC
       `);
 
@@ -456,6 +476,7 @@ router.get('/reports', async (req: Request, res: Response) => {
         distance_km: string;
         fuel_liters: string;
         idle_seconds: string;
+        harsh_events: number | string;
         moving_seconds: string;
         trips: string;
         active_days: string;
@@ -521,6 +542,8 @@ router.get('/reports', async (req: Request, res: Response) => {
           fuel_complete: fuelComplete,
           moving_hours: round1(Number(row.moving_seconds) / 3600),
           idle_hours: round1(Number(row.idle_seconds) / 3600),
+          harsh_events: Number(row.harsh_events) || 0,
+          harsh_per_100km: distanceKm > 0 ? round1((Number(row.harsh_events) || 0) / (distanceKm / 100)) : null,
           trips: Number(row.trips),
           active_days: Number(row.active_days),
           vehicles: Number(row.vehicles),

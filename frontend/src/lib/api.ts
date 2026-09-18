@@ -972,6 +972,9 @@ export interface DriverPeriod {
   fuel_complete: boolean;
   moving_hours: number;
   idle_hours: number;
+  /** Harsh braking, acceleration and cornering events the tracker flagged. */
+  harsh_events?: number;
+  harsh_per_100km?: number | null;
   trips: number;
   active_days: number;
   vehicles: number;
@@ -2435,3 +2438,82 @@ export interface MonitoredFleet {
 
 export const fetchMonitoredFleets = () =>
   api<{ generated_at: string; fleets: MonitoredFleet[] }>('/admin/fleets');
+
+// ---------------------------------------------------------------------------
+// Driver efficiency score
+// ---------------------------------------------------------------------------
+
+export interface EfficiencyComponent {
+  label: string;
+  points: number;
+  max: number;
+  /** The input the points came from, in words a driver can check. */
+  basis: string;
+}
+
+export interface EfficiencyScore {
+  /** 0–100, or null when the fuel record is incomplete and economy cannot be judged. */
+  total: number | null;
+  components: EfficiencyComponent[];
+  reason: string | null;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/**
+ * One number a driver can be ranked and rewarded on, built from three things
+ * the tracker measures and nothing it does not. Every rule is stated so the
+ * result can be argued about on the facts rather than the feeling.
+ *
+ *   Economy   50 pts  km/L against the vehicle's own baseline. Matching the
+ *                     baseline earns 40; every 10% better +5 (cap 50), every
+ *                     10% worse −8 (floor 0). Needs a complete fuel record.
+ *   Idling    25 pts  Share of engine-on time spent stationary. 10% or less
+ *                     earns all 25; 40% or more earns 0; straight line between.
+ *   Smooth    25 pts  Harsh braking/acceleration/cornering per 100 km. None
+ *                     earns 25; ten or more per 100 km earns 0.
+ */
+export function driverEfficiencyScore(p: DriverPeriod | null | undefined): EfficiencyScore {
+  if (!p || p.distance_km <= 0) return { total: null, components: [], reason: 'No driving in this period' };
+
+  const components: EfficiencyComponent[] = [];
+
+  const ratio = p.fuel_complete && p.efficiency_km_l != null && p.baseline_km_l ? p.efficiency_km_l / p.baseline_km_l : null;
+  if (ratio == null) {
+    components.push({ label: 'Economy', points: 0, max: 50, basis: 'Fuel record incomplete — receipts missing for this period' });
+  } else {
+    const pct = (ratio - 1) * 100;
+    const points = clamp(40 + (pct >= 0 ? pct * 0.5 : pct * 0.8), 0, 50);
+    components.push({
+      label: 'Economy',
+      points: Math.round(points),
+      max: 50,
+      basis: `${p.efficiency_km_l} km/L vs ${p.baseline_km_l} km/L baseline (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%)`,
+    });
+  }
+
+  const engineHours = p.moving_hours + p.idle_hours;
+  const idleShare = engineHours > 0 ? p.idle_hours / engineHours : 0;
+  const idlePoints = clamp(25 * (1 - (idleShare - 0.1) / 0.3), 0, 25);
+  components.push({
+    label: 'Idling',
+    points: Math.round(idlePoints),
+    max: 25,
+    basis: `${p.idle_hours} h idling of ${engineHours.toFixed(1)} h engine time (${(idleShare * 100).toFixed(0)}%)`,
+  });
+
+  const harsh = p.harsh_events ?? 0;
+  const per100 = p.harsh_per_100km ?? (p.distance_km > 0 ? harsh / (p.distance_km / 100) : 0);
+  const smoothPoints = clamp(25 * (1 - per100 / 10), 0, 25);
+  components.push({
+    label: 'Smooth driving',
+    points: Math.round(smoothPoints),
+    max: 25,
+    basis: `${harsh} harsh event${harsh === 1 ? '' : 's'} over ${p.distance_km} km (${per100.toFixed(1)} per 100 km)`,
+  });
+
+  if (ratio == null) {
+    return { total: null, components, reason: 'Not ranked: fuel record incomplete for this period' };
+  }
+  return { total: components.reduce((s, c) => s + c.points, 0), components, reason: null };
+}

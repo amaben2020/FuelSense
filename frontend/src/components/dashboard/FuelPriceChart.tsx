@@ -72,14 +72,32 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
   // "now" — captured once on mount rather than read during render, which is
   // not a pure thing to do and would redraw the plot on every render anyway.
   const [now, setNow] = useState<number | null>(null);
+  const [adopting, setAdopting] = useState(false);
 
-  useEffect(() => {
-    setNow(Date.now());
+  const load = () =>
     api<FuelPriceResponse>('/fuel-price')
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
+
+  useEffect(() => {
+    setNow(Date.now());
+    void load();
   }, []);
+
+  /** One click closes the gap: the receipt price becomes the benchmark from today. */
+  const adoptReceiptPrice = async (price: number) => {
+    setAdopting(true);
+    try {
+      await api('/fuel-price', {
+        method: 'POST',
+        body: JSON.stringify({ ngn_per_liter: price, note: 'Adopted from the latest receipt' }),
+      });
+      await load();
+    } finally {
+      setAdopting(false);
+    }
+  };
 
   const series = data?.trend?.series ?? [];
   const receiptSeries = data?.trend?.receipts ?? [];
@@ -140,14 +158,13 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
   const x = (t: number) => PAD.left + ((t - tMin) / tSpan) * PLOT_W;
   const y = (v: number) => PAD.top + PLOT_H - ((v - lo) / ySpan) * PLOT_H;
 
-  // The step path: hold the price flat to the next declaration, then jump.
-  const stepPath = points
-    .map((p, i) => {
-      const nextAt = i + 1 < points.length ? points[i + 1].at : now;
-      const segment = `${i === 0 ? 'M' : 'L'} ${x(p.at).toFixed(1)} ${y(p.ngnPerLiter).toFixed(1)} L ${x(nextAt).toFixed(1)} ${y(p.ngnPerLiter).toFixed(1)}`;
-      return segment;
-    })
-    .join(' ');
+  // A line through each declared price, carried flat to today for the one
+  // still in force. It read as a staircase before; a manager wants to see the
+  // direction the price is moving, not the mechanics of when it was typed in.
+  const stepPath = [
+    ...points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.at).toFixed(1)} ${y(p.ngnPerLiter).toFixed(1)}`),
+    `L ${x(now).toFixed(1)} ${y(points[points.length - 1].ngnPerLiter).toFixed(1)}`,
+  ].join(' ');
 
   const yTicks = Array.from({ length: Y_TICKS + 1 }, (_, i) => lo + (ySpan / Y_TICKS) * i);
 
@@ -185,7 +202,7 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-ink-dim">
         <span className="flex items-center gap-1.5">
           <svg width="18" height="8" aria-hidden className="shrink-0">
-            <path d="M0 6 H7 V2 H18" fill="none" stroke="var(--accent-y)" strokeWidth="2" />
+            <path d="M0 6 L9 3 L18 2" fill="none" stroke="var(--accent-y)" strokeWidth="2" />
           </svg>
           Declared benchmark
         </span>
@@ -307,7 +324,17 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
             {formatNgn(Math.abs(gapNgn))}/L {gapNgn > 0 ? 'above' : 'below'}
           </span>{' '}
           the declared benchmark. Expected cost and cost per km use the benchmark, so a
-          persistent gap is worth closing in Settings.
+          persistent gap is worth closing.{' '}
+          {gapNgn > 0 && (
+            <button
+              type="button"
+              disabled={adopting}
+              onClick={() => void adoptReceiptPrice(latestReceipt!.ngn_per_liter)}
+              className="font-semibold text-brand underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              Use {formatNgn(latestReceipt!.ngn_per_liter)}/L as the benchmark from today
+            </button>
+          )}
         </p>
       )}
 

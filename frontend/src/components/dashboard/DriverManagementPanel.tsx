@@ -18,6 +18,7 @@ import {
   DriverPeriod,
   DriverReport,
   DriverReportsResponse,
+  driverEfficiencyScore,
   ReportBucket,
   fetchDriverReports,
 } from '@/lib/api';
@@ -118,14 +119,14 @@ type Ranking = 'active' | 'distance' | 'efficient';
 const RANKINGS: Array<{ id: Ranking; label: string; hint: string }> = [
   { id: 'distance', label: 'Furthest', hint: 'Most distance covered' },
   { id: 'active', label: 'Most active', hint: 'Most hours on the road' },
-  { id: 'efficient', label: 'Most efficient', hint: 'Best km per litre, on a complete fuel record' },
+  { id: 'efficient', label: 'Most efficient', hint: 'Economy vs baseline, idling and harsh events — scored out of 100' },
 ];
 
 function rankValue(row: DriverPeriod | null, ranking: Ranking): number {
   if (!row) return -Infinity;
   if (ranking === 'distance') return row.distance_km;
   if (ranking === 'active') return row.moving_hours;
-  return row.fuel_complete && row.efficiency_km_l != null ? row.efficiency_km_l : -Infinity;
+  return driverEfficiencyScore(row).total ?? -Infinity;
 }
 
 function DriverCard({
@@ -261,6 +262,8 @@ function DriverCard({
               />
             </div>
           )}
+
+          <EfficiencyBreakdown row={row} />
 
           {onViewVehicle && (
             <button
@@ -581,6 +584,49 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
             })()}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The score with its working, so a ranking can be checked line by line.
+ * Collapsed by default: the number is on the card, the reasons are one tap.
+ */
+function EfficiencyBreakdown({ row }: { row: DriverPeriod }) {
+  const [open, setOpen] = useState(false);
+  const score = driverEfficiencyScore(row);
+  return (
+    <div className="mt-3 rounded-xl border border-edge bg-panel-deep px-3.5 py-2.5">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-xs" aria-expanded={open}>
+        <span className="text-ink-dim">Efficiency score</span>
+        <span className="flex items-center gap-2">
+          <span className={`font-semibold tabular-nums ${score.total == null ? 'text-ink-dim' : score.total >= 75 ? 'text-good' : score.total >= 50 ? 'text-warn' : 'text-bad'}`}>
+            {score.total == null ? 'Not ranked' : `${score.total} / 100`}
+          </span>
+          <span className="text-ink-dim">{open ? 'Hide' : 'How it was scored'}</span>
+        </span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-1.5 border-t border-edge pt-2 text-xs">
+          {score.components.map((c) => (
+            <div key={c.label} className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-ink">{c.label}</p>
+                <p className="text-ink-dim">{c.basis}</p>
+              </div>
+              <span className="shrink-0 font-mono text-ink">
+                {c.points}<span className="text-ink-dim">/{c.max}</span>
+              </span>
+            </div>
+          ))}
+          {score.reason && <p className="text-warn">{score.reason}</p>}
+          <p className="pt-1 text-[11px] leading-relaxed text-ink-dim">
+            Economy: matching the vehicle&apos;s baseline earns 40 of 50; each 10% better +5, each 10% worse −8.
+            Idling: 10% or less of engine time earns 25, 40% or more earns 0. Smooth driving: no harsh events earns 25,
+            ten or more per 100 km earns 0. The same rules for every driver, every period.
+          </p>
+        </div>
       )}
     </div>
   );

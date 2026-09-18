@@ -35,6 +35,13 @@ export const SERVICE_CATALOGUE: ServiceDefinition[] = [
   { kind: 'battery', label: 'Battery', group: 'electrical', intervalKm: null, intervalDays: 1095, what: 'Replace the battery; test it every service.', core: true },
   { kind: 'wiper_blades', label: 'Wiper blades', group: 'general', intervalKm: null, intervalDays: 365, what: 'New blades before the rains.', core: true },
   { kind: 'ac_service', label: 'Air conditioning', group: 'general', intervalKm: null, intervalDays: 365, what: 'Regas and check the compressor and cabin filter.', core: false },
+  { kind: 'shock_absorbers', label: 'Shock absorbers', group: 'tyres_brakes', intervalKm: 40000, intervalDays: null, what: 'Replace shocks; check sooner if the ride has gone bouncy or the car nose-dives on braking.', core: false },
+  { kind: 'suspension_check', label: 'Suspension & steering check', group: 'tyres_brakes', intervalKm: 10000, intervalDays: 180, what: 'Ball joints, bushings, tie rods and control arms — the parts potholes eat first.', core: true },
+  { kind: 'drive_belts', label: 'Drive belts', group: 'engine', intervalKm: 60000, intervalDays: 730, what: 'Replace the serpentine/fan belt and check tensioners.', core: false },
+  { kind: 'power_steering_fluid', label: 'Power steering fluid', group: 'fluids', intervalKm: 50000, intervalDays: 730, what: 'Flush and refill; a whining pump means it is overdue.', core: false },
+  { kind: 'injector_cleaning', label: 'Fuel injector cleaning', group: 'engine', intervalKm: 30000, intervalDays: null, what: 'Clean injectors and throttle body — bad fuel clogs them.', core: false },
+  { kind: 'lights_check', label: 'Lights & bulbs', group: 'electrical', intervalKm: null, intervalDays: 180, what: 'Headlights, brake lights, indicators — a checkpoint stop waiting to happen.', core: false },
+  { kind: 'engine_mounts', label: 'Engine mounts', group: 'engine', intervalKm: 80000, intervalDays: null, what: 'Replace worn mounts; a shudder at idle is the usual sign.', core: false },
   { kind: 'service', label: 'Full service', group: 'general', intervalKm: 10000, intervalDays: 365, what: 'General inspection: belts, hoses, suspension, lights, fluids.', core: true },
 ];
 
