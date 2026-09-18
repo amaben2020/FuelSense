@@ -218,7 +218,7 @@ export function RefuelPlanningPanel({ readOnly = false }: { readOnly?: boolean }
                               '—'
                             )}
                           </td>
-                          <td className="px-3 py-3 font-mono">{v.last_refuel ? `${v.last_refuel.liters} L` : '—'}</td>
+                          <td className="px-3 py-3 font-mono">{v.last_refuel ? v.last_refuel.liters : '—'}</td>
                           <td className="px-3 py-3 font-mono">
                             {v.last_refuel?.amount_ngn != null ? formatNgn(v.last_refuel.amount_ngn) : '—'}
                           </td>

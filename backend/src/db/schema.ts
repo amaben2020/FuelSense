@@ -674,6 +674,9 @@ export const maintenanceSchedules = pgTable(
     intervalKm: integer('interval_km'),
     /** Days between services. Null = distance-based only. */
     intervalDays: integer('interval_days'),
+    /** When the reminder last fired for the current interval; cleared on completion. */
+    dueSoonAlertedAt: timestamp('due_soon_alerted_at'),
+    overdueAlertedAt: timestamp('overdue_alerted_at'),
     /** Odometer reading at the last service, in km. */
     lastServiceKm: integer('last_service_km'),
     lastServiceAt: timestamp('last_service_at'),
@@ -804,4 +807,33 @@ export const vehicleCertificates = pgTable(
   (t) => [
     index('vehicle_certificates_customer_expires_idx').on(t.customerId, t.expiresOn),
   ]
+);
+
+/**
+ * Every service actually done, one row each. A schedule only remembers its
+ * most recent completion; this is the record behind it — what was done, at
+ * what mileage, what it cost and where — so a vehicle's history survives the
+ * schedule being edited or removed.
+ */
+export const maintenanceLogs = pgTable(
+  'maintenance_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    vehicleId: uuid('vehicle_id')
+      .notNull()
+      .references(() => vehicles.id, { onDelete: 'cascade' }),
+    scheduleId: uuid('schedule_id').references(() => maintenanceSchedules.id, { onDelete: 'set null' }),
+    kind: varchar('kind', { length: 40 }).notNull(),
+    doneAt: timestamp('done_at').notNull(),
+    odometerKm: integer('odometer_km'),
+    costNgn: integer('cost_ngn'),
+    garage: varchar('garage', { length: 160 }),
+    notes: text('notes'),
+    createdBy: text('created_by'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => [index('maintenance_logs_vehicle_done_idx').on(t.vehicleId, t.doneAt)]
 );

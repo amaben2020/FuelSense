@@ -261,6 +261,26 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: false,
   },
   {
+    type: 'service_due_soon',
+    label: 'Service due soon',
+    severity: 'warning',
+    meaning:
+      'A scheduled service on the Service record — oil change, tyres, brakes and the rest — is within 500 km or 14 days of falling due.',
+    trigger:
+      'Distance since the last logged service, from the anchored odometer, comes within 500 km of the interval, or the date within 14 days. Raised once per interval.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
+    type: 'service_overdue',
+    label: 'Service overdue',
+    severity: 'critical',
+    meaning: 'A scheduled service has passed its distance or date without being logged as done.',
+    trigger: 'The interval has been exceeded. Raised once per interval; logging the service clears it.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
     type: 'vio_cert_expiring',
     label: 'Vehicle licence expiring',
     severity: 'warning',

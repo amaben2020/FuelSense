@@ -469,6 +469,46 @@ export const initDatabase = async (): Promise<void> => {
     `);
   }
 
+  // Created by drizzle push on the existing databases; a fresh one needs it
+  // before the columns below can be checked.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS maintenance_schedules (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      kind VARCHAR(40) NOT NULL,
+      interval_km INTEGER,
+      interval_days INTEGER,
+      last_service_km INTEGER,
+      last_service_at TIMESTAMP,
+      notes TEXT,
+      created_at TIMESTAMP DEFAULT NOW(),
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE (vehicle_id, kind)
+    )
+  `);
+  await ensureColumn('maintenance_schedules', 'due_soon_alerted_at', 'TIMESTAMP');
+  await ensureColumn('maintenance_schedules', 'overdue_alerted_at', 'TIMESTAMP');
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS maintenance_logs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      schedule_id UUID REFERENCES maintenance_schedules(id) ON DELETE SET NULL,
+      kind VARCHAR(40) NOT NULL,
+      done_at TIMESTAMP NOT NULL,
+      odometer_km INTEGER,
+      cost_ngn INTEGER,
+      garage VARCHAR(160),
+      notes TEXT,
+      created_by TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS maintenance_logs_vehicle_done_idx ON maintenance_logs (vehicle_id, done_at)
+  `);
+
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS vehicle_certificates (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

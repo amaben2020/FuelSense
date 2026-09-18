@@ -1828,10 +1828,13 @@ export interface MaintenanceItem {
   make: string | null;
   model: string | null;
   kind: string;
+  label: string;
+  group: 'engine' | 'tyres_brakes' | 'fluids' | 'electrical' | 'general';
   interval_km: number | null;
   interval_days: number | null;
   last_service_km: number | null;
   last_service_at: string | null;
+  notes?: string | null;
   current_km: number | null;
   /** False = mileage is distance-since-fitting, not the dashboard reading. */
   odometer_anchored: boolean;
@@ -1840,15 +1843,64 @@ export interface MaintenanceItem {
   km_remaining: number | null;
   due_at: string | null;
   days_remaining: number | null;
-  status: 'ok' | 'due_soon' | 'overdue';
+  status: 'ok' | 'due_soon' | 'overdue' | 'needs_baseline';
 }
 
 export interface MaintenanceResponse {
   thresholds: { due_soon_km: number; due_soon_days: number };
   overdue: number;
   due_soon: number;
+  needs_baseline: number;
+  spend_90d_ngn: number;
+  services_90d: number;
   items: MaintenanceItem[];
 }
+
+export interface ServiceDefinition {
+  kind: string;
+  label: string;
+  group: MaintenanceItem['group'];
+  intervalKm: number | null;
+  intervalDays: number | null;
+  what: string;
+  core: boolean;
+}
+
+export interface ServiceLogEntry {
+  id: string;
+  vehicle_id: string;
+  license_plate: string;
+  kind: string;
+  label: string;
+  done_at: string;
+  odometer_km: number | null;
+  cost_ngn: number | null;
+  garage: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export const fetchServiceCatalogue = () => api<{ items: ServiceDefinition[] }>('/maintenance/catalogue');
+export const fetchServiceHistory = (vehicleId?: string) =>
+  api<{ entries: ServiceLogEntry[] }>(`/maintenance/history${vehicleId ? `?vehicle_id=${vehicleId}` : ''}`);
+export const deleteServiceLog = (id: string) =>
+  api<void>(`/maintenance/history/${id}`, { method: 'DELETE' });
+export const applyStandardPlan = (vehicleId: string, kinds?: string[]) =>
+  api<{ added: string[]; skipped: number }>('/maintenance/plan', {
+    method: 'POST',
+    body: JSON.stringify({ vehicle_id: vehicleId, ...(kinds ? { kinds } : {}) }),
+  });
+export const updateMaintenance = (
+  id: string,
+  patch: Partial<{
+    interval_km: number | null;
+    interval_days: number | null;
+    last_service_km: number | null;
+    last_service_at: string | null;
+    notes: string | null;
+  }>
+) => api<MaintenanceItem>(`/maintenance/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 
 export interface SecurityEvent {
   vehicle_id: string;
@@ -1971,18 +2023,6 @@ export const fetchMaintenance = () => api<MaintenanceResponse>('/maintenance');
  * what a manager types; they are converted to km on the way to the API, which
  * is metric throughout.
  */
-export const MAINTENANCE_PRESETS: {
-  kind: string;
-  label: string;
-  intervalMiles: number;
-  intervalDays: number | null;
-}[] = [
-  { kind: 'oil_change', label: 'Oil change', intervalMiles: 3000, intervalDays: 180 },
-  { kind: 'tyres', label: 'Tyres', intervalMiles: 25000, intervalDays: null },
-  { kind: 'brakes', label: 'Brakes', intervalMiles: 15000, intervalDays: null },
-  { kind: 'service', label: 'Full service', intervalMiles: 6000, intervalDays: 365 },
-];
-
 export interface CreateMaintenanceInput {
   vehicleId: string;
   kind: string;
@@ -2012,10 +2052,13 @@ export const createMaintenance = (input: CreateMaintenanceInput) =>
  * odometer reading is normal: the backend then uses the vehicle's current
  * measured mileage rather than storing "unknown".
  */
-export const completeMaintenance = (id: string, atKm?: number | null) =>
+export const completeMaintenance = (
+  id: string,
+  input: { at_km?: number | null; done_at?: string | null; cost_ngn?: number | null; garage?: string | null; notes?: string | null } = {}
+) =>
   api<MaintenanceItem>(`/maintenance/${id}/complete`, {
     method: 'PATCH',
-    body: JSON.stringify({ at_km: atKm ?? null }),
+    body: JSON.stringify({ at_km: input.at_km ?? null, done_at: input.done_at ?? null, cost_ngn: input.cost_ngn ?? null, garage: input.garage ?? null, notes: input.notes ?? null }),
   });
 
 export const deleteMaintenance = (id: string) =>

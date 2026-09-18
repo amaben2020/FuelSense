@@ -40,6 +40,7 @@ import { startDeviceFrameRetentionSweep } from './lib/frame-retention';
 import { startTelemetryPartitionSweep } from './lib/telemetry-partitions';
 import { startTelemetryRetentionSweep } from './lib/telemetry-retention';
 import { startCertificateExpirySweep } from './lib/certificate-expiry-sweep';
+import { startServiceReminderSweep } from './lib/service-reminder-sweep';
 import certificateRoutes from './routes/certificates';
 import adminRoutes from './routes/admin';
 
@@ -243,6 +244,10 @@ const start = async () => {
   // A week's notice before a vehicle licence lapses, in the alert feed and
   // by email for those who opted in. Hourly; the deadline is in days.
   startCertificateExpirySweep();
+
+  // Oil changes, tyres and the rest: told to the manager when they fall due,
+  // once per interval, through the same feed as everything else.
+  startServiceReminderSweep();
 
   const port = Number(process.env.PORT ?? 5001);
   app.listen(port, () => {

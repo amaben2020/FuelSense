@@ -11,7 +11,6 @@ import {
   ClipboardList,
   Clock,
   Fuel,
-  Gauge,
   History,
   LandPlot,
   LayoutDashboard,
@@ -105,7 +104,7 @@ import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPa
 import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { RefuelPlanningPanel } from '@/components/dashboard/RefuelPlanningPanel';
-import { VehicleRecordsPanel } from '@/components/dashboard/VehicleRecordsPanel';
+import { ServiceRecordPanel } from '@/components/dashboard/ServiceRecordPanel';
 import { NotificationSettingsPanel } from '@/components/dashboard/NotificationSettingsPanel';
 import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
 import { TheftPanel } from '@/components/dashboard/TheftPanel';
@@ -229,7 +228,7 @@ const VIEW_META: Record<
   behavior: { icon: ShieldAlert, nav: 'Driving behavior', title: 'Driving behavior' },
   drivers: { icon: Users, nav: 'Driver management', title: 'Driver Management' },
   intel: { icon: Fuel, nav: 'Refuel planning', title: 'Refuel planning' },
-  records: { icon: ClipboardList, nav: 'Vehicle records', title: 'Vehicle records' },
+  records: { icon: ClipboardList, nav: 'Service record', title: 'Service record' },
   certificates: { icon: FileBadge, nav: 'Certificates', title: 'Certificates' },
   geofences: { icon: Pentagon, nav: 'Geofencing', title: 'Geofencing' },
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
@@ -252,7 +251,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'behavior', label: 'Driving behavior', hash: 'behavior' },
   { id: 'drivers', label: 'Driver management', hash: 'drivers' },
   { id: 'intel', label: 'Refuel planning', hash: 'intel' },
-  { id: 'records', label: 'Vehicle records', hash: 'records' },
+  { id: 'records', label: 'Service record', hash: 'records' },
   { id: 'certificates', label: 'Certificates', hash: 'certificates' },
   { id: 'geofences', label: 'Geofencing', hash: 'geofences' },
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
@@ -1452,7 +1451,7 @@ export default function DashboardPage() {
 
           {activeView === 'intel' && <RefuelPlanningPanel readOnly={readOnly} />}
 
-          {activeView === 'records' && <VehicleRecordsPanel fleet={fleet} />}
+          {activeView === 'records' && <ServiceRecordPanel fleet={fleet} readOnly={readOnly} />}
           {activeView === 'certificates' && (
             <VioCertificatesPanel fleet={fleet} drivers={drivers} readOnly={readOnly} />
           )}

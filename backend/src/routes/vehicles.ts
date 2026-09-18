@@ -256,14 +256,19 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
       return;
     }
 
+    // Same expression the service countdowns use, metres first: anchoring
+    // against the rounded km column while counting down in metres put the
+    // two out of step by up to a kilometre.
     const [latest] = await db
-      .select({ odometer_km: telemetry.odometerKm })
+      .select({
+        odometer_km: sql<number>`COALESCE(${telemetry.odometerM}::double precision / 1000.0, ${telemetry.odometerKm}::double precision)`,
+      })
       .from(telemetry)
-      .where(and(eq(telemetry.vehicleId, vehicleId), sql`odometer_km IS NOT NULL`))
+      .where(and(eq(telemetry.vehicleId, vehicleId), sql`(odometer_m IS NOT NULL OR odometer_km IS NOT NULL)`))
       .orderBy(desc(telemetry.recordedAt))
       .limit(1);
 
-    const deviceKm = latest?.odometer_km ?? 0;
+    const deviceKm = latest?.odometer_km != null ? Math.round(Number(latest.odometer_km)) : 0;
 
     // Read before writing: the value being replaced is the whole point of the
     // audit row, and once the update lands it is gone from the vehicles table.
