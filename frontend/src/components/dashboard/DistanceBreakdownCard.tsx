@@ -150,8 +150,8 @@ export function DistanceBreakdownCard({
           </dl>
 
           <p className="mt-auto pt-4 text-[11px] leading-relaxed text-ink-dim">
-            Distance is odometer-derived. Trips are counted from ignition
-            starts, so a stop with the engine cut splits one journey in two.
+            Distance is odometer-derived. A trip is a run of movement; a halt of
+            thirty minutes or more ends it — the same rule on every page.
           </p>
         </>
       )}

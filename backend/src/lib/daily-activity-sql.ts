@@ -52,22 +52,23 @@ export function dailyActivitySql({ customerId, days }: DailyActivityParams): SQL
       FROM ordered_readings
       GROUP BY vehicle_id, DATE(recorded_at AT TIME ZONE 'Africa/Lagos')
     ),
+    -- A trip is a run of movement bounded by a halt of thirty minutes or
+    -- more — the same rule as Trip history and the driver report. Counting
+    -- ignition edges gave 51 "trips" in four days: the flag flickers, and an
+    -- engine cut at a gate split one journey in two.
     daily_trips AS (
       SELECT
         vehicle_id,
         DATE(recorded_at AT TIME ZONE 'Africa/Lagos') AS activity_date,
-        COALESCE(
-          SUM(
-            CASE
-              WHEN COALESCE(ignition_on, false)
-                AND NOT COALESCE(prev_ignition_on, false)
-              THEN 1
-              ELSE 0
-            END
-          ),
-          0
+        COUNT(*) FILTER (
+          WHERE prev_moving_at IS NULL OR recorded_at - prev_moving_at > INTERVAL '30 minutes'
         )::int AS trip_count
-      FROM ordered_readings
+      FROM (
+        SELECT vehicle_id, recorded_at,
+               LAG(recorded_at) OVER (PARTITION BY vehicle_id ORDER BY recorded_at) AS prev_moving_at
+        FROM ordered_readings
+        WHERE COALESCE(speed_kph, 0) >= 2
+      ) moving
       GROUP BY vehicle_id, DATE(recorded_at AT TIME ZONE 'Africa/Lagos')
     )
     SELECT
