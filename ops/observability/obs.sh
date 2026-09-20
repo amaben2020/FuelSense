@@ -27,6 +27,15 @@ COMPOSE_FILE="$REPO_ROOT/docker-compose.observability.yml"
 GRAFANA_URL="http://localhost:9091"
 SERVICES=(prometheus loki promtail grafana)
 
+# Production is scraped through an SSH tunnel: the box only serves /metrics to
+# loopback, and a request arriving over `-L` is loopback as far as it can
+# tell. The tunnel's pid is kept so `down` can close it.
+PROD_HOST="${FUELSENSE_PROD_HOST:-13.63.114.126}"
+PROD_USER="${FUELSENSE_PROD_USER:-ec2-user}"
+PROD_KEY="${FUELSENSE_PROD_KEY:-$HOME/.ssh/fuelsense.pem}"
+PROD_TUNNEL_PORT=15001
+PROD_TUNNEL_PID="$REPO_ROOT/ops/observability/.prod-tunnel.pid"
+
 log() { printf '\033[2m[obs]\033[0m %s\n' "$1"; }
 die() { printf '\033[31m[obs]\033[0m %s\n' "$1" >&2; exit 1; }
 
@@ -74,7 +83,37 @@ verify_mounts() {
   fi
 }
 
+tunnel_alive() {
+  [ -f "$PROD_TUNNEL_PID" ] && kill -0 "$(cat "$PROD_TUNNEL_PID")" 2>/dev/null
+}
+
+open_prod_tunnel() {
+  tunnel_alive && { log "Production tunnel already open (localhost:$PROD_TUNNEL_PORT)."; return 0; }
+  [ -f "$PROD_KEY" ] || die "SSH key not found at $PROD_KEY (set FUELSENSE_PROD_KEY)."
+  log "Opening tunnel localhost:$PROD_TUNNEL_PORT -> $PROD_HOST:5001 (metrics)."
+  ssh -i "$PROD_KEY" -o ServerAliveInterval=15 -o ExitOnForwardFailure=yes -o BatchMode=yes \
+    -N -L "$PROD_TUNNEL_PORT:127.0.0.1:5001" "$PROD_USER@$PROD_HOST" \
+    >/dev/null 2>&1 &
+  echo $! > "$PROD_TUNNEL_PID"
+  for _ in $(seq 1 10); do
+    curl -fsS "http://localhost:$PROD_TUNNEL_PORT/api/health" >/dev/null 2>&1 && { log "Production reachable through the tunnel."; return 0; }
+    sleep 1
+  done
+  die "Tunnel opened but $PROD_HOST did not answer on :5001. Is the fuelsense unit up?"
+}
+
+close_prod_tunnel() {
+  tunnel_alive && { kill "$(cat "$PROD_TUNNEL_PID")" 2>/dev/null || true; log "Production tunnel closed."; }
+  rm -f "$PROD_TUNNEL_PID"
+}
+
 case "${1:-up}" in
+  prod)
+    # Same as `up`, plus the tunnel — so the dashboards' env=prod has data.
+    open_prod_tunnel
+    exec "$0" up
+    ;;
+
   up)
     ensure_daemon
     log "Starting the observability stack."
@@ -114,6 +153,10 @@ case "${1:-up}" in
     [ "$scraped" -eq 1 ] \
       || log "Warning: no backend is being scraped. Start it with 'npm run dev' in backend/."
 
+    tunnel_alive \
+      && log "Production is being scraped too — pick env=prod on either dashboard." \
+      || log "Laptop only. For the EC2 box's numbers: npm run prom:prod"
+
     log "Grafana    $GRAFANA_URL"
     log "Prometheus http://localhost:9090"
     log "Logs need the backend started with 'npm run dev:logs' rather than 'npm run dev'."
@@ -126,6 +169,7 @@ case "${1:-up}" in
 
   down)
     compose down
+    close_prod_tunnel
     ;;
 
   logs)

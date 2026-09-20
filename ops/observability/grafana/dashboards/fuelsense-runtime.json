@@ -1,0 +1,1328 @@
+{
+  "uid": "fuelsense-runtime",
+  "title": "FuelSense runtime",
+  "tags": [
+    "fuelsense",
+    "runtime"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "description": "Process health (memory, CPU, event loop, GC), the Postgres pool, API latency and errors, and the Redis detector-state store. Every panel says what a bad reading looks like.",
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "label": "Environment",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fuelsense-prometheus"
+        },
+        "query": "label_values(up, env)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "local",
+          "value": "local"
+        },
+        "description": "local = the backend on this laptop; prod = the EC2 box through the tunnel (npm run prom:prod)."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Is the process healthy?  (memory, CPU, event loop)",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Heap used",
+      "description": "What V8 has allocated for JavaScript objects. Watch the TREND, not the number: a sawtooth (rises, GC drops it, repeat) is healthy; a line that only climbs across hours is a leak \u2014 usually a Map that never deletes, or listeners never removed.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_nodejs_heap_size_used_bytes{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 400000000.0
+              },
+              {
+                "color": "red",
+                "value": 800000000.0
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Resident memory (RSS)",
+      "description": "Everything the OS charges to the process: heap + native buffers + code. This is the number that matters for the EC2 box \u2014 the t-class instance has ~1 GB. If RSS grows while heap stays flat, the leak is outside JS (Buffers from the TCP parser, pg client, etc.).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_process_resident_memory_bytes{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 500000000.0
+              },
+              {
+                "color": "red",
+                "value": 800000000.0
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "CPU",
+      "description": "Fraction of one core the process is using (1.0 = a whole core). The backend idles around 0.01\u20130.05. Sustained above 0.5 on a single vehicle means something is spinning \u2014 a runaway loop, a sweep with no bound, or JSON parsing of a huge frame.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(rate(fuelsense_process_cpu_seconds_total{env=~\"$env\"}[2m]))",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Event loop lag (p99)",
+      "description": "How late a timer fires because the single JS thread was busy. This is THE Node health number. Under 20 ms is normal. Over 100 ms every request and every TCP frame is waiting behind synchronous work; over 1 s the tracker sockets start timing out.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_nodejs_eventloop_lag_p99_seconds{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Open handles",
+      "description": "Sockets, timers, file descriptors Node is holding. It should be roughly (trackers connected + pg pool + a few timers). A number that only grows is a socket or interval leak \u2014 the classic cause is a setInterval created per connection and never cleared.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_nodejs_active_handles_total{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Uptime",
+      "description": "Since the last restart. A saw-tooth here with short teeth means the unit is crash-looping \u2014 check `journalctl -u fuelsense`.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(time() - fuelsense_process_start_time_seconds{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "green",
+                "value": 3600
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Memory over time",
+      "description": "Heap used vs heap total vs RSS. Healthy: heap used oscillates under heap total; RSS flat-ish. Leak: heap used trends up between restarts and every restart drops it \u2014 that drop IS the diagnosis.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_nodejs_heap_size_used_bytes{env=~\"$env\"})",
+          "legendFormat": "heap used",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max(fuelsense_nodejs_heap_size_total_bytes{env=~\"$env\"})",
+          "legendFormat": "heap total",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "max(fuelsense_process_resident_memory_bytes{env=~\"$env\"})",
+          "legendFormat": "RSS",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Event loop lag",
+      "description": "p50 / p99 lag. Spikes that line up with a spike on the API latency panel below mean a request did heavy synchronous work (large JSON, sorting thousands of rows in JS). Spikes lining up with \"records per minute\" on the backend dashboard mean frame parsing is the cost.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_nodejs_eventloop_lag_p50_seconds{env=~\"$env\"})",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max(fuelsense_nodejs_eventloop_lag_p99_seconds{env=~\"$env\"})",
+          "legendFormat": "p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Garbage collection time",
+      "description": "Seconds per second spent in GC, by kind. `minor` runs constantly and is cheap. `major` (full mark-sweep) pausing often means the heap is near its limit \u2014 it correlates with the heap panel flattening at the top. Above 5% of wall time, memory is the bottleneck.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (kind) (rate(fuelsense_nodejs_gc_duration_seconds_sum{env=~\"$env\"}[5m]))",
+          "legendFormat": "{{kind}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "CPU",
+      "description": "Cores in use. The interesting shape is a step change that does not step back \u2014 a sweep that started and never finished, or a reconnect storm from a tracker.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(rate(fuelsense_process_cpu_seconds_total{env=~\"$env\"}[2m]))",
+          "legendFormat": "cpu",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Is the database keeping up?",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "gauge",
+      "title": "Waiting for a connection",
+      "description": "Requests queued because every pg pool connection is busy. The single most useful DB number: sustained above 0 means EVERY endpoint gets slow at once with no slow query to blame. Fix is a bigger pool or a query that holds connections too long.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 6,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_db_pool_waiting{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "showThresholdMarkers": true
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Postgres pool",
+      "description": "total = connections open, idle = ready, waiting = queued. Healthy: idle > 0 most of the time, waiting = 0. If total sits at the pool max and idle is 0, you are connection-bound, not CPU-bound.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 23,
+        "w": 18,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_db_pool_total{env=~\"$env\"})",
+          "legendFormat": "total",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max(fuelsense_db_pool_idle{env=~\"$env\"})",
+          "legendFormat": "idle",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "max(fuelsense_db_pool_waiting{env=~\"$env\"})",
+          "legendFormat": "waiting",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Is the API fast, and is it erroring?",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Requests / s",
+      "description": "Throughput across all routes. The dashboard polls ~a dozen endpoints per user, so this scales with open browser tabs, not vehicles.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(fuelsense_http_request_duration_seconds_count{env=~\"$env\"}[5m]))",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "5xx rate",
+      "description": "Share of responses that were server errors. Anything above 0 on prod is worth a look in the logs panel; a sudden 100% means the DB or Redis is unreachable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 31,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(fuelsense_http_request_duration_seconds_count{env=~\"$env\",status=~\"5..\"}[5m])) / sum(rate(fuelsense_http_request_duration_seconds_count{env=~\"$env\"}[5m]))",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "p95 latency",
+      "description": "The slowest 5% of requests. On the laptop this is 30x worse than prod (SSH tunnel to RDS + Upstash over the internet) \u2014 judge it on env=prod only. Prod target: under 500 ms.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 31,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(fuelsense_http_request_duration_seconds_bucket{env=~\"$env\"}[5m])))",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "In flight",
+      "description": "Requests being served this instant. Climbing while requests/s is flat means responses are getting slower \u2014 look at the DB pool.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(fuelsense_http_requests_in_flight{env=~\"$env\"})",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Aborted",
+      "description": "Requests the client gave up on before the server answered (per 5 min). The browser cancelling a slow dashboard poll shows up here \u2014 a rising count is users waiting.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 31,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(fuelsense_http_request_duration_seconds_count{env=~\"$env\",status=\"aborted\"}[5m])) or vector(0)",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Redis state errors (15m)",
+      "description": "Redis round-trips by the per-device detector state (idle, trip, fuel-stop, write-floor) that fail. The store falls back to memory and keeps ingesting, so this is not an outage \u2014 but while it is non-zero a restart will forget in-progress idling.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 31,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(fuelsense_detector_state_ops_total{env=~\"$env\",outcome=\"error\"}[15m])) or vector(0)",
+          "legendFormat": "__auto",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "area",
+        "colorMode": "value",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Slowest routes (p95)",
+      "description": "Per route, the p95 over 5 minutes. Read the top line only: the one route that is slow is the one to open. Routes are Express patterns, so /api/vehicles/:id is one line regardless of how many vehicles.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(8, histogram_quantile(0.95, sum by (le, route) (rate(fuelsense_http_request_duration_seconds_bucket{env=~\"$env\"}[5m]))))",
+          "legendFormat": "{{route}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Responses by status",
+      "description": "2xx should be almost everything. 401 in bulk is an expired session polling; 404 in bulk is a scanner; 5xx is yours.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (rate(fuelsense_http_request_duration_seconds_count{env=~\"$env\"}[5m]))",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Detector state: Redis operations",
+      "description": "restore = the one read after a restart per device (hit means the idle/trip state survived the deploy). persist/delete = write-through on every change. error = Redis unreachable, memory-only until the 30 s backoff passes.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fuelsense-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (store, op, outcome) (rate(fuelsense_detector_state_ops_total{env=~\"$env\"}[5m]))",
+          "legendFormat": "{{store}} {{op}} {{outcome}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fuelsense-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 25,
+      "type": "row",
+      "title": "Logs",
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 999,
+      "type": "logs",
+      "title": "Errors and warnings",
+      "datasource": {
+        "type": "loki",
+        "uid": "fuelsense-loki"
+      },
+      "description": "Backend stdout, errors and warnings only. Local only: the box logs to journald, which this stack does not tail (see the doc for the journalctl commands).",
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"fuelsense-backend|fuelsense-docker\"} |~ \"(?i)error|warn|\\\\[DATA LOSS\\\\]\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "fuelsense-loki"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "FuelSense backend (ingest)",
+      "type": "dashboards",
+      "tags": [
+        "fuelsense"
+      ],
+      "asDropdown": false,
+      "includeVars": true,
+      "keepTime": true
+    }
+  ]
+}

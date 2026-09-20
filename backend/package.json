@@ -18,6 +18,7 @@
     "backfill-power-events": "tsx src/scripts/backfill-power-events.ts",
     "test": "jest --runInBand",
     "prom:grafana": "../ops/observability/obs.sh up",
+    "prom:prod": "../ops/observability/obs.sh prod",
     "prom:grafana:stop": "../ops/observability/obs.sh down",
     "prom:grafana:logs": "../ops/observability/obs.sh logs",
     "prom:grafana:reload": "../ops/observability/obs.sh reload",

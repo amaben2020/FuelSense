@@ -87,6 +87,11 @@ services:
       GF_USERS_DEFAULT_THEME: dark
       GF_ANALYTICS_REPORTING_ENABLED: 'false'
       GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      # Extra panel/datasource plugins, comma-separated, installed on start.
+      # Empty by default: every panel the dashboards use is built in, and a
+      # download on every boot is a cost the stack should not pay silently.
+      # Example: GRAFANA_PLUGINS=grafana-polystat-panel npm run prom:grafana
+      GF_INSTALL_PLUGINS: ${GRAFANA_PLUGINS:-}
       GF_NEWS_NEWS_FEED_ENABLED: 'false'
       # Land on the FuelSense dashboard, not on Grafana's welcome page.
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/fuelsense-backend.json

@@ -1,15 +1,21 @@
 # Prometheus scrape config for the local FuelSense stack.
 #
-# Two backend targets, deliberately. The backend is usually run on the host with
-# `npm run dev` (tsx watch, so it reloads), but `docker compose up backend` also
-# works — and which one is live changes day to day. Both are listed so neither
-# setup needs a config edit; the one that is not running simply shows as a down
-# target on http://localhost:9090/targets, which is honest rather than hidden.
+# Two local backend targets, deliberately. The backend is usually run on the
+# host with `npm run dev` (tsx watch, so it reloads), but `docker compose up
+# backend` also works — and which one is live changes day to day. Both are
+# listed so neither setup needs a config edit; the one that is not running
+# simply shows as a down target on http://localhost:9090/targets, which is
+# honest rather than hidden.
+#
+# A third job scrapes PRODUCTION through an SSH tunnel (`npm run prom:prod`
+# opens it: localhost:15001 -> 127.0.0.1:5001 on the EC2 box). The backend
+# only serves /metrics to loopback, and through the tunnel that is exactly
+# what it sees. Every series carries an `env` label so the dashboards can
+# switch between the laptop and the box — the two differ thirtyfold on
+# latency, and mixing them makes both unreadable.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
-  external_labels:
-    env: local
 
 rule_files:
   - /etc/prometheus/conf/rules.yml
@@ -26,10 +32,23 @@ scrape_configs:
       - targets: ['host.docker.internal:5001']
         labels:
           runtime: host
+          env: local
       # Backend running as the compose `backend` service.
       - targets: ['backend:5001']
         labels:
           runtime: container
+          env: local
+
+  - job_name: fuelsense-prod
+    metrics_path: /metrics
+    # Slower than local: every scrape crosses the tunnel to eu-north-1.
+    scrape_interval: 30s
+    scrape_timeout: 20s
+    static_configs:
+      - targets: ['host.docker.internal:15001']
+        labels:
+          runtime: ec2
+          env: prod
 
   - job_name: loki
     static_configs:
