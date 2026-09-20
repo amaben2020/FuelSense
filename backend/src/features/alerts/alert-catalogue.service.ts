@@ -55,6 +55,16 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: true,
   },
   {
+    type: 'trip_end',
+    label: 'Vehicle ended a trip',
+    severity: 'info',
+    meaning: 'A vehicle has been parked and its journey is over.',
+    trigger:
+      'Ignition switches from on to off and stays off long enough to rule out a stall. Pairs with the trip start that opened the journey.',
+    source: 'analysis',
+    emailable: false,
+  },
+  {
     type: 'fuel_theft',
     label: 'Possible fuel theft',
     severity: 'critical',
@@ -252,15 +262,6 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: false,
   },
   {
-    type: 'geofence_exit',
-    label: 'Left permitted area',
-    severity: 'warning',
-    meaning: 'The vehicle left a zone it was expected to stay inside.',
-    trigger: 'Tracker reports a geofence exit. Requires geofences configured on the device.',
-    source: 'device',
-    emailable: false,
-  },
-  {
     type: 'service_due_soon',
     label: 'Service due soon',
     severity: 'warning',
@@ -324,6 +325,31 @@ export const DRIVER_EXPLAINABLE_ALERTS = new Set<string>([
   'geofence_exit',
   'geofence_entry',
   'power_unplug',
+]);
+
+/**
+ * Alert types kept out of the driver's own feed.
+ *
+ * The feed used to show every alert on the vehicle: 113 rows in a fortnight,
+ * 58 of them "started a trip" / "ended a trip" and three of them the driver's
+ * own receipt uploads, with the three that actually asked for an answer
+ * buried in between. What stays is anything that tells the driver something
+ * about their driving, their fuel or their tracker; what goes is the
+ * vehicle's routine, the driver's own actions echoed back, and fleet
+ * administration that is the manager's to act on.
+ */
+export const DRIVER_HIDDEN_ALERTS = new Set<string>([
+  'trip_start',
+  'trip_end',
+  'receipt_uploaded',
+  'fuel_discrepancy_reported',
+  'immobilizer_engaged',
+  'immobilizer_released',
+  'doors_locked',
+  'service_due_soon',
+  'service_overdue',
+  'vio_cert_expiring',
+  'vio_cert_expired',
 ]);
 
 export type ManagerAction = 'accepted' | 'escalated';

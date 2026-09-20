@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BellOff, CheckCircle2, Info, Loader2, Send, ShieldAlert } from 'lucide-react';
 import {
   DriverAlert,
@@ -163,16 +163,30 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
           <BellOff className="mx-auto mb-2 h-6 w-6 text-ink-dim" />
           <p className="text-sm text-ink-mid">Nothing flagged</p>
           <p className="mt-1 text-xs text-ink-dim">
-            Nothing on your vehicle has needed an explanation in the last{' '}
-            {periodDays} days.
+            Nothing about your driving, your fuel or your tracker has been flagged in the
+            last {periodDays} days.
           </p>
         </div>
       ) : (
-        alerts.map((a) => {
+        alerts.map((a, i) => {
           const Icon = SEVERITY_ICON[a.severity] ?? Info;
           const isOpen = openId === a.id;
+          // The API puts unanswered alerts first. Mark the boundary so the
+          // driver can see where the to-do ends and the notices begin.
+          const heading =
+            i === 0 && a.can_explain
+              ? 'Needs your answer'
+              : !a.can_explain && (i === 0 || alerts[i - 1].can_explain)
+                ? 'For your information'
+                : null;
           return (
-            <div key={a.id} className="rounded-2xl border border-edge bg-panel p-4">
+            <Fragment key={a.id}>
+            {heading && (
+              <p className="pt-1 text-[11px] font-semibold uppercase tracking-wider text-ink-dim">
+                {heading}
+              </p>
+            )}
+            <div className="rounded-2xl border border-edge bg-panel p-4">
               <div className="flex items-start gap-3">
                 <span
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
@@ -249,6 +263,7 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
                   </button>
                 ))}
             </div>
+            </Fragment>
           );
         })
       )}

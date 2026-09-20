@@ -29,7 +29,11 @@ import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../fuel/fuel-metrics.service';
 import { calibrateTank, creditRefuel } from '../fuel/virtual-tank.service';
 import { reconcileFuelPurchase } from '../fuel/fuel-calibration.service';
 import { dailyActivitySql } from '../telemetry/daily-activity.repository';
-import { alertDefinition, DRIVER_EXPLAINABLE_ALERTS } from '../alerts/alert-catalogue.service';
+import {
+  alertDefinition,
+  DRIVER_EXPLAINABLE_ALERTS,
+  DRIVER_HIDDEN_ALERTS,
+} from '../alerts/alert-catalogue.service';
 import { notifyDriverExplanation } from '../drivers/driver-explanation-notifier.service';
 import { logAndRespond } from '../../shared/errors';
 import { getSerializedIoValue } from '../tracker/avl-io.service';
@@ -835,6 +839,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
     const page = Math.max(Number(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
     const offset = (page - 1) * limit;
+    const hidden = sql.join([...DRIVER_HIDDEN_ALERTS].map((t) => sql`${t}`), sql`, `);
 
     const countResult = await db.execute(sql`
       SELECT COUNT(*)::int AS total
@@ -842,6 +847,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
       WHERE vehicle_id = ${assignment.vehicle_id}
         AND customer_id = ${req.driver.customerId}
         AND created_at > NOW() - (${days} || ' days')::INTERVAL
+        AND alert_type NOT IN (${hidden})
     `);
     const total = Number((countResult.rows[0] as Record<string, unknown>)?.total) || 0;
 
@@ -852,7 +858,13 @@ router.get('/alerts', async (req: Request, res: Response) => {
       WHERE vehicle_id = ${assignment.vehicle_id}
         AND customer_id = ${req.driver.customerId}
         AND created_at > NOW() - (${days} || ' days')::INTERVAL
-      ORDER BY created_at DESC
+        AND alert_type NOT IN (${hidden})
+      -- Anything still waiting for the driver's account comes first, so the
+      -- to-do is at the top of the screen rather than paged out of sight.
+      ORDER BY
+        (alert_type IN (${sql.join([...DRIVER_EXPLAINABLE_ALERTS].map((t) => sql`${t}`), sql`, `)})
+          AND is_resolved = false AND driver_note IS NULL) DESC,
+        created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `);
 
