@@ -15,11 +15,16 @@ const config: Config = {
 
   future: { v4: true },
 
-  url: 'https://docs.fuelsense.ng',
-  baseUrl: '/',
+  // Published by .github/workflows/deploy-docs.yml to GitHub Pages on every
+  // push that touches docs-site/. The repo is public, so Pages is free and
+  // needs no AWS role. `docs.fuelsense.ng` can front this later with a CNAME
+  // — set `url` to it and drop `baseUrl` to '/' when the DNS exists.
+  url: 'https://amaben2020.github.io',
+  baseUrl: '/FuelSense/',
+  trailingSlash: false,
 
-  organizationName: 'fuelsense',
-  projectName: 'fuelsense',
+  organizationName: 'amaben2020',
+  projectName: 'FuelSense',
 
   // A broken cross-reference in an architecture doc is worse than a build
   // failure — it sends someone looking for a page that describes a behaviour
