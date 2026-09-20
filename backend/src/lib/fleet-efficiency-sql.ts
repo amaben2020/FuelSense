@@ -1,10 +1,10 @@
 import { sql, SQL } from 'drizzle-orm';
-import { telemetryDeltasCte } from './telemetry-deltas-sql';
+import { ReportWindow, telemetryDeltasCte, windowEnd, windowStart } from './telemetry-deltas-sql';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics';
 
 interface FleetEfficiencyParams {
   customerId: string;
-  days: number;
+  days: number | ReportWindow;
   pricePerLiter?: number;
 }
 
@@ -123,7 +123,8 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
         )::numeric AS receipt_fraud_loss_ngn
       FROM fuel_purchases fp
       WHERE fp.customer_id = ${customerId}
-        AND fp.purchased_at > NOW() - (${days} || ' days')::INTERVAL
+        AND fp.purchased_at >= ${windowStart(days)}
+        AND fp.purchased_at < ${windowEnd(days)}
       GROUP BY fp.vehicle_id
     )
     SELECT

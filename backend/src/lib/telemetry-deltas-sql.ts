@@ -3,7 +3,60 @@ import { FUEL_MARKER_SOURCES } from './fuel-metrics';
 
 interface TelemetryDeltasParams {
   customerId: string;
+  days: number | ReportWindow;
+}
+
+/**
+ * The calendar window a report covers, in the fleet's local dates.
+ *
+ * `from`/`to` are inclusive YYYY-MM-DD dates when the manager picked a range;
+ * both null means "the last `days` days including today", the form every
+ * endpoint spoke before ranges existed.
+ */
+export interface ReportWindow {
   days: number;
+  from: string | null;
+  to: string | null;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_WINDOW_DAYS = 90;
+
+const localToday = (): string =>
+  new Date().toLocaleDateString('en-CA', { timeZone: FLEET_TZ });
+
+const daysBetween = (from: string, to: string): number =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+
+/**
+ * Reads `days`, or `from`/`to`, off a request's query string.
+ *
+ * A range is clamped to the same 90-day cap `days` has always had, so the
+ * calendar cannot ask for a window the summary queries were never sized for.
+ * A range that ends before it starts is treated as a single day at `from`.
+ */
+export function parseReportWindow(
+  query: Record<string, unknown>,
+  defaultDays = 7
+): ReportWindow {
+  const from = typeof query.from === 'string' && ISO_DATE.test(query.from) ? query.from : null;
+  const toRaw = typeof query.to === 'string' && ISO_DATE.test(query.to) ? query.to : null;
+  if (from) {
+    const today = localToday();
+    let to = toRaw ?? today;
+    if (to > today) to = today;
+    if (to < from) to = from;
+    let days = daysBetween(from, to);
+    if (days > MAX_WINDOW_DAYS) days = MAX_WINDOW_DAYS;
+    return { days, from, to };
+  }
+  const days = Math.min(Number(query.days) || defaultDays, MAX_WINDOW_DAYS);
+  return { days, from: null, to: null };
+}
+
+/** Cache-key fragment that distinguishes one window from another. */
+export function windowKey(w: ReportWindow): string {
+  return w.from ? `${w.from}_${w.to}` : String(w.days);
 }
 
 /** Every figure in this app is reported against the fleet's local clock. */
@@ -23,9 +76,27 @@ export const FLEET_TZ = 'Africa/Lagos';
  * Anchoring on the local midnight also stops the boundary drifting through the
  * day, so two loads an hour apart report the same "today".
  */
-export function windowStart(days: number): SQL {
-  return sql`((DATE(NOW() AT TIME ZONE ${FLEET_TZ}) - ((${days} - 1) || ' days')::INTERVAL)
+export function windowStart(days: number | ReportWindow): SQL {
+  // `::timestamp` before AT TIME ZONE: a bare date is promoted to timestamptz
+  // in the session zone first, which lands an hour off local midnight.
+  if (typeof days !== 'number' && days.from) {
+    return sql`(${days.from}::date::timestamp AT TIME ZONE ${FLEET_TZ})`;
+  }
+  const n = typeof days === 'number' ? days : days.days;
+  return sql`((DATE(NOW() AT TIME ZONE ${FLEET_TZ}) - ((${n} - 1) || ' days')::INTERVAL)
     AT TIME ZONE ${FLEET_TZ})`;
+}
+
+/**
+ * The instant a window ends, exclusive. A `days` window runs up to now; a
+ * picked range runs to local midnight after its last day, so the whole of
+ * that day is in.
+ */
+export function windowEnd(days: number | ReportWindow): SQL {
+  if (typeof days !== 'number' && days.to) {
+    return sql`((${days.to}::date + 1)::timestamp AT TIME ZONE ${FLEET_TZ})`;
+  }
+  return sql`NOW()`;
 }
 
 /** The local calendar date a reading falls on. */
@@ -128,6 +199,7 @@ export function distanceDeltasCte({ customerId, days }: TelemetryDeltasParams): 
       LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
       WHERE t.customer_id = ${customerId}
         AND t.recorded_at >= ${windowStart(days)}
+        AND t.recorded_at < ${windowEnd(days)}
     ),
     ordered AS (
       SELECT
@@ -221,6 +293,7 @@ export function telemetryDeltasCte({ customerId, days }: TelemetryDeltasParams):
       LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
       WHERE t.customer_id = ${customerId}
         AND t.recorded_at >= ${windowStart(days)}
+        AND t.recorded_at < ${windowEnd(days)}
     ),
     ordered AS (
       SELECT

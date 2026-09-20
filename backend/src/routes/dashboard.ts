@@ -6,6 +6,8 @@ import {
   FLEET_TZ,
   distanceDeltasCte,
   localDate,
+  parseReportWindow,
+  windowKey,
   windowStart,
 } from '../lib/telemetry-deltas-sql';
 import {
@@ -32,7 +34,9 @@ const router = express.Router();
 router.use(authenticateCustomer);
 
 router.get('/summary', async (req: Request, res: Response) => {
-  const days = Math.min(Number(req.query.days) || 7, 90);
+  // `days` back from today, or an explicit `from`/`to` picked on the calendar.
+  const window = parseReportWindow(req.query as Record<string, unknown>, 7);
+  const days = window.days;
 
   try {
     const customerId = req.user.customerId;
@@ -47,7 +51,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     const pricePerLiter =
       effective?.ngnPerLiter ??
       Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
-    const key = cacheKey(customerId, 'summary', String(days));
+    const key = cacheKey(customerId, 'summary', windowKey(window));
 
     const cached = await withCache(key, 15, async () => {
 
@@ -74,7 +78,7 @@ router.get('/summary', async (req: Request, res: Response) => {
     `);
 
     const efficiencyResult = await db.execute(
-      fleetEfficiencyAggSql({ customerId, days, pricePerLiter })
+      fleetEfficiencyAggSql({ customerId, days: window, pricePerLiter })
     );
 
     const vehicleRows = efficiencyResult.rows || [];
@@ -141,6 +145,8 @@ router.get('/summary', async (req: Request, res: Response) => {
 
       return {
         period_days: days,
+        period_from: window.from,
+        period_to: window.to,
         currency: 'NGN',
         /** The price in force right now — what a new litre would cost. */
         price_per_liter_ngn: pricePerLiter,

@@ -32,6 +32,7 @@ import {
   EFFICIENCY_VARIANCE_THRESHOLD_PERCENT,
   DAILY_DISTANCE_BY_MODEL,
 } from '../lib/activity-thresholds';
+import { parseReportWindow, windowEnd, windowStart } from '../lib/telemetry-deltas-sql';
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../lib/receipt-reconciliation';
 import { creditRefuel } from '../lib/virtual-tank';
 import { reconcileFuelPurchase, consumptionTrend } from '../lib/fuel-calibration';
@@ -808,7 +809,9 @@ router.get('/google-usage', async (req: Request, res: Response) => {
 });
 
 router.get('/fleet-efficiency', async (req: Request, res: Response) => {
-  const days = Math.min(Number(req.query.days) || 7, 90);
+  // `days` back from today, or an explicit `from`/`to` picked on the calendar.
+  const window = parseReportWindow(req.query as Record<string, unknown>, 7);
+  const days = window.days;
 
   try {
     const customerId = req.user.customerId;
@@ -826,7 +829,7 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
     const [result, alertRows, siphonRows, harshRows] = await Promise.all([
-      db.execute(fleetEfficiencyAggSql({ customerId, days, pricePerLiter })),
+      db.execute(fleetEfficiencyAggSql({ customerId, days: window, pricePerLiter })),
       db.execute(sql`
         SELECT vehicle_id, alert_type, estimated_loss_ngn
         FROM alerts
@@ -839,7 +842,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           COALESCE(SUM(estimated_loss_ngn), 0)::int AS siphon_loss_ngn
         FROM siphon_events
         WHERE customer_id = ${customerId}
-          AND occurred_at > NOW() - (${days} || ' days')::interval
+          AND occurred_at >= ${windowStart(window)}
+          AND occurred_at < ${windowEnd(window)}
           AND status NOT IN ('resolved', 'false_alarm')
         GROUP BY vehicle_id
       `),
@@ -849,7 +853,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
         SELECT vehicle_id, COUNT(*)::int AS harsh_events
         FROM device_events
         WHERE customer_id = ${customerId}
-          AND occurred_at > NOW() - (${days} || ' days')::interval
+          AND occurred_at >= ${windowStart(window)}
+          AND occurred_at < ${windowEnd(window)}
           AND event_type IN (
             'harsh_braking', 'harsh_acceleration', 'harsh_cornering', 'overspeeding'
           )
@@ -1127,6 +1132,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       // line was ever worth.
       price_per_liter_ngn: pricePerLiter,
       period_days: days,
+      period_from: window.from,
+      period_to: window.to,
     };
 
     res.json({ summary, vehicles: rows });
