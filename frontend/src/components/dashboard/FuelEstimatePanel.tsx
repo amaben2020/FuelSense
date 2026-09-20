@@ -6,6 +6,7 @@ import { formatNgn } from '@/lib/api';
 import {
   ESTIMATE_PERIOD_OPTIONS,
   EstimatedConsumptionTableView,
+  useDriverOptions,
   useEstimatedConsumption,
 } from './EstimatedConsumptionTable';
 
@@ -37,7 +38,9 @@ function HeroStat({
 
 export function FuelEstimatePanel() {
   const [days, setDays] = useState(7);
-  const { data, loading, error } = useEstimatedConsumption(days);
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const drivers = useDriverOptions();
+  const { data, loading, error } = useEstimatedConsumption(days, driverId);
 
   const totals = data?.totals;
   const periodLabel = days === 1 ? 'today' : `last ${days} days`;
@@ -142,6 +145,9 @@ export function FuelEstimatePanel() {
       <EstimatedConsumptionTableView
         days={days}
         onDaysChange={setDays}
+        driverId={driverId}
+        onDriverChange={setDriverId}
+        drivers={drivers}
         data={data}
         loading={loading}
         error={error}

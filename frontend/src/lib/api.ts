@@ -610,12 +610,18 @@ export interface EstimatedConsumptionRow {
   idle_fuel_liters: number;
   estimated_fuel_liters: number;
   estimated_cost_ngn: number;
+  /** Receipts filed for this vehicle in the row's window — paid, not burned. */
+  receipt_count: number;
+  receipt_liters: number;
+  receipt_cost_ngn: number;
 }
 
 export interface EstimatedConsumptionTotals {
   distance_km: number;
   estimated_fuel_liters: number;
   estimated_cost_ngn: number;
+  receipt_liters: number;
+  receipt_cost_ngn: number;
 }
 
 export interface EstimatedConsumptionDay {
@@ -626,6 +632,8 @@ export interface EstimatedConsumptionDay {
 
 export interface EstimatedConsumptionResponse {
   period_days: number;
+  /** Set when the response was narrowed to one driver's vehicles. */
+  driver_id: string | null;
   /**
    * The rate currently in force — a caption only. Each day in `daily` is valued
    * at the rate that applied on that day. Null when the fleet has never

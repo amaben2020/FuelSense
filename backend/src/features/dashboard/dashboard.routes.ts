@@ -318,12 +318,20 @@ router.get('/utilisation', async (req: Request, res: Response) => {
   }
 });
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 router.get('/estimated-consumption', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
+  // Narrows every row and total to the vehicles this driver is assigned to.
+  const driverId =
+    typeof req.query.driver_id === 'string' && UUID.test(req.query.driver_id)
+      ? req.query.driver_id
+      : null;
+  const driverFilter = driverId ? sql`AND v.driver_id = ${driverId}` : sql``;
 
   try {
     const customerId = req.user.customerId;
-    const key = cacheKey(customerId, 'estimated-consumption', String(days));
+    const key = cacheKey(customerId, 'estimated-consumption', `${days}:${driverId ?? 'all'}`);
 
     const cached = await withCache(key, 30, async () => {
       // Price history is read once and resolved per day in memory. Each day's
@@ -366,6 +374,7 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           COALESCE(SUM(idle_delta_s), 0)::numeric AS idle_seconds
         FROM deltas d
         JOIN vehicles v ON v.id = d.vehicle_id
+        WHERE TRUE ${driverFilter}
         -- Grouping by the "activity_date" output alias rather than repeating
         -- the localDate helper here: each interpolation of that helper binds
         -- its own copy of the timezone constant as a separate parameter, so
@@ -378,6 +387,53 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           v.consumption_rate_l_per_100km, v.idle_burn_rate_l_per_hour
         ORDER BY activity_date DESC, d.license_plate ASC
       `);
+
+      // What was actually paid at the pump, per vehicle per local day, so the
+      // table can put the receipt beside the estimate on the same row.
+      // Bought is not burned — a fill-up lands on one day and is driven over
+      // the next several — but it is the only fuel figure that is evidence.
+      const receiptResult = await db.execute(sql`
+        SELECT
+          DATE(fp.purchased_at AT TIME ZONE ${FLEET_TZ}) AS activity_date,
+          fp.vehicle_id,
+          v.license_plate,
+          v.model,
+          COALESCE(dr.full_name, v.driver_name) AS driver_name,
+          COUNT(*)::int AS receipt_count,
+          COALESCE(SUM(fp.liters_declared::numeric), 0) AS liters,
+          COALESCE(SUM(COALESCE(
+            fp.total_amount_ngn,
+            fp.liters_declared::numeric * fp.cost_per_liter_ngn
+          )), 0) AS cost_ngn
+        FROM fuel_purchases fp
+        JOIN vehicles v ON v.id = fp.vehicle_id
+        LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
+        WHERE fp.customer_id = ${customerId}
+          AND fp.purchased_at >= ${windowStart(days)}
+          ${driverFilter}
+        GROUP BY activity_date, fp.vehicle_id, v.license_plate, v.model, dr.full_name, v.driver_name
+      `);
+      interface ReceiptCell {
+        receipt_count: number;
+        receipt_liters: number;
+        receipt_cost_ngn: number;
+        license_plate: unknown;
+        model: unknown;
+        driver_name: unknown;
+      }
+      const receiptByDayVehicle = new Map<string, ReceiptCell>();
+      for (const r of receiptResult.rows || []) {
+        const row = r as Record<string, unknown>;
+        const date = String(row.activity_date).slice(0, 10);
+        receiptByDayVehicle.set(`${date}|${String(row.vehicle_id)}`, {
+          receipt_count: Number(row.receipt_count) || 0,
+          receipt_liters: round1(Number(row.liters) || 0),
+          receipt_cost_ngn: Math.round(Number(row.cost_ngn) || 0),
+          license_plate: row.license_plate,
+          model: row.model,
+          driver_name: row.driver_name,
+        });
+      }
 
       interface EstimateRow {
         vehicle_id: unknown;
@@ -392,29 +448,74 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
         idle_fuel_liters: number;
         estimated_fuel_liters: number;
         estimated_cost_ngn: number;
+        /** Receipts filed for this vehicle on this day — what was paid, not burned. */
+        receipt_count: number;
+        receipt_liters: number;
+        receipt_cost_ngn: number;
       }
       interface Totals {
         distance_km: number;
         estimated_fuel_liters: number;
         estimated_cost_ngn: number;
+        receipt_liters: number;
+        receipt_cost_ngn: number;
       }
+      const emptyTotals = (): Totals => ({
+        distance_km: 0,
+        estimated_fuel_liters: 0,
+        estimated_cost_ngn: 0,
+        receipt_liters: 0,
+        receipt_cost_ngn: 0,
+      });
       const addTo = (t: Totals, r: EstimateRow) => {
         t.distance_km = round1(t.distance_km + r.distance_km);
         t.estimated_fuel_liters = round1(t.estimated_fuel_liters + r.estimated_fuel_liters);
         t.estimated_cost_ngn += r.estimated_cost_ngn;
+        t.receipt_liters = round1(t.receipt_liters + r.receipt_liters);
+        t.receipt_cost_ngn += r.receipt_cost_ngn;
       };
 
       const dayMap = new Map<string, { date: string; vehicles: EstimateRow[]; totals: Totals }>();
       const vehicleMap = new Map<string, EstimateRow>();
-      const totals: Totals = { distance_km: 0, estimated_fuel_liters: 0, estimated_cost_ngn: 0 };
+      const totals: Totals = emptyTotals();
 
-      for (const r of dailyResult.rows || []) {
-        const row = r as Record<string, unknown>;
+      // A receipt filed on a day the vehicle never moved still has to appear,
+      // or the receipt column would not add up to the purchases figure.
+      const activityRows = (dailyResult.rows || []) as Array<Record<string, unknown>>;
+      const seenDayVehicle = new Set(
+        activityRows.map((row) => `${String(row.activity_date).slice(0, 10)}|${String(row.vehicle_id)}`)
+      );
+      const receiptOnlyRows: Array<Record<string, unknown>> = [];
+      for (const [k, cell] of receiptByDayVehicle) {
+        if (seenDayVehicle.has(k)) continue;
+        const [activity_date, vehicle_id] = k.split('|');
+        receiptOnlyRows.push({
+          activity_date,
+          vehicle_id,
+          license_plate: cell.license_plate,
+          model: cell.model,
+          driver_name: cell.driver_name,
+          consumption_rate_l_per_100km: null,
+          idle_burn_rate_l_per_hour: null,
+          distance_km: 0,
+          idle_seconds: 0,
+        });
+      }
+
+      const allRows = [...activityRows, ...receiptOnlyRows].sort((a, b) => {
+        const byDate = String(b.activity_date).localeCompare(String(a.activity_date));
+        return byDate || String(a.license_plate).localeCompare(String(b.license_plate));
+      });
+
+      for (const row of allRows) {
         const rawKm = Number(row.distance_km) || 0;
         const idleHours = (Number(row.idle_seconds) || 0) / 3600;
+        const receipt = receiptByDayVehicle.get(
+          `${String(row.activity_date).slice(0, 10)}|${String(row.vehicle_id)}`
+        );
         // skip days with neither movement nor meaningful engine-on time
         // (parked-day GPS jitter) so groups and totals agree
-        if (rawKm < 0.05 && idleHours < 0.05) continue;
+        if (rawKm < 0.05 && idleHours < 0.05 && !receipt) continue;
 
         // Configured rate first, model average only as a fallback for a
         // vehicle nobody has calibrated yet.
@@ -448,14 +549,13 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
           estimated_fuel_liters: liters,
           // Null, not a guess, when the fleet has never recorded a price.
           estimated_cost_ngn: dayPrice != null ? Math.round(liters * dayPrice) : 0,
+          receipt_count: receipt?.receipt_count ?? 0,
+          receipt_liters: receipt?.receipt_liters ?? 0,
+          receipt_cost_ngn: receipt?.receipt_cost_ngn ?? 0,
         };
 
         if (!dayMap.has(date)) {
-          dayMap.set(date, {
-            date,
-            vehicles: [],
-            totals: { distance_km: 0, estimated_fuel_liters: 0, estimated_cost_ngn: 0 },
-          });
+          dayMap.set(date, { date, vehicles: [], totals: emptyTotals() });
         }
         const day = dayMap.get(date)!;
         day.vehicles.push(dayRow);
@@ -472,9 +572,15 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
             idle_fuel_liters: 0,
             estimated_fuel_liters: 0,
             estimated_cost_ngn: 0,
+            receipt_count: 0,
+            receipt_liters: 0,
+            receipt_cost_ngn: 0,
           });
         }
         const period = vehicleMap.get(vid)!;
+        period.receipt_count += dayRow.receipt_count;
+        period.receipt_liters = round1(period.receipt_liters + dayRow.receipt_liters);
+        period.receipt_cost_ngn += dayRow.receipt_cost_ngn;
         period.distance_km = round1(period.distance_km + dayRow.distance_km);
         period.idle_hours = round1(period.idle_hours + dayRow.idle_hours);
         period.moving_fuel_liters = round1(period.moving_fuel_liters + dayRow.moving_fuel_liters);
@@ -502,9 +608,11 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
             total_amount_ngn,
             liters_declared::numeric * cost_per_liter_ngn
           )), 0) AS cost_ngn
-        FROM fuel_purchases
-        WHERE customer_id = ${customerId}
-          AND purchased_at >= ${windowStart(days)}
+        FROM fuel_purchases fp
+        JOIN vehicles v ON v.id = fp.vehicle_id
+        WHERE fp.customer_id = ${customerId}
+          AND fp.purchased_at >= ${windowStart(days)}
+          ${driverFilter}
       `);
       const purchaseRow = (purchaseResult.rows[0] ?? {}) as Record<string, unknown>;
 
@@ -516,6 +624,7 @@ router.get('/estimated-consumption', async (req: Request, res: Response) => {
 
       return {
         period_days: days,
+        driver_id: driverId,
         price_per_liter_ngn: currentPrice,
         price_source: priceHistory.length ? 'benchmark' : receiptPrice ? 'receipt' : null,
         basis: 'distance_over_configured_rate_plus_idle_burn',

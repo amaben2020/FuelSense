@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Gauge } from 'lucide-react';
+import { ChevronDown, Gauge } from 'lucide-react';
 import { TableSkeleton } from '@/components/ui/chrome';
 import {
   api,
+  Driver,
   EstimatedConsumptionDay,
   EstimatedConsumptionResponse,
   EstimatedConsumptionRow,
@@ -13,7 +14,7 @@ import {
 
 export const ESTIMATE_PERIOD_OPTIONS = [1, 7, 30];
 
-export function useEstimatedConsumption(days: number) {
+export function useEstimatedConsumption(days: number, driverId: string | null = null) {
   const [data, setData] = useState<EstimatedConsumptionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +23,8 @@ export function useEstimatedConsumption(days: number) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    api<EstimatedConsumptionResponse>(`/dashboard/estimated-consumption?days=${days}`)
+    const query = driverId ? `days=${days}&driver_id=${driverId}` : `days=${days}`;
+    api<EstimatedConsumptionResponse>(`/dashboard/estimated-consumption?${query}`)
       .then((result) => {
         if (!cancelled) setData(result);
       })
@@ -38,9 +40,37 @@ export function useEstimatedConsumption(days: number) {
     return () => {
       cancelled = true;
     };
-  }, [days]);
+  }, [days, driverId]);
 
   return { data, loading, error };
+}
+
+/** The drivers a manager can narrow the table to. Fails quietly to "all". */
+export function useDriverOptions() {
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api<Driver[]>('/drivers')
+      .then((rows) => {
+        if (!cancelled) setDrivers(rows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return drivers;
+}
+
+/** "₦20,000 · 13.8 L" for a row with receipts, an em-dash without. */
+function ReceiptCell({ costNgn, liters, muted = false }: { costNgn: number; liters: number; muted?: boolean }) {
+  if (!costNgn && !liters) return <>—</>;
+  return (
+    <>
+      {formatNgn(costNgn)}
+      <span className={muted ? '' : 'text-ink-dim'}> · {liters.toFixed(1)} L</span>
+    </>
+  );
 }
 
 function formatDay(date: string): string {
@@ -70,6 +100,9 @@ function VehicleRow({ row }: { row: EstimatedConsumptionRow }) {
         {row.estimated_fuel_liters.toFixed(1)} L
       </td>
       <td className="px-6 py-2.5 font-mono">{formatNgn(row.estimated_cost_ngn)}</td>
+      <td className="px-6 py-2.5 font-mono">
+        <ReceiptCell costNgn={row.receipt_cost_ngn} liters={row.receipt_liters} />
+      </td>
     </tr>
   );
 }
@@ -94,12 +127,15 @@ function DayGroup({ day }: { day: EstimatedConsumptionDay }) {
         <td className="px-6 py-2 font-mono text-xs text-ink-dim">
           {formatNgn(day.totals.estimated_cost_ngn)}
         </td>
+        <td className="px-6 py-2 font-mono text-xs text-ink-dim">
+          <ReceiptCell costNgn={day.totals.receipt_cost_ngn} liters={day.totals.receipt_liters} muted />
+        </td>
       </tr>
       ) : (
         <tr className="bg-panel-deep">
           <td
             className="px-6 py-1.5 text-xs font-semibold uppercase tracking-wider text-brand"
-            colSpan={7}
+            colSpan={8}
           >
             {formatDay(day.date)}
           </td>
@@ -115,17 +151,25 @@ function DayGroup({ day }: { day: EstimatedConsumptionDay }) {
 export function EstimatedConsumptionTableView({
   days,
   onDaysChange,
+  driverId = null,
+  onDriverChange,
+  drivers = [],
   data,
   loading,
   error,
 }: {
   days: number;
   onDaysChange: (d: number) => void;
+  /** Null shows every vehicle; a driver id narrows to that driver's vehicles. */
+  driverId?: string | null;
+  onDriverChange?: (driverId: string | null) => void;
+  drivers?: Driver[];
   data: EstimatedConsumptionResponse | null;
   loading: boolean;
   error: string | null;
 }) {
   const rows = data?.vehicles ?? [];
+  const activeDriver = drivers.find((d) => d.id === driverId) ?? null;
 
   return (
     <div className="overflow-hidden rounded-lg border border-edge bg-panel">
@@ -134,9 +178,30 @@ export function EstimatedConsumptionTableView({
           <h2 className="flex items-center gap-2 font-semibold text-ink">
             <Gauge className="h-4 w-4 text-accent-y" /> Estimated fuel consumed
           </h2>
-          <p className="mt-1 text-xs text-ink-dim">Estimated, not measured</p>
+          <p className="mt-1 text-xs text-ink-dim">
+            Estimated, not measured · receipts are what was paid, not what was burned
+          </p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {onDriverChange && drivers.length > 0 && (
+            <label className="relative inline-flex items-center">
+              <span className="sr-only">Driver</span>
+              <select
+                value={driverId ?? ''}
+                onChange={(e) => onDriverChange(e.target.value || null)}
+                className="appearance-none rounded-lg border border-edge bg-panel py-1 pl-3 pr-7 text-xs text-ink-mid focus:border-accent-y focus:outline-none"
+              >
+                <option value="">All drivers</option>
+                {drivers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-ink-dim" />
+            </label>
+          )}
+          <div className="flex gap-1">
           {ESTIMATE_PERIOD_OPTIONS.map((d) => (
             <button
               key={d}
@@ -151,6 +216,7 @@ export function EstimatedConsumptionTableView({
               {d === 1 ? 'Today' : `${d} days`}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
@@ -166,15 +232,18 @@ export function EstimatedConsumptionTableView({
             { width: 50, align: 'right' },
             { width: 60, align: 'right' },
             { width: 70, align: 'right' },
+            { width: 90, align: 'right' },
           ]}
         />
       ) : rows.length === 0 ? (
         <p className="p-6 text-sm text-ink-dim">
-          No distance recorded in this period yet.
+          {activeDriver
+            ? `No distance or receipts recorded for ${activeDriver.full_name} in this period.`
+            : 'No distance recorded in this period yet.'}
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left text-sm">
+          <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim">
               <tr>
                 <th className="px-6 py-3">Vehicle</th>
@@ -187,6 +256,9 @@ export function EstimatedConsumptionTableView({
                 <th className="px-6 py-3">Idle</th>
                 <th className="px-6 py-3">Fuel used</th>
                 <th className="px-6 py-3">Est. cost</th>
+                {/* From filed receipts. Sits beside the estimate so a manager
+                    can see paid against modelled on the same line. */}
+                <th className="px-6 py-3">Paid (receipts)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-divider text-ink-mid">
@@ -214,6 +286,9 @@ export function EstimatedConsumptionTableView({
                   <td className="px-6 py-3 font-mono">
                     {formatNgn(data.totals.estimated_cost_ngn)}
                   </td>
+                  <td className="px-6 py-3 font-mono">
+                    <ReceiptCell costNgn={data.totals.receipt_cost_ngn} liters={data.totals.receipt_liters} muted />
+                  </td>
                 </tr>
               </tfoot>
             )}
@@ -226,7 +301,18 @@ export function EstimatedConsumptionTableView({
 
 export function EstimatedConsumptionTable() {
   const [days, setDays] = useState(7);
-  const state = useEstimatedConsumption(days);
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const drivers = useDriverOptions();
+  const state = useEstimatedConsumption(days, driverId);
 
-  return <EstimatedConsumptionTableView days={days} onDaysChange={setDays} {...state} />;
+  return (
+    <EstimatedConsumptionTableView
+      days={days}
+      onDaysChange={setDays}
+      driverId={driverId}
+      onDriverChange={setDriverId}
+      drivers={drivers}
+      {...state}
+    />
+  );
 }
