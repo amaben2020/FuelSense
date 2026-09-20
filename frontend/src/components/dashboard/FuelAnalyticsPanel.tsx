@@ -23,16 +23,22 @@ export function FuelAnalyticsPanel({
     (a, b) => b.total_loss_ngn - a.total_loss_ngn,
   );
 
+  // With nothing to show, the anomalies card is two-thirds of the row spent
+  // on an empty state; the loss table takes the width instead.
+  const showAnomalies = anomalies.length > 0;
+
   return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-      <div className="xl:col-span-2">
-        <FuelAnomalies
-          anomalies={anomalies}
-          liveConnected={true}
-          onAcknowledge={onAcknowledgeAnomaly}
-          onViewOnMap={onViewOnMap}
-        />
-      </div>
+    <div className={`grid grid-cols-1 gap-6 ${showAnomalies ? 'xl:grid-cols-3' : ''}`}>
+      {showAnomalies && (
+        <div className="xl:col-span-2">
+          <FuelAnomalies
+            anomalies={anomalies}
+            liveConnected={true}
+            onAcknowledge={onAcknowledgeAnomaly}
+            onViewOnMap={onViewOnMap}
+          />
+        </div>
+      )}
 
       <div className="rounded-lg border border-edge bg-panel p-6">
         <h2 className="font-semibold text-ink">Loss by vehicle</h2>
