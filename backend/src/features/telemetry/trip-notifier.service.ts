@@ -17,18 +17,25 @@ import {
 import { sendMail, mailerReady, alertEmail } from '../../shared/mailer';
 import { resolveAlertRecipient } from '../alerts/alert-mail.service';
 import { lookupPlace } from '../places/place-lookup.service';
+import { DetectorState } from '../../shared/detector-state';
 
 // Ignition can flicker (stall-and-restart, cranking, a driver moving the car a
 // few metres). Collapsing starts within this window keeps one journey from
 // firing a burst of notifications.
 const TRIP_START_DEBOUNCE_MS = 15 * 60 * 1000;
 
-const lastIgnitionByImei = new Map<string, boolean>();
-const lastTripStartByImei = new Map<string, number>();
+interface TripState {
+  lastIgnition: boolean;
+  /** Epoch ms of the last trip start announced, for the debounce. */
+  lastTripStartMs: number | null;
+}
+
+// Survives a restart so a deploy mid-journey neither announces a trip that
+// is already under way nor misses the debounce on the next flicker.
+const stateByImei = new DetectorState<TripState>('trip', { ttlSeconds: 24 * 60 * 60 });
 
 export function resetTripNotifierState(): void {
-  lastIgnitionByImei.clear();
-  lastTripStartByImei.clear();
+  stateByImei.clear();
 }
 
 export interface TripStartContext {
@@ -50,8 +57,9 @@ export async function handleIgnitionForTripStart(
   ignitionOn: boolean,
   ctx: TripStartContext
 ): Promise<boolean> {
-  const prev = lastIgnitionByImei.get(ctx.imei);
-  lastIgnitionByImei.set(ctx.imei, ignitionOn);
+  const prior = await stateByImei.get(ctx.imei);
+  const prev = prior?.lastIgnition;
+  stateByImei.set(ctx.imei, { lastIgnition: ignitionOn, lastTripStartMs: prior?.lastTripStartMs ?? null });
 
   // Only an off→on edge starts a trip. On the very first record for a device
   // we have no previous state, so we wait for a real transition rather than
@@ -59,9 +67,9 @@ export async function handleIgnitionForTripStart(
   if (prev !== false || !ignitionOn) return false;
 
   const now = ctx.occurredAt.getTime();
-  const last = lastTripStartByImei.get(ctx.imei);
+  const last = prior?.lastTripStartMs ?? null;
   if (last != null && now - last < TRIP_START_DEBOUNCE_MS) return false;
-  lastTripStartByImei.set(ctx.imei, now);
+  stateByImei.set(ctx.imei, { lastIgnition: ignitionOn, lastTripStartMs: now });
 
   const plate = ctx.licensePlate ?? 'Vehicle';
   const driver = ctx.driverName ? ` Driver: ${ctx.driverName}.` : '';

@@ -113,6 +113,7 @@ export const openApiSpec = {
     { name: 'Places', description: 'Proxied Google Places and imagery.' },
     { name: 'Features', description: 'Feature flags, config and notification prefs.' },
     { name: 'Certificates', description: 'Vehicle licence (VIO) papers, OCR and expiry reminders.' },
+    { name: 'Operations', description: 'Liveness and Prometheus metrics. Not under /api.' },
   ],
   components: {
     securitySchemes: {
@@ -308,6 +309,42 @@ export const openApiSpec = {
   },
   security: bearer,
   paths: {
+    '/health': {
+      get: {
+        tags: ['Operations'],
+        summary: 'Liveness',
+        description:
+          'Answers 200 as soon as the process is up. Does not touch the database, so a healthy answer does not prove the API can serve data — the deploy workflow checks this first and the port owner second.',
+        servers: [{ url: '/api' }],
+        responses: {
+          200: {
+            description: 'Process is up.',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { status: { type: 'string', example: 'ok' }, timestamp: { type: 'string', format: 'date-time' } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/metrics': {
+      get: {
+        tags: ['Operations'],
+        summary: 'Prometheus metrics',
+        description:
+          'Every `fuelsense_*` series in Prometheus text format: ingest counters per device, HTTP latency histograms, the pg pool, Node runtime (heap, event loop, GC) and detector-state Redis operations. Served at the server root, not under /api. Only loopback and private-range clients are answered unless `METRICS_TOKEN` is set, in which case a bearer token is required instead. Mounted ahead of the rate limiter. The series carry device IMEIs, which is why it is not public. See the Reading the metrics page in the docs for what to look at.',
+        servers: [{ url: '/' }],
+        security: [],
+        responses: {
+          200: { description: 'Metrics.', content: { 'text/plain': { schema: { type: 'string' } } } },
+          404: { description: 'Client is not loopback/private and no token matched.' },
+        },
+      },
+    },
     // ---------------------------------------------------------------- auth
     '/auth/register': {
       post: {

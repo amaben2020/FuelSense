@@ -18,6 +18,7 @@ src/
 │   └── openapi.ts                 #   Swagger spec served at /api/docs
 ├── shared/                        # cross-cutting helpers no single feature owns
 │   ├── db-helpers.ts              #   re-exports db + tables + drizzle operators
+│   ├── detector-state.ts          #   per-IMEI state, memory-first with a Redis copy
 │   ├── errors.ts                  #   logAndRespond, ServiceError
 │   ├── mailer.ts                  #   transactional email transport
 │   ├── serialize.ts               #   number/date coercion for API rows
@@ -67,6 +68,16 @@ moves into the feature it belongs to.
 | Demo fleets, mock devices, simulated tracks | `features/simulator/` |
 | A new connection, cache, or process-wide setting | `config/` |
 | A helper two or more features need and neither owns | `shared/` |
+
+## Per-device state
+
+A detector that needs to remember something about a device between frames
+(idle since, last ignition, a stop in progress) keeps it in a
+`DetectorState<T>` from `shared/detector-state.ts`, not a bare `Map`. It reads
+and writes like a Map, but the state also lands in Redis so a deploy does not
+forget an episode in progress — and it degrades to memory-only, with a short
+timeout and a backoff, when Redis is unreachable. Give it a `revive` when the
+state carries a `Date`.
 
 ## Rules
 

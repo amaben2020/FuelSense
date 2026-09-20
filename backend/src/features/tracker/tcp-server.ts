@@ -40,6 +40,7 @@ import {
   tcpParseFailuresTotal,
   tcpSocketTimeoutsTotal,
 } from '../../config/metrics';
+import { DetectorState } from '../../shared/detector-state';
 import {
   FUEL_USED_GPS_AVL_ID,
   FUEL_RATE_GPS_AVL_ID,
@@ -189,11 +190,19 @@ tcpServer.on('close', (device: SdkDevice<Socket>) => {
   tcpDevicesConnected.set(connected.size);
 });
 
-/** Last row actually written per device — the write floor measures from this. */
-const lastPersisted = new Map<string, FloorState>();
-
-/** Modelled burn from skipped hops, owed to the next row written per device. */
-const carriedBurnMl = new Map<string, number>();
+/**
+ * Last row actually written per device — the write floor measures from this —
+ * and the modelled burn from skipped hops owed to the next row written.
+ * Kept together and copied to Redis so a restart neither writes a redundant
+ * row nor drops the millilitres carried at that moment.
+ */
+interface WriteFloorState {
+  lastPersisted: FloorState | null;
+  carriedMl: number;
+}
+const writeFloorByImei = new DetectorState<WriteFloorState>('write-floor', {
+  ttlSeconds: 24 * 60 * 60,
+});
 
 const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): Promise<void> => {
   try {
@@ -316,20 +325,17 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     // Whether this record earns a telemetry row of its own, and what burn the
     // row must carry if earlier hops were folded into it. See
     // telemetry-write-floor.service.ts for the measurements behind the interval.
+    const floor = (await writeFloorByImei.get(device.imei)) ?? { lastPersisted: null, carriedMl: 0 };
     const skipTelemetryRow = shouldSkipTelemetryRow({
       recordedAtMs: recordedAt.getTime(),
       ignitionOn,
       eventId: record.event,
-      previous: lastPersisted.get(device.imei) ?? null,
+      previous: floor.lastPersisted,
     });
 
-    const carry = applyBurnCarry(
-      skipTelemetryRow,
-      burnMl,
-      carriedBurnMl.get(device.imei) ?? 0
-    );
+    const carry = applyBurnCarry(skipTelemetryRow, burnMl, floor.carriedMl);
     burnMl = carry.burnMl;
-    carriedBurnMl.set(device.imei, carry.carriedMl);
+    writeFloorByImei.set(device.imei, { ...floor, carriedMl: carry.carriedMl });
 
     const telemetryRow = {
       imei: device.imei,
@@ -381,7 +387,10 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     let savedRow: { id: number } | undefined;
     if (!skipTelemetryRow) {
       [savedRow] = await db.insert(telemetry).values(telemetryRow).returning({ id: telemetry.id });
-      lastPersisted.set(device.imei, { atMs: recordedAt.getTime(), ignitionOn });
+      writeFloorByImei.set(device.imei, {
+        lastPersisted: { atMs: recordedAt.getTime(), ignitionOn },
+        carriedMl: carry.carriedMl,
+      });
     }
     // Counted on every record, skipped row or not: the raw frame below is still
     // persisted, so the question this metric answers — "is telemetry being

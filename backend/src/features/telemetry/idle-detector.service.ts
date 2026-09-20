@@ -16,6 +16,7 @@ import { recordDeviceEvent } from '../devices/device-event-decoder.service';
 import { db, alerts } from '../../shared/db-helpers';
 import { idleFuelBurnLiters, DEFAULT_FUEL_PRICE_NGN_LITER } from '../fuel/fuel-metrics.service';
 import { latestReceiptPrice } from '../fuel/fuel-price.service';
+import { DetectorState } from '../../shared/detector-state';
 
 // Below this the vehicle is not travelling — GNSS reports a few km/h of
 // Doppler noise while stationary. Matches the idle definition already used by
@@ -109,7 +110,16 @@ export function stepIdle(
   return { state: null, emissions };
 }
 
-const stateByImei = new Map<string, IdleState>();
+// An idle stretch outlives a restart: parked with the engine running the
+// tracker can go an hour between frames, so a deploy in that hour must not
+// forget when the engine started sitting.
+const stateByImei = new DetectorState<IdleState>('idle', {
+  ttlSeconds: 6 * 60 * 60,
+  revive: (raw) => {
+    const r = raw as { idleSince: string; startEmitted: boolean; alerted?: boolean };
+    return { ...r, idleSince: new Date(r.idleSince) };
+  },
+});
 
 export function resetIdleDetectorState(): void {
   stateByImei.clear();
@@ -160,13 +170,12 @@ async function raiseIdleAlert(ctx: IdleContext, minutes: number): Promise<void> 
 /**
  * Feed every telemetry record here. Returns the events written, if any.
  *
- * In-memory state is deliberate and matches the trip notifier: a restart
- * mid-idle forgets the stretch in progress and the next stationary record
- * starts a fresh one. Under-reporting a restart is preferable to persisting
- * cursor state for a signal this cheap to recompute.
+ * State is memory-first with a Redis copy, so a restart mid-idle picks the
+ * stretch back up; without Redis it behaves as before and the next
+ * stationary record starts a fresh one.
  */
 export async function handleIdleForRecord(ctx: IdleContext): Promise<IdleEmission[]> {
-  const prior = stateByImei.get(ctx.imei) ?? null;
+  const prior = await stateByImei.get(ctx.imei);
   const { state, emissions } = stepIdle(prior, {
     ignitionOn: ctx.ignitionOn,
     speedKph: ctx.speedKph,

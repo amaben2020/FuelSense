@@ -1,8 +1,20 @@
 import { Redis } from '@upstash/redis';
 
+/**
+ * Whether a Redis was configured at all. Everything that uses Redis here is
+ * a cache or a restart-survival copy, so an unconfigured Redis is a valid
+ * deployment, not an error — callers just skip it.
+ */
+export const redisConfigured = Boolean(
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+);
+
 export const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  url: process.env.UPSTASH_REDIS_REST_URL ?? 'https://redis.unconfigured.invalid',
+  token: process.env.UPSTASH_REDIS_REST_TOKEN ?? 'unconfigured',
+  // A cache must answer fast or not at all. The client's default retries
+  // would turn one unreachable Redis into seconds of stall per call.
+  retry: { retries: 1, backoff: () => 200 },
 });
 
 export function cacheKey(customerId: string, path: string, params = ''): string {

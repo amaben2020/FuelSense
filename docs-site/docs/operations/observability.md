@@ -6,8 +6,10 @@ sidebar_position: 4
 
 # Metrics and logs
 
-Local only. Nothing in this page runs on the EC2 box — production is still
-systemd units, Caddy and RDS, with logs in `journalctl`.
+The stack runs locally. It can watch **production** through an SSH tunnel
+(`npm run prom:prod`), but nothing in this page runs on the EC2 box itself —
+production is still systemd units, Caddy and RDS, with logs in `journalctl`.
+For what the numbers mean, see [Reading the metrics](/operations/reading-metrics).
 
 ## Can this be deployed?
 
@@ -65,7 +67,8 @@ open http://localhost:9091
 
 | Script | Does |
 | --- | --- |
-| `npm run prom:grafana` | Start everything and open Grafana |
+| `npm run prom:grafana` | Start everything and open Grafana (laptop backend only) |
+| `npm run prom:prod` | The same, plus an SSH tunnel so Prometheus scrapes the EC2 box |
 | `npm run prom:grafana:stop` | Stop the stack, keep the volumes |
 | `npm run prom:grafana:logs` | Follow the stack's own logs |
 | `npm run prom:grafana:reload` | Restart the four services after a config edit |
@@ -117,13 +120,40 @@ extra script is needed.
 `backend/logs/*.log` is gitignored, and `tee -a` appends forever — delete the
 file when it gets big. Nothing rotates it.
 
-## Two targets, on purpose
+## Three targets, on purpose
 
 Prometheus scrapes **both** `host.docker.internal:5001` and `backend:5001`,
 because the backend is sometimes `npm run dev` on the host and sometimes a
 container, and which one is live changes day to day. Whichever is not running
 shows as a down target on http://localhost:9090/targets. That is honest, and
 cheaper than remembering to edit a config.
+
+The third target is **production**, at `host.docker.internal:15001`. `npm run
+prom:prod` opens `ssh -L 15001:127.0.0.1:5001` to the EC2 box before starting
+the stack; the backend only serves `/metrics` to loopback, and a request
+arriving over that forward is loopback as far as it can tell, so no token and
+no security-group change is needed. `npm run prom:grafana:stop` closes the
+tunnel again. Without the tunnel the target simply shows as down.
+
+Every series carries an `env` label — `local` or `prod` — and both dashboards
+have an **Environment** picker driven by it. Keep them apart: the laptop
+reaches RDS through a tunnel and is thirtyfold slower for the same SQL, so a
+graph mixing the two is unreadable.
+
+## Two dashboards
+
+| Dashboard | For |
+| --- | --- |
+| **FuelSense backend** | Ingest: is telemetry arriving, which device went quiet, are packets being discarded. |
+| **FuelSense runtime** | The process: memory, CPU, event loop lag, GC, the Postgres pool, API latency and error rate, and the Redis detector-state store. |
+
+Every panel on the runtime dashboard has a description saying what a bad
+reading looks like — hover the **(i)**. Both are provisioned from JSON in
+`ops/observability/grafana/dashboards/` with UI edits disabled; change the
+file, then `npm run prom:grafana:reload`.
+
+Grafana plugins are installed from `GRAFANA_PLUGINS` (comma-separated plugin
+IDs) at start — empty by default, since every panel in use is built in.
 
 ## The metrics
 
@@ -156,6 +186,17 @@ not "when did this device last report ever" — that question belongs to SQL.
 `fuelsense_db_pool_waiting` is the one to watch. Sustained above zero means
 requests are queueing for a connection, which surfaces as *every endpoint being
 slow at once* with no single slow query to blame.
+
+### Detector state
+
+| Metric | Type | Reads |
+| --- | --- | --- |
+| `fuelsense_detector_state_ops_total{store,op,outcome}` | counter | Redis round-trips by the per-device detector state. `op` is `restore` (the one read per device after a restart), `persist` or `delete`; `outcome` is `hit`/`miss` for restores, `ok` for writes, `error` when Redis was unreachable |
+
+An `error` outcome is not an outage: the store falls back to memory and
+ingestion continues exactly as it did before Redis was involved. What is lost
+is only restart survival — while errors persist, a deploy forgets an idle
+stretch in progress. See [State across restarts](/architecture/ingest#state-across-restarts).
 
 ## Latency here is not latency in production
 
@@ -292,6 +333,8 @@ A 15-digit IMEI in a log line is a link: clicking it opens that device's
 
 ## Related
 
+- [Reading the metrics](/operations/reading-metrics) — which numbers to look at
+  first, and how to query them
 - [Ingest pipeline](/architecture/ingest) — what a frame goes through before it
   is counted
 - [Troubleshooting](/operations/troubleshooting) — when a panel is empty rather

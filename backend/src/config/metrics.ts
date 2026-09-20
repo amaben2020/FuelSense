@@ -107,6 +107,21 @@ export const metricsMiddleware = (
   next();
 };
 
+/* ------------------------------------------------------- detector state --- */
+
+/**
+ * Redis round-trips made by the per-device detector state. `restore` is the
+ * one read after boot per device (hit = state survived a restart); `persist`
+ * and `delete` are the write-through. An `error` outcome means Redis was
+ * unreachable and the store fell back to memory only.
+ */
+export const detectorStateOps = new Counter({
+  name: 'fuelsense_detector_state_ops_total',
+  help: 'Detector state reads and writes to Redis, by store, operation and outcome',
+  labelNames: ['store', 'op', 'outcome'] as const,
+  registers: [registry],
+});
+
 /* ----------------------------------------------------------------- TCP --- */
 
 export const tcpDevicesConnected = new Gauge({

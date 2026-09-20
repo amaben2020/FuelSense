@@ -7,3 +7,4 @@ out/
 dist/
 *.log
 .DS_Store
+ops/observability/.prod-tunnel.pid

@@ -6,8 +6,9 @@ import {
   baselineEfficiencyKmL,
 } from './fuel-metrics.service';
 import { recordSiphonEvent } from './siphon-recorder.service';
+import { DetectorState } from '../../shared/detector-state';
 
-const lastFuelByImei = new Map<string, number>();
+const lastFuelByImei = new DetectorState<number>('last-fuel', { ttlSeconds: 24 * 60 * 60 });
 const fraudSimulatedFor = new Set<string>();
 const baselineCache = new Map<string, { baseline: VehicleBaseline; expiresAt: number }>();
 
@@ -170,7 +171,7 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
   const lng = row.longitude;
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
 
-  const prevFuel = lastFuelByImei.get(imei);
+  const prevFuel = (await lastFuelByImei.get(imei)) ?? undefined;
 
   // 1. Refuel classification and Receipt Fraud Simulation (demo support)
   if (fuel != null) {

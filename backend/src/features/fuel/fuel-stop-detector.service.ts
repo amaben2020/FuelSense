@@ -11,6 +11,7 @@
 // to its stop cadence and can go a long time between frames.
 import { db, sql, deviceEvents } from '../../shared/db-helpers';
 import { nearbyFuelStation } from '../places/place-lookup.service';
+import { DetectorState } from '../../shared/detector-state';
 
 /** Below this the vehicle is standing still (GNSS noise floor). */
 const STOP_SPEED_KPH = 2;
@@ -93,7 +94,14 @@ export function isFuelStopCandidate(stop: CompletedStop): boolean {
   );
 }
 
-const stateByImei = new Map<string, StopState>();
+// A forecourt stop can straddle a deploy; the copy in Redis keeps `since`.
+const stateByImei = new DetectorState<StopState>('fuel-stop', {
+  ttlSeconds: 6 * 60 * 60,
+  revive: (raw) => {
+    const r = raw as { since: string; latitude: string | null; longitude: string | null };
+    return { ...r, since: new Date(r.since) };
+  },
+});
 
 export function resetFuelStopState(): void {
   stateByImei.clear();
@@ -117,7 +125,7 @@ export async function handleFuelStopForRecord(
   ctx: FuelStopContext,
   reading: StopReading
 ): Promise<string | null> {
-  const { state, completed } = stepStop(stateByImei.get(ctx.imei) ?? null, reading);
+  const { state, completed } = stepStop(await stateByImei.get(ctx.imei), reading);
 
   if (state) stateByImei.set(ctx.imei, state);
   else stateByImei.delete(ctx.imei);

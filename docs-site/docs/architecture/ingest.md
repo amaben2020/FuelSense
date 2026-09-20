@@ -261,7 +261,7 @@ This distinction has bitten before. A query that groups by `recorded_at::date`
 groups by the *UTC* date, which files the first hour of every Lagos day under
 the previous one — so a table heading disagrees with the tab above it. Any
 grouping by day must use `DATE(recorded_at AT TIME ZONE 'Africa/Lagos')`, and
-the shared helpers in `telemetry-deltas-sql.ts` do exactly that.
+the shared helpers in `telemetry-deltas.repository.ts` do exactly that.
 
 See [Distance and time windows](/data/distance) for the related trap with
 rolling versus calendar windows.
@@ -273,3 +273,36 @@ tracker that has been powered off can flush a backlog whose timestamps are
 hours old, arriving all at once. Anything that assumes "newest received =
 newest recorded" will be wrong during that flush, which is why ordering is
 always by `recorded_at` and never by insertion order.
+
+## State across restarts
+
+Several detectors on the ingest path carry a little state per device between
+frames: when the engine started sitting (idling), the last ignition value and
+when a trip was last announced (trip start), when a stop began (fuel stop),
+what the previous fuel reading was, and the write floor's "last row written"
+plus the millilitres of modelled burn carried over from skipped hops.
+
+That state lives in memory first and in **Redis second**
+(`shared/detector-state.ts`). The in-process copy is the source of truth while
+the process runs; every change is written through to Redis with a TTL, and the
+Redis copy is read exactly once per device — the first time a frame arrives
+after a restart. So a deploy in the middle of a 40-minute idle picks the
+stretch back up at its true start instead of reporting it as two shorter ones
+or missing it altogether, and it does not announce a trip that was already
+under way.
+
+Redis is optional at every point. If it is unconfigured, unreachable, or slow
+past a short timeout (800 ms, `DETECTOR_STATE_REDIS_TIMEOUT_MS`), the store
+falls back to memory, logs one line, and stops trying for 30 seconds
+(`DETECTOR_STATE_REDIS_BACKOFF_MS`) so the cost is not paid on every frame.
+Ingestion never waits on Redis for longer than that one timeout, and no frame
+is dropped because of it. The only thing lost is restart survival — which is
+exactly the behaviour before Redis was involved.
+
+Two things deliberately **do not** use this store. Geofence state is a table
+row per vehicle per zone, because a crossing is evidence a manager reads, not
+a cursor. The power monitor seeds from whether an open unplug alert exists,
+for the same reason: the alert is the state.
+
+`fuelsense_detector_state_ops_total` counts every restore, persist and delete
+by outcome; see [Reading the metrics](/operations/reading-metrics).
