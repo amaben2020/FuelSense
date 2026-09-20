@@ -3,7 +3,7 @@ import {
   VEHICLE_EFFICIENCY,
   baselineEfficiencyKmL,
   efficiencyProfileForModel,
-} from '../src/lib/fuel-metrics'
+} from '../src/features/fuel/fuel-metrics.service'
 
 // The benchmarks describe Nigerian city driving — gridlock, potholes, AC on —
 // not manufacturer combined-cycle figures. A brochure number makes every driver

@@ -5,8 +5,8 @@ import {
   IDLE_GAP_CAP_SECONDS,
   distanceDeltasCte,
   telemetryDeltasCte,
-} from '../src/lib/telemetry-deltas-sql'
-import { dailyActivitySql } from '../src/lib/daily-activity-sql'
+} from '../src/features/telemetry/telemetry-deltas.repository'
+import { dailyActivitySql } from '../src/features/telemetry/daily-activity.repository'
 
 const dialect = new PgDialect()
 /** Renders a fragment to the text and bound values Postgres would receive. */

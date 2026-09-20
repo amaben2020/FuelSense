@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { detectOverspeed, DrivingSample } from '../src/lib/harsh-driving';
+import { detectOverspeed, DrivingSample } from '../src/features/telemetry/harsh-driving.service';
 
 /** A run of fixes one second apart at the given speeds. */
 function samples(speeds: number[], startMs = Date.parse('2026-08-12T09:00:00Z')): DrivingSample[] {

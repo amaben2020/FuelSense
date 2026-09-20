@@ -7,7 +7,7 @@ import {
   windowEnd,
   windowKey,
   windowStart,
-} from '../src/lib/telemetry-deltas-sql'
+} from '../src/features/telemetry/telemetry-deltas.repository'
 
 const dialect = new PgDialect()
 const render = (fragment: SQL) => dialect.sqlToQuery(fragment)

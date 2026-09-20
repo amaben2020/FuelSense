@@ -5,7 +5,7 @@ import {
   OFFLINE_THRESHOLD_CHOICES,
   REALERT_AFTER_HOURS,
   alreadyAlertedGuard,
-} from '../src/lib/device-offline-watchdog'
+} from '../src/features/devices/device-offline-watchdog.service'
 
 // A parked FMC150 checks in once an hour. Against a 30-minute threshold the
 // alert was raised at :59, auto-resolved at :29 when the ping landed, and

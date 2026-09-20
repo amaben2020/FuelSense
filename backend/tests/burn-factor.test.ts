@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { deriveBurnFactor } from '../src/lib/virtual-tank'
+import { deriveBurnFactor } from '../src/features/fuel/virtual-tank.service'
 
 // The FMC150 ships two fuel elements that can disagree. On the live RAV4 the
 // accumulator (AVL 12) implied 0.93 l/h idling while the rate element (AVL 13)

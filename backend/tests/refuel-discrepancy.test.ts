@@ -6,7 +6,7 @@ import {
   levelFromAnchor,
   isAccumulatorReset,
   accumulatorTotalMl,
-} from '../src/lib/virtual-tank'
+} from '../src/features/fuel/virtual-tank.service'
 
 // The virtual tank is the source of truth for how much fuel a vehicle holds,
 // so a fill is where that truth gets audited: nobody can put more into a tank

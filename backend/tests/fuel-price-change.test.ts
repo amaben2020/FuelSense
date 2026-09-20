@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { benchmarkChangeFraction, isNotableBenchmarkChange } from '../src/lib/fuel-price'
+import { benchmarkChangeFraction, isNotableBenchmarkChange } from '../src/features/fuel/fuel-price.service'
 
 const previous = (ngnPerLiter: number) => ({
   id: 1,

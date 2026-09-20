@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { GOOGLE_CAPS } from '../src/lib/google-usage'
+import { GOOGLE_CAPS } from '../src/features/places/google-usage.service'
 
 // The brief is "never get a Google bill", so what matters is the relationship
 // between the caps in this file and Google's per-SKU monthly free allowances.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { stepIdle, type IdleReading, type IdleState, type IdleEmission } from '../src/lib/idle-detector'
+import { stepIdle, type IdleReading, type IdleState, type IdleEmission } from '../src/features/telemetry/idle-detector.service'
 
 const at = (iso: string): Date => new Date(`2026-08-04T${iso}Z`)
 

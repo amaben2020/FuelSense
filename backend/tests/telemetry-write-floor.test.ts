@@ -3,7 +3,7 @@ import {
   applyBurnCarry,
   shouldSkipTelemetryRow,
   FloorState,
-} from '../src/lib/telemetry-write-floor';
+} from '../src/features/tracker/telemetry-write-floor.service';
 
 const FLOOR_S = 7;
 

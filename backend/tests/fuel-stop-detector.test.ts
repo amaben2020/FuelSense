@@ -4,7 +4,7 @@ import {
   isFuelStopCandidate,
   type StopReading,
   type StopState,
-} from '../src/lib/fuel-stop-detector'
+} from '../src/features/fuel/fuel-stop-detector.service'
 
 const at = (iso: string): Date => new Date(`2026-08-06T${iso}Z`)
 

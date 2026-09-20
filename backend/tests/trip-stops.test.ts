@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { segmentTrips, TelemetryTripPoint } from '../src/lib/trip-segmentation';
+import { segmentTrips, TelemetryTripPoint } from '../src/features/telemetry/trip-segmentation.service';
 
 const T0 = Date.parse('2026-09-12T10:00:00Z');
 

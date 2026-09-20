@@ -22,7 +22,7 @@ ops/demo-ec2/laptop.sh      # run the API here against the box's database (simul
 The box keeps its own Postgres (`fuelsense_demo`, loopback only) — set up by
 hand on 2026-09-16 after Neon's free transfer quota took the demo down. `.state`
 carries its password and `deploy.sh` writes that URL into the box's `.env`.
-Reseed with `DOTENV_CONFIG_PATH=.env npx tsx src/seed-blue-fleet.ts --fresh`
+Reseed with `DOTENV_CONFIG_PATH=.env npx tsx src/scripts/seed-blue-fleet.ts --fresh`
 in `/home/ec2-user/backend` on the box.
 
 Re-run `deploy.sh` to push changes. State (instance id, distribution id)

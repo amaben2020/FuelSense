@@ -1,48 +1,48 @@
 import 'dotenv/config';
-import './lib/timezone';
+import './config/timezone';
 import './config/env';
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
-import { openApiSpec } from './docs/openapi';
+import { openApiSpec } from './config/openapi';
 import rateLimit from 'express-rate-limit';
-import { initDatabase, pool } from './db';
-import { startTcpServer } from './tcp-server';
-import { registry, metricsMiddleware, registerPoolMetrics } from './lib/metrics';
+import { initDatabase, pool } from './config/db';
+import { startTcpServer } from './features/tracker/tcp-server';
+import { registry, metricsMiddleware, registerPoolMetrics } from './config/metrics';
 
-import authRoutes from './routes/auth';
-import vehicleRoutes from './routes/vehicles';
-import deviceRoutes from './routes/devices';
-import telemetryRoutes from './routes/telemetry';
-import alertRoutes from './routes/alerts';
-import orderRoutes from './routes/orders';
-import dashboardRoutes from './routes/dashboard';
-import driverRoutes from './routes/drivers';
-import intelligenceRoutes from './routes/intelligence';
-import maintenanceRoutes from './routes/maintenance';
-import geofenceRoutes from './routes/geofences';
-import driverPortalRoutes from './routes/driver';
-import fuelEventsRoutes from './routes/fuel-events';
-import deviceEventsRoutes from './routes/device-events';
-import placesRoutes from './routes/places';
-import featureRoutes from './routes/features';
-import fuelPriceRoutes from './routes/fuel-price';
-import contactRoutes from './routes/contact';
-import { startReceiptSweep } from './lib/receipt-sweep';
-import { startRouteSweep } from './lib/route-sweep';
-import { startDrivingEventSweep } from './lib/driving-events-sweep';
-import { startDailyReportScheduler } from './lib/daily-report-mailer';
-import { startDeviceOfflineWatchdog } from './lib/device-offline-watchdog';
-import { startAlertRetentionSweep } from './lib/alert-retention';
-import { startDeviceFrameRetentionSweep } from './lib/frame-retention';
-import { startTelemetryPartitionSweep } from './lib/telemetry-partitions';
-import { startTelemetryRetentionSweep } from './lib/telemetry-retention';
-import { startCertificateExpirySweep } from './lib/certificate-expiry-sweep';
-import { startServiceReminderSweep } from './lib/service-reminder-sweep';
-import certificateRoutes from './routes/certificates';
-import adminRoutes from './routes/admin';
+import authRoutes from './features/auth/auth.routes';
+import vehicleRoutes from './features/vehicles/vehicles.routes';
+import deviceRoutes from './features/devices/devices.routes';
+import telemetryRoutes from './features/telemetry/telemetry.routes';
+import alertRoutes from './features/alerts/alerts.routes';
+import orderRoutes from './features/orders/orders.routes';
+import dashboardRoutes from './features/dashboard/dashboard.routes';
+import driverRoutes from './features/drivers/drivers.routes';
+import intelligenceRoutes from './features/intelligence/intelligence.routes';
+import maintenanceRoutes from './features/maintenance/maintenance.routes';
+import geofenceRoutes from './features/geofences/geofences.routes';
+import driverPortalRoutes from './features/driver-portal/driver-portal.routes';
+import fuelEventsRoutes from './features/fuel/fuel-events.routes';
+import deviceEventsRoutes from './features/devices/device-events.routes';
+import placesRoutes from './features/places/places.routes';
+import featureRoutes from './features/feature-flags/feature-flags.routes';
+import fuelPriceRoutes from './features/fuel/fuel-price.routes';
+import contactRoutes from './features/contact/contact.routes';
+import { startReceiptSweep } from './features/receipts/receipt-sweep.service';
+import { startRouteSweep } from './features/route-corridor/route-sweep.service';
+import { startDrivingEventSweep } from './features/telemetry/driving-events-sweep.service';
+import { startDailyReportScheduler } from './features/reports/daily-report-mailer.service';
+import { startDeviceOfflineWatchdog } from './features/devices/device-offline-watchdog.service';
+import { startAlertRetentionSweep } from './features/alerts/alert-retention.service';
+import { startDeviceFrameRetentionSweep } from './features/devices/frame-retention.service';
+import { startTelemetryPartitionSweep } from './features/telemetry/telemetry-partitions.service';
+import { startTelemetryRetentionSweep } from './features/telemetry/telemetry-retention.service';
+import { startCertificateExpirySweep } from './features/certificates/certificate-expiry-sweep.service';
+import { startServiceReminderSweep } from './features/maintenance/service-reminder-sweep.service';
+import certificateRoutes from './features/certificates/certificates.routes';
+import adminRoutes from './features/admin/admin.routes';
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? '')
   .split(',')
@@ -261,13 +261,13 @@ const start = async () => {
     if (simulatorEnabled) {
       setTimeout(async () => {
         try {
-          const { runFleetSimulator, withResolvedOrigins } = await import('./fleet-simulator');
+          const { runFleetSimulator, withResolvedOrigins } = await import('./features/simulator/fleet-simulator');
           // FLEET_SIM_PROFILES=blue-fleet plays the sales-demo fleet; anything
           // else keeps the five-vehicle development set. Origins resolve from
           // each device's last seeded fix, so the cars start where the week
           // of history left them.
           if (process.env.FLEET_SIM_PROFILES === 'blue-fleet') {
-            const { BLUE_FLEET_PROFILES, simulatorProfile } = await import('./lib/blue-fleet');
+            const { BLUE_FLEET_PROFILES, simulatorProfile } = await import('./features/simulator/blue-fleet');
             const profiles = await withResolvedOrigins(BLUE_FLEET_PROFILES.map(simulatorProfile));
             runFleetSimulator(profiles);
           } else {

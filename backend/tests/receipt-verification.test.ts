@@ -4,7 +4,7 @@ import {
   distanceMeters,
   type Evidence,
   type VerifyReceiptParams,
-} from '../src/lib/receipt-verification'
+} from '../src/features/receipts/receipt-verification.service'
 
 // The real AA Rano receipt and the fix the tracker reported around it.
 const RECEIPT_LAT = 8.99470805

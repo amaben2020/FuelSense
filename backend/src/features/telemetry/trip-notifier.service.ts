@@ -1,0 +1,198 @@
+// Tells the fleet manager the moment a vehicle is taken out.
+//
+// The Trip scenario (AVL 250) is not enabled on our trackers, so trip starts
+// are derived from the ignition element (AVL 239) instead: an off→on
+// transition is a journey beginning. That works with what the device already
+// sends, and needs no reconfiguration in the field.
+import {
+  db,
+  deviceEvents,
+  alerts,
+  customers,
+  notificationPreferences,
+  eq,
+  and,
+  sql,
+} from '../../shared/db-helpers';
+import { sendMail, mailerReady, alertEmail } from '../../shared/mailer';
+import { resolveAlertRecipient } from '../alerts/alert-mail.service';
+import { lookupPlace } from '../places/place-lookup.service';
+
+// Ignition can flicker (stall-and-restart, cranking, a driver moving the car a
+// few metres). Collapsing starts within this window keeps one journey from
+// firing a burst of notifications.
+const TRIP_START_DEBOUNCE_MS = 15 * 60 * 1000;
+
+const lastIgnitionByImei = new Map<string, boolean>();
+const lastTripStartByImei = new Map<string, number>();
+
+export function resetTripNotifierState(): void {
+  lastIgnitionByImei.clear();
+  lastTripStartByImei.clear();
+}
+
+export interface TripStartContext {
+  imei: string;
+  customerId: string;
+  vehicleId: string;
+  latitude: string | null;
+  longitude: string | null;
+  occurredAt: Date;
+  licensePlate?: string;
+  driverName?: string | null;
+}
+
+/**
+ * Feed every telemetry record here. Returns true when this record marks the
+ * start of a new trip (and a notification was raised).
+ */
+export async function handleIgnitionForTripStart(
+  ignitionOn: boolean,
+  ctx: TripStartContext
+): Promise<boolean> {
+  const prev = lastIgnitionByImei.get(ctx.imei);
+  lastIgnitionByImei.set(ctx.imei, ignitionOn);
+
+  // Only an off→on edge starts a trip. On the very first record for a device
+  // we have no previous state, so we wait for a real transition rather than
+  // announcing a trip just because the server restarted mid-journey.
+  if (prev !== false || !ignitionOn) return false;
+
+  const now = ctx.occurredAt.getTime();
+  const last = lastTripStartByImei.get(ctx.imei);
+  if (last != null && now - last < TRIP_START_DEBOUNCE_MS) return false;
+  lastTripStartByImei.set(ctx.imei, now);
+
+  const plate = ctx.licensePlate ?? 'Vehicle';
+  const driver = ctx.driverName ? ` Driver: ${ctx.driverName}.` : '';
+
+  await db.insert(deviceEvents).values({
+    imei: ctx.imei,
+    customerId: ctx.customerId,
+    vehicleId: ctx.vehicleId,
+    eventType: 'trip_start',
+    severity: 'info',
+    latitude: ctx.latitude,
+    longitude: ctx.longitude,
+    occurredAt: ctx.occurredAt,
+  });
+
+  // The in-memory debounce above resets on every server restart, which let a
+  // restart mid-trip re-announce a start that had already fired and been
+  // resolved seconds earlier — two "Vehicle started a trip" alerts a driver
+  // could not tell apart. Falling back to "already resolved" isn't enough on
+  // its own, so this also catches one raised within the debounce window
+  // regardless of resolution state.
+  const [recent] = await db
+    .select({ id: alerts.id })
+    .from(alerts)
+    .where(
+      and(
+        eq(alerts.customerId, ctx.customerId),
+        eq(alerts.vehicleId, ctx.vehicleId),
+        eq(alerts.alertType, 'trip_start'),
+        sql`(${alerts.isResolved} = false OR ${alerts.createdAt} > NOW() - (${TRIP_START_DEBOUNCE_MS} || ' milliseconds')::interval)`
+      )
+    )
+    .limit(1);
+
+  // A new start supersedes the last end.
+  await db
+    .update(alerts)
+    .set({ isResolved: true, resolvedAt: sql`NOW()` })
+    .where(
+      and(
+        eq(alerts.customerId, ctx.customerId),
+        eq(alerts.vehicleId, ctx.vehicleId),
+        eq(alerts.alertType, 'trip_end'),
+        eq(alerts.isResolved, false)
+      )
+    );
+
+  if (!recent) {
+    await db.insert(alerts).values({
+      imei: ctx.imei,
+      customerId: ctx.customerId,
+      vehicleId: ctx.vehicleId,
+      alertType: 'trip_start',
+      message: `${plate} has started a trip — ignition on.${driver}`,
+      latitude: ctx.latitude,
+      longitude: ctx.longitude,
+    });
+  }
+
+  // Deliberately not awaited: ingestion must not wait on SMTP, and a failed
+  // notification must never cost us the telemetry record that triggered it.
+  void emailTripStart(ctx, plate).catch((err) =>
+    console.error('[trip_notifier] email failed:', err)
+  );
+
+  return true;
+}
+
+/** Emails the account, if this customer has opted in to trip-start mail. */
+async function emailTripStart(ctx: TripStartContext, plate: string): Promise<void> {
+  if (!mailerReady()) return;
+
+  const to = await resolveAlertRecipient(ctx.customerId, 'trip_start');
+  if (!to) return;
+
+  // Turn the coordinates into somewhere a person recognises. Cached, and it
+  // degrades to raw coordinates rather than blocking the notification.
+  let where = ctx.latitude && ctx.longitude ? `${ctx.latitude}, ${ctx.longitude}` : 'Unknown';
+  if (ctx.latitude && ctx.longitude) {
+    const place = await lookupPlace(Number(ctx.latitude), Number(ctx.longitude)).catch(() => null);
+    if (place?.formatted_address) where = place.formatted_address;
+  }
+
+  const { text, html } = alertEmail({
+    title: `${plate} has started a trip`,
+    lines: [
+      ['Vehicle', plate],
+      ['Driver', ctx.driverName || 'Unassigned'],
+      ['Started', ctx.occurredAt.toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })],
+      ['From', where],
+    ],
+    footer: 'FuelSense · turn these off in Settings → Notifications',
+  });
+
+  await sendMail({ to, subject: `${plate} started a trip`, text, html });
+}
+
+/** Closes the open "on a trip" alert once the vehicle is shut off. */
+export async function closeTripStartAlert(
+  customerId: string,
+  vehicleId: string,
+  ctx?: { imei: string; licensePlate?: string | null; driverName?: string | null; latitude: string | null; longitude: string | null }
+): Promise<void> {
+  const closed = await db
+    .update(alerts)
+    .set({ isResolved: true, resolvedAt: sql`NOW()` })
+    .where(
+      and(
+        eq(alerts.customerId, customerId),
+        eq(alerts.vehicleId, vehicleId),
+        eq(alerts.alertType, 'trip_start'),
+        eq(alerts.isResolved, false)
+      )
+    )
+    .returning({ id: alerts.id });
+
+  // The matching end. Raised only when a start was open, so a parked car's
+  // keep-alive ignition flicker cannot announce a trip that never began.
+  // Informational, like the start: the next start closes it, and the
+  // retention sweep closes any left over after a day.
+  if (closed.length > 0 && ctx) {
+    const plate = ctx.licensePlate ?? 'Vehicle';
+    const driver = ctx.driverName ? ` Driver: ${ctx.driverName}.` : '';
+    await db.insert(alerts).values({
+      imei: ctx.imei,
+      customerId,
+      vehicleId,
+      alertType: 'trip_end',
+      message: `${plate} has ended its trip — ignition off.${driver}`,
+      latitude: ctx.latitude,
+      longitude: ctx.longitude,
+    });
+  }
+}

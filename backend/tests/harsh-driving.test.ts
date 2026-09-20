@@ -3,7 +3,7 @@ import {
   detectHarshEvents,
   headingDeltaDeg,
   type DrivingSample,
-} from '../src/lib/harsh-driving'
+} from '../src/features/telemetry/harsh-driving.service'
 
 const at = (second: number): Date => new Date(`2026-08-06T12:00:${String(second).padStart(2, '0')}Z`)
 

@@ -89,7 +89,7 @@ DATABASE_SSL=require
 
 That second line is not optional. RDS runs `rds.force_ssl=1` and rejects
 plaintext connections outright, but through the tunnel the host reads as
-`localhost` — the one case `needsSsl()` in `src/db/index.ts` cannot infer TLS
+`localhost` — the one case `needsSsl()` in `src/config/db/index.ts` cannot infer TLS
 from the hostname, so it has to be told explicitly.
 
 Comment out whatever `DATABASE_URL` was there before rather than deleting it.
@@ -240,7 +240,7 @@ On EC2, register once:
 
 ```bash
 cd /home/ec2-user/backend
-node src/seed-real-device.js
+node src/scripts/seed-real-device.js
 ```
 
 Verify in psql:

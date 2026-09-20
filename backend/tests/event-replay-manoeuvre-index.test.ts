@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { findClosestIndex, SerializedReading } from '../src/lib/event-replay'
+import { findClosestIndex, SerializedReading } from '../src/features/telemetry/event-replay.service'
 
 const reading = (recordedAt: string, fix: boolean): SerializedReading => ({
   recorded_at: recordedAt,

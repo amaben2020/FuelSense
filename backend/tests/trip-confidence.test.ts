@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { tripConfidence } from '../src/lib/trip-segmentation'
+import { tripConfidence } from '../src/features/telemetry/trip-segmentation.service'
 
 // Fuel here is modelled from movement, never measured from a tank, so the
 // score exists to say how much weight a given trip's figure can carry.

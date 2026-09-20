@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { scoreForPenalty } from '../src/routes/device-events';
+import { scoreForPenalty } from '../src/features/devices/device-events.routes';
 
 describe('safety score curve', () => {
   it('is 100 when nothing was penalised', () => {

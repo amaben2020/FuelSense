@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { parseVioCertificateText } from '../src/lib/vio-certificate';
+import { parseVioCertificateText } from '../src/features/certificates/vio-certificate.service';
 
 // Verbatim OCR.space output for a photographed Nasarawa State vehicle
 // licence (2026-09-17). The left stub reads cleanly; the right-hand sticker

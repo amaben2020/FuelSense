@@ -4,7 +4,7 @@ import {
   countsTowardHealth,
   autoResolveAfterDays,
   sweepableTypesByWindow,
-} from '../src/lib/alert-taxonomy';
+} from '../src/features/alerts/alert-taxonomy.service';
 
 describe('alert taxonomy', () => {
   describe('what counts toward fleet health', () => {

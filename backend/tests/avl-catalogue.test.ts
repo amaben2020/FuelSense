@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { decodeSignal } from '../src/lib/avl-catalogue'
+import { decodeSignal } from '../src/features/tracker/avl-catalogue.service'
 
 // Values taken from a real FMC150 frame (imei 862129084847783, 2026-08-04).
 describe('decodeSignal', () => {

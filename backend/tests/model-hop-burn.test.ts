@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { modelHopBurnMl } from '../src/lib/virtual-tank';
+import { modelHopBurnMl } from '../src/features/fuel/virtual-tank.service';
 
 /** 15 mpg US = 6.38 km/L = 15.68 L/100 km. */
 const RATE = { consumptionL100km: 15.68, idleBurnLph: 1.2 };
@@ -159,7 +159,7 @@ describe('modelHopBurnMl', () => {
 
 describe('an all-in rate measured from full-to-full receipts', () => {
   it('is charged flat: no traffic multiplier, no idle on top', () => {
-    const { modelHopBurnMl } = require('../src/lib/virtual-tank');
+    const { modelHopBurnMl } = require('../src/features/fuel/virtual-tank.service');
     // 1 km in 5 minutes of crawling at 12 km/h — the stop-start bucket.
     const specRate = modelHopBurnMl({
       distanceKm: 1, seconds: 300, ignitionOn: true, speedKph: 12,
@@ -174,7 +174,7 @@ describe('an all-in rate measured from full-to-full receipts', () => {
   });
 
   it('charges nothing for idling on an all-in rate — the receipts already did', () => {
-    const { modelHopBurnMl } = require('../src/lib/virtual-tank');
+    const { modelHopBurnMl } = require('../src/features/fuel/virtual-tank.service');
     const idle = modelHopBurnMl({
       distanceKm: 0, seconds: 600, ignitionOn: true, speedKph: 0,
       consumptionL100km: 17.5, idleBurnLph: 1.2, allIn: true,

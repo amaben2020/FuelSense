@@ -6,7 +6,7 @@ import {
   MOVING_KPH,
   SUSTAINED_LOW_SECONDS,
   decidePowerTransition,
-} from '../src/lib/power-monitor'
+} from '../src/features/devices/power-monitor.service'
 
 // On 2026-08-26 the tracker was pulled from the OBD port and nothing reported
 // it. `device_offline` could not have: it fires on two hours of silence, and a

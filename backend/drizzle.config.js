@@ -2,7 +2,7 @@ require('dotenv/config');
 
 /** @type {import('drizzle-kit').Config} */
 module.exports = {
-  schema: './src/db/schema.ts',
+  schema: './src/config/db/schema.ts',
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {

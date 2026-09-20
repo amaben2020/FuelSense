@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { reportDateFor, SEND_HOUR_WAT } from '../src/lib/daily-report-mailer';
+import { reportDateFor, SEND_HOUR_WAT } from '../src/features/reports/daily-report-mailer.service';
 
 // The report goes out in the evening and covers the day it goes out. These
 // pin the two facts a manager would notice if they slipped: nothing before

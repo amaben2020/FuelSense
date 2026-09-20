@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { isUniqueViolation } from '../src/lib/errors'
+import { isUniqueViolation } from '../src/shared/errors'
 
 // Drizzle wraps driver errors, so the Postgres error carrying `code` sits on
 // `cause`. Reading `.code` off the thrown error never matched, and the

@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { engageIntentError } from '../src/lib/immobilizer';
+import { engageIntentError } from '../src/features/vehicles/immobilizer.service';
 
 // Immobilizing must only ever happen because a person asked for this vehicle.
 // These are the shapes a bug, a retry or a stray call would produce, and every

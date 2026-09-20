@@ -5,8 +5,8 @@ import {
   levelFromReply,
   parseSetDigoutCommand,
   parseSetDigoutReply,
-} from '../src/lib/teltonika-dout';
-import { decodeCodec12Command, encodeCodec12Command, encodeCodec12Response } from '../src/lib/codec12';
+} from '../src/features/tracker/teltonika-dout.service';
+import { decodeCodec12Command, encodeCodec12Command, encodeCodec12Response } from '../src/features/tracker/codec12.service';
 import { TeltonikaCodec12Parser, TeltonikaCodec12Command } from '@groupe-savoy/teltonika-sdk';
 
 describe('setdigout, as the FMC130/FMC150 firmware reads it', () => {

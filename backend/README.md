@@ -192,22 +192,35 @@ Demo login (after seed):
 
 ## Project layout
 
+Feature-based: everything a feature needs lives in one folder under
+`src/features/`. The rules and the file-suffix vocabulary are in
+[ARCHITECTURE.md](./ARCHITECTURE.md).
+
 ```
 backend/
 ├── src/
-│   ├── server.js          # HTTP entry point
-│   ├── tcp-server.js      # Teltonika TCP + IMEI lookup
-│   ├── mock-device.js     # Local device simulator
-│   ├── seed.js            # Demo data
-│   ├── db/
-│   │   ├── schema.js      # Drizzle table definitions
-│   │   ├── index.js       # DB client + initDatabase()
-│   │   └── queries.js     # Raw SQL helpers (fleet query)
-│   ├── routes/            # Express routers
-│   ├── middleware/        # JWT auth
-│   └── lib/               # Shared helpers
-│       └── metrics.ts     # Prometheus registry, HTTP/TCP/pool instrumentation
-├── logs/                  # `npm run dev:logs` target (gitignored)
+│   ├── server.ts                 # HTTP entry point: mounts every feature's router
+│   ├── config/                   # Process-wide setup shared by all features
+│   │   ├── env.ts                #   env validation
+│   │   ├── db/                   #   Drizzle client, schema, raw SQL helpers
+│   │   ├── redis.ts              #   cache client
+│   │   ├── metrics.ts            #   Prometheus registry
+│   │   └── openapi.ts            #   Swagger spec
+│   ├── shared/                   # Cross-cutting helpers no feature owns
+│   │   ├── db-helpers.ts, errors.ts, mailer.ts, serialize.ts, types.ts
+│   ├── features/
+│   │   ├── tracker/              # Teltonika TCP ingest, codec 8E/12, AVL catalogue
+│   │   ├── telemetry/            # trips, idling, harsh driving, deltas SQL, replay
+│   │   ├── fuel/                 # virtual tank, fuel price, anomaly detection
+│   │   ├── receipts/             # OCR, parsing, verification, reconciliation
+│   │   ├── alerts/               # catalogue, taxonomy, retention, mail
+│   │   ├── vehicles/ devices/ drivers/ driver-portal/ dashboard/
+│   │   ├── intelligence/ maintenance/ certificates/ geofences/ places/
+│   │   ├── route-corridor/ reports/ feature-flags/ orders/ contact/ admin/ auth/
+│   │   └── simulator/            # mock device, fleet simulator, demo fleets
+│   └── scripts/                  # one-off CLIs (seed, backfill, partition, send report)
+├── tests/                        # jest, imports from src/features/...
+├── logs/                         # `npm run dev:logs` target (gitignored)
 ├── Dockerfile
 ├── drizzle.config.js
 └── package.json

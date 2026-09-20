@@ -8,7 +8,7 @@ import {
   pathLengthKm,
   type GeoPoint,
   type TrackedFix,
-} from '../src/lib/route-corridor'
+} from '../src/features/route-corridor/route-corridor.service'
 
 // A straight east-west run along the Keffi–Abuja expressway, roughly.
 const START: GeoPoint = { lat: 8.99, lng: 7.61 }
