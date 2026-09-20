@@ -13,6 +13,7 @@ import {
   Users,
   X,
   ReceiptText,
+  Siren,
 } from 'lucide-react';
 import {
   Alert,
@@ -1138,7 +1139,7 @@ export function FleetOperationsOverview({
             <header className="border-b border-edge px-5 py-4">
               <h2 className="text-lg font-semibold text-ink">What needs attention?</h2>
               <p className="mt-0.5 text-xs text-ink-dim">
-                Operational intelligence for investigations. Use evidence replay before deciding
+                What is open right now. Each one opens in Alerts, where it can be resolved or a driver&apos;s explanation reviewed
               </p>
             </header>
             {attentionItems.length === 0 ? (
@@ -1194,10 +1195,10 @@ export function FleetOperationsOverview({
             <footer className="border-t border-edge px-5 py-3">
               <button
                 type="button"
-                onClick={onOpenAnomalies}
+                onClick={onOpenAlerts ?? onOpenAnomalies}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
               >
-                <Play className="h-3.5 w-3.5" /> {TRUST_COPY.viewEvidenceCta}, all events
+                <Siren className="h-3.5 w-3.5" /> Open all alerts
               </button>
             </footer>
           </div>
