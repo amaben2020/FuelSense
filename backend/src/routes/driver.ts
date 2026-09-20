@@ -19,6 +19,8 @@ import { nearbyFuelStation } from '../lib/place-lookup';
 
 /** How close to a forecourt a driver should be when logging a receipt. */
 const RECEIPT_STATION_RADIUS_M = Number(process.env.RECEIPT_STATION_RADIUS_M || 300);
+// Same gap the manager pages use to split movement into trips.
+const TRIP_GAP_MINUTES = 30;
 import { parseReceiptText } from '../lib/receipt-parser';
 import { scanReceiptImage as ocrScanReceiptImage } from '../lib/receipt-ocr';
 import { buildPurchaseValuesFromReceipt } from '../lib/driver-receipt-sync';
@@ -309,30 +311,49 @@ router.get('/trips', async (req: Request, res: Response) => {
       (row) => (row as Record<string, unknown>).vehicle_id === assignment.vehicle_id
     );
 
+    // Trips as thirty-minute movement sessions, the same rule the manager
+    // pages use. Counting ignition off->on edges listed every flicker of the
+    // ignition flag as a trip, and stationary flickers as trips that never
+    // moved.
     const segments = await db.execute(sql`
-      WITH readings AS (
+      WITH moving AS (
         SELECT
           recorded_at,
-          ignition_on,
-          speed_kph,
           odometer_km,
-          fuel_level_liters,
           latitude,
           longitude,
-          LAG(ignition_on) OVER (ORDER BY recorded_at) AS prev_ignition
+          LAG(recorded_at) OVER (ORDER BY recorded_at) AS prev_moving_at
         FROM telemetry
         WHERE vehicle_id = ${assignment.vehicle_id}
           AND customer_id = ${req.driver.customerId}
           AND recorded_at > NOW() - (${days} || ' days')::INTERVAL
-        ORDER BY recorded_at ASC
+          AND COALESCE(speed_kph, 0) >= 2
       ),
-      starts AS (
-        SELECT recorded_at AS started_at, odometer_km, latitude, longitude
-        FROM readings
-        WHERE ignition_on IS TRUE AND COALESCE(prev_ignition, FALSE) IS FALSE
+      flagged AS (
+        SELECT
+          *,
+          CASE
+            WHEN prev_moving_at IS NULL
+              OR recorded_at - prev_moving_at > (${TRIP_GAP_MINUTES} || ' minutes')::INTERVAL
+            THEN 1 ELSE 0
+          END AS is_start
+        FROM moving
+      ),
+      sessions AS (
+        SELECT *, SUM(is_start) OVER (ORDER BY recorded_at) AS session_no
+        FROM flagged
       )
-      SELECT started_at, odometer_km, latitude, longitude
-      FROM starts
+      SELECT
+        MIN(recorded_at) AS started_at,
+        MAX(recorded_at) AS ended_at,
+        (ARRAY_AGG(odometer_km ORDER BY recorded_at))[1] AS odometer_km,
+        MAX(odometer_km) - MIN(odometer_km) AS distance_km,
+        (ARRAY_AGG(latitude ORDER BY recorded_at))[1] AS latitude,
+        (ARRAY_AGG(longitude ORDER BY recorded_at))[1] AS longitude
+      FROM sessions
+      GROUP BY session_no
+      -- A lone moving fix is GNSS speed noise while parked, not a trip.
+      HAVING COUNT(*) >= 2
       ORDER BY started_at DESC
       LIMIT 20
     `);
@@ -354,6 +375,8 @@ router.get('/trips', async (req: Request, res: Response) => {
         const r = row as Record<string, unknown>;
         return {
           started_at: r.started_at,
+          ended_at: r.ended_at,
+          distance_km: r.distance_km != null ? Math.round(Number(r.distance_km) * 10) / 10 : null,
           odometer_km: r.odometer_km != null ? Number(r.odometer_km) : null,
           latitude: r.latitude != null ? Number(r.latitude) : null,
           longitude: r.longitude != null ? Number(r.longitude) : null,

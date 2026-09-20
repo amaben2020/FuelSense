@@ -109,6 +109,8 @@ export interface DriverTripsResponse {
   }>;
   recent_starts: Array<{
     started_at: string;
+    ended_at: string | null;
+    distance_km: number | null;
     odometer_km: number | null;
     latitude: number | null;
     longitude: number | null;

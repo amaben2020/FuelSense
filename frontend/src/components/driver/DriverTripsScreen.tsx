@@ -94,59 +94,64 @@ export function DriverTripsScreen() {
 
       <div>
         <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-dim">
-          <Route className="h-3.5 w-3.5" /> Recent trip starts
+          <Route className="h-3.5 w-3.5" /> Recent trips
         </h3>
         {data.recent_starts.length > 0 && (
           <div className="mb-2 overflow-hidden rounded-2xl border border-edge bg-panel">
             <TripStartFlourish />
           </div>
         )}
-        <div className="space-y-2">
-          {data.recent_starts.length === 0 ? (
-            <p className="text-sm text-ink-dim">No ignition-on events recorded.</p>
-          ) : (
-            data.recent_starts.map((trip) => (
-              <div
-                key={trip.started_at}
-                className="flex items-center justify-between rounded-xl border border-edge bg-panel/80 px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm text-ink">
-                    {new Date(trip.started_at).toLocaleString('en-NG', {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      timeZone: 'Africa/Lagos',
-                    })}
+        {data.recent_starts.length === 0 ? (
+          <p className="text-sm text-ink-dim">No movement recorded in the last 14 days.</p>
+        ) : (
+          /* One line per trip. Each row is a movement session — a run of
+             driving with no stop longer than thirty minutes — so a flicker of
+             the ignition flag no longer shows up as a trip of its own. */
+          <ul className="divide-y divide-edge overflow-hidden rounded-xl border border-edge bg-panel/80">
+            {data.recent_starts.map((trip) => (
+              <li key={trip.started_at} className="flex items-center gap-3 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-ink">
+                    {formatTripWindow(trip.started_at, trip.ended_at)}
                   </p>
-                  {trip.odometer_km != null && (
-                    <p className="text-xs text-ink-dim">
-                      Odometer {formatOdometerMiles(trip.odometer_km)}
-                    </p>
-                  )}
+                  <p className="font-mono text-[11px] text-ink-dim">
+                    {trip.distance_km != null ? `${trip.distance_km} km` : '—'}
+                    {trip.odometer_km != null && (
+                      <> · from {formatOdometerMiles(trip.odometer_km)}</>
+                    )}
+                  </p>
                 </div>
                 {trip.latitude != null && (
-                  /* Was a bare 25x16 text link — too small to hit on a phone,
-                     and sitting right beside a scrolling list. */
                   <a
                     href={`https://www.google.com/maps?q=${trip.latitude},${trip.longitude}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="-mr-1 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium text-brand active:bg-panel-hover"
+                    aria-label="Open start point on a map"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-brand active:bg-panel-hover"
                   >
-                    <MapPin className="h-3.5 w-3.5" />
-                    Map
+                    <MapPin className="h-4 w-4" />
                   </a>
                 )}
-              </div>
-            ))
-          )}
-        </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
+}
+
+function formatTripWindow(startedAt: string, endedAt: string | null) {
+  const start = new Date(startedAt);
+  const day = start.toLocaleDateString('en-NG', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Africa/Lagos',
+  });
+  const time = (d: Date) =>
+    d.toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Lagos' });
+  return endedAt ? `${day} · ${time(start)} – ${time(new Date(endedAt))}` : `${day} · ${time(start)}`;
 }
 
 function formatDay(isoDate: string) {
