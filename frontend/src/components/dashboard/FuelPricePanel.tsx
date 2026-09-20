@@ -117,7 +117,7 @@ export function FuelPricePanel() {
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-edge bg-canvas p-3">
-          <p className="text-xs text-ink-dim">Current benchmark</p>
+          <p className="text-xs text-ink-dim">Declared fuel price — used for every ₦ figure in the app</p>
           <p className="mt-1 font-mono text-xl text-ink">
             {current ? `${formatNgn(current.ngn_per_liter)}/L` : 'Not set'}
           </p>

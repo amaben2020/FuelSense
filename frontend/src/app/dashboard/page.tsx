@@ -1289,7 +1289,7 @@ export default function DashboardPage() {
                   <span className="h-2 w-2 rounded-full bg-ink-dim/50" />
                   <span>
                     {lastUpdated
-                      ? `Last seen ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      ? `Tracker last seen ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                       : 'No vehicles online'}
                   </span>
                 </div>
