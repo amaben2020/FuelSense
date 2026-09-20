@@ -1,23 +1,16 @@
 import { db, alerts, siphonEvents, vehicles, telemetry, eq, and, desc, sql } from './db-helpers';
 import {
   REFUEL_THRESHOLD_LITERS,
-  idleFuelBurnLiters,
   IDLE_BURN_LITERS_PER_HOUR,
   DEFAULT_FUEL_PRICE_NGN_LITER,
   baselineEfficiencyKmL,
 } from './fuel-metrics';
 import { recordSiphonEvent } from './siphon-recorder';
 
-const idleStreakByImei = new Map<string, number>();
-const idleStartFuelByImei = new Map<string, number>();
-const idleWasteAccumByImei = new Map<string, number>();
 const lastFuelByImei = new Map<string, number>();
 const fraudSimulatedFor = new Set<string>();
 const baselineCache = new Map<string, { baseline: VehicleBaseline; expiresAt: number }>();
 
-const TICK_INTERVAL_SEC = Number(process.env.MOCK_INTERVAL_MS || 4000) / 1000;
-const IDLE_TICKS_FOR_ALERT = 12;
-const DEMO_IDLE_MINUTES_LABEL = 45;
 const BASELINE_TTL_MS = 24 * 60 * 60 * 1000;
 
 interface VehicleBaseline {
@@ -27,9 +20,6 @@ interface VehicleBaseline {
 }
 
 export function resetEngineState(): void {
-  idleStreakByImei.clear();
-  idleStartFuelByImei.clear();
-  idleWasteAccumByImei.clear();
   lastFuelByImei.clear();
   fraudSimulatedFor.clear();
   baselineCache.clear();
@@ -176,8 +166,6 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
 
   const imei = device.imei;
   const fuel = row.fuelLevelLiters != null ? Number(row.fuelLevelLiters) : null;
-  const ignitionOn = !!row.ignitionOn;
-  const speed = row.speedKph != null ? Number(row.speedKph) : 0;
   const lat = row.latitude;
   const lng = row.longitude;
   const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
@@ -217,55 +205,9 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
     lastFuelByImei.set(imei, fuel);
   }
 
-  // 2. Excessive Idling Engine
-  const isIdle = ignitionOn && speed < 2;
-  if (isIdle) {
-    const streak = (idleStreakByImei.get(imei) || 0) + 1;
-    idleStreakByImei.set(imei, streak);
-
-    if (streak === 1 && fuel != null) {
-      idleStartFuelByImei.set(imei, fuel);
-      idleWasteAccumByImei.set(imei, 0);
-    }
-
-    if (fuel != null && prevFuel != null && fuel < prevFuel) {
-      const tickWaste = prevFuel - fuel;
-      idleWasteAccumByImei.set(imei, (idleWasteAccumByImei.get(imei) || 0) + tickWaste);
-    } else if (fuel != null) {
-      const intervalHours = TICK_INTERVAL_SEC / 3600;
-      const tickWaste = idleFuelBurnLiters(intervalHours);
-      idleWasteAccumByImei.set(imei, (idleWasteAccumByImei.get(imei) || 0) + tickWaste);
-    }
-
-    if (
-      streak === IDLE_TICKS_FOR_ALERT &&
-      !(await hasOpenAlert(device.customerId, device.vehicleId, 'excessive_idle'))
-    ) {
-      const measuredWaste = idleWasteAccumByImei.get(imei) || 0;
-      const startFuel = idleStartFuelByImei.get(imei);
-      const fuelDeltaWaste =
-        startFuel != null && fuel != null ? Math.max(0, startFuel - fuel) : 0;
-      const labeledWaste =
-        (DEMO_IDLE_MINUTES_LABEL / 60) * IDLE_BURN_LITERS_PER_HOUR;
-      const wastedLiters = Math.max(measuredWaste, fuelDeltaWaste, labeledWaste);
-
-      await db.insert(alerts).values({
-        imei,
-        customerId: device.customerId,
-        vehicleId: device.vehicleId,
-        alertType: 'excessive_idle',
-        message: `Excessive idling on ${licensePlate ?? 'vehicle'}: engine ON with zero speed for ~${DEMO_IDLE_MINUTES_LABEL} minutes (~${wastedLiters.toFixed(1)}L wasted at ${IDLE_BURN_LITERS_PER_HOUR} L/h).`,
-        fuelLevelLiters: fuel?.toString() ?? null,
-        fuelDropLiters: wastedLiters.toFixed(2),
-        latitude: lat?.toString() ?? null,
-        longitude: lng?.toString() ?? null,
-      });
-    }
-  } else {
-    idleStreakByImei.set(imei, 0);
-    idleStartFuelByImei.delete(imei);
-    idleWasteAccumByImei.delete(imei);
-  }
+  // Idling is handled by idle-detector.ts, which measures the stretch from
+  // record timestamps. The tick-counting engine that used to live here raised
+  // a second `excessive_idle` alert for the same episode.
 
   // 3. Noise-Proof Fuel Theft Detection Engine (Rules 1-10)
   try {
