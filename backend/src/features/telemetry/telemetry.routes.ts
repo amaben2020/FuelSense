@@ -1143,13 +1143,14 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
 });
 
 router.get('/daily-activity', async (req: Request, res: Response) => {
-  const days = Math.min(Number(req.query.days) || 30, 90);
+  const window = parseReportWindow(req.query as Record<string, unknown>, 30);
+  const days = window.days;
   const page = Math.max(Number(req.query.page) || 1, 1);
   const limit = Math.min(Number(req.query.limit) || 20, 50);
 
   try {
     const customerId = req.user.customerId;
-    const result = await db.execute(dailyActivitySql({ customerId, days }));
+    const result = await db.execute(dailyActivitySql({ customerId, days: window }));
 
     const allRows = result.rows.map((row) => {
       const r = row as Record<string, unknown>;
@@ -1232,6 +1233,8 @@ router.get('/daily-activity', async (req: Request, res: Response) => {
 
     res.json({
       period_days: days,
+      period_from: window.from,
+      period_to: window.to,
       page,
       limit,
       total,
@@ -1295,15 +1298,14 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
   // period a dashboard card is showing, rather than always paging through
   // all-time history. Absent or non-positive means no filter — every
   // existing caller keeps its current behaviour.
-  const days = Number(req.query.days);
-  const periodFilter =
-    Number.isFinite(days) && days > 0
-      ? sql`AND fp.purchased_at > NOW() - (${days} || ' days')::interval`
-      : sql``;
-  const periodFilterUnaliased =
-    Number.isFinite(days) && days > 0
-      ? sql`AND purchased_at > NOW() - (${days} || ' days')::interval`
-      : sql``;
+  const hasWindow = typeof req.query.from === 'string' || Number(req.query.days) > 0;
+  const window = parseReportWindow(req.query as Record<string, unknown>, 0);
+  const periodFilter = hasWindow
+    ? sql`AND fp.purchased_at >= ${windowStart(window)} AND fp.purchased_at < ${windowEnd(window)}`
+    : sql``;
+  const periodFilterUnaliased = hasWindow
+    ? sql`AND purchased_at >= ${windowStart(window)} AND purchased_at < ${windowEnd(window)}`
+    : sql``;
 
   try {
     const countResult = await db.execute(sql`

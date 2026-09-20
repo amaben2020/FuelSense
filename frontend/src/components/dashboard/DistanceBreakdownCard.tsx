@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Route } from 'lucide-react';
 import { DailyActivityResponse, DailyActivityRow, api, formatNgn } from '@/lib/api';
 import { IconTile } from '@/components/ui/chrome';
+import { SnapshotPeriod, periodQuery } from '@/lib/period';
 
 /**
  * Where the fleet's kilometres actually went.
@@ -27,12 +28,12 @@ import { IconTile } from '@/components/ui/chrome';
  * the card shows the typical run instead of guessing at the longest.
  */
 export function DistanceBreakdownCard({
-  periodDays,
+  period,
   idleHours,
   idleCostNgn,
   className = '',
 }: {
-  periodDays: number;
+  period: SnapshotPeriod;
   /** From the efficiency summary, so idling matches the fuel card exactly. */
   idleHours?: number | null;
   idleCostNgn?: number | null;
@@ -50,7 +51,7 @@ export function DistanceBreakdownCard({
         // A high page size rather than paging: this is one aggregate figure,
         // and a partial page would silently under-count the total.
         const result = await api<DailyActivityResponse>(
-          `/telemetry/daily-activity?days=${periodDays}&page=1&limit=500`
+          `/telemetry/daily-activity?${periodQuery(period)}&page=1&limit=500`
         );
         if (!live) return;
         setRows(result.rows ?? []);
@@ -62,7 +63,7 @@ export function DistanceBreakdownCard({
     return () => {
       live = false;
     };
-  }, [periodDays]);
+  }, [period]);
 
   const stats = useMemo(() => {
     if (!rows?.length) return null;
@@ -105,7 +106,7 @@ export function DistanceBreakdownCard({
       <div className="flex items-center gap-3">
         <IconTile icon={Route} tone="neutral" />
         <p className="text-xs font-medium uppercase tracking-[0.1em] text-ink-dim">
-          Distance · {periodDays}d
+          Distance · {period.days}d
         </p>
       </div>
 

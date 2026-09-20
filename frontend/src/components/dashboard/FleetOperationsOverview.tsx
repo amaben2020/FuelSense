@@ -32,6 +32,8 @@ import { FuelInputsDrillDown } from '@/components/dashboard/FuelInputsDrillDown'
 import { FuelPriceChart } from '@/components/dashboard/FuelPriceChart';
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
+import { SnapshotPeriod, periodLabel } from '@/lib/period';
+import { SnapshotPeriodPicker } from '@/components/dashboard/SnapshotPeriodPicker';
 import { MerchantLabel } from '@/components/StationLogo';
 import {
   TRUST_COPY,
@@ -152,7 +154,7 @@ export function FleetOperationsOverview({
   summary,
   todaySummary,
   efficiency,
-  periodDays: periodDaysProp,
+  period,
   onPeriodChange,
   efficiencySummary,
   alerts,
@@ -167,9 +169,9 @@ export function FleetOperationsOverview({
   summary: DashboardSummary | null;
   todaySummary: DashboardSummary | null;
   efficiency: FleetEfficiency[];
-  /** Days the snapshot aggregates over; the API caps this at 90. */
-  periodDays: number;
-  onPeriodChange: (days: number) => void;
+  /** The window the snapshot aggregates over; the API caps it at 90 days. */
+  period: SnapshotPeriod;
+  onPeriodChange: (period: SnapshotPeriod) => void;
   efficiencySummary: FleetEfficiencySummary | null;
   alerts: Alert[];
   anomalies: FuelAnomaly[];
@@ -189,7 +191,8 @@ export function FleetOperationsOverview({
 
   // Prefer what the API actually aggregated over what was asked for, so the
   // label never claims a window the data does not cover.
-  const periodDays = efficiencySummary?.period_days ?? periodDaysProp;
+  const periodDays = efficiencySummary?.period_days ?? period.days;
+  const windowLabel = periodLabel(period);
   const preventableLoss = efficiencySummary?.total_loss_ngn ?? summary?.estimated_theft_loss_ngn ?? 0;
 
   // Only receipts are money that actually left someone's hands. The telemetry
@@ -591,7 +594,7 @@ export function FleetOperationsOverview({
         <FuelInputsDrillDown
           open={showFuelInputs}
           onClose={() => setShowFuelInputs(false)}
-          periodDays={periodDays}
+          period={period}
           liters={fuelContext.liters}
           burnedCost={fuelContext.burnedCost}
           blendedPricePerLiter={fuelContext.blendedPricePerLiter}
@@ -716,21 +719,7 @@ export function FleetOperationsOverview({
             <h2 className="text-xs font-medium uppercase tracking-[0.14em] text-ink-dim">
               Operational snapshot
             </h2>
-            {/* Real windows only. The summary API caps `days` at 90, so an
-                annual option could not be backed by data. */}
-            <label className="relative inline-flex items-center">
-              <span className="sr-only">Snapshot period</span>
-              <select
-                value={periodDaysProp}
-                onChange={(e) => onPeriodChange(Number(e.target.value))}
-                className="appearance-none rounded-full border border-edge bg-panel py-1.5 pl-3.5 pr-8 text-xs font-medium text-ink focus:border-accent-y focus:outline-none"
-              >
-                <option value={1}>Today</option>
-                <option value={7}>Last 7 days</option>
-                <option value={30}>Last 30 days</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-ink-dim" />
-            </label>
+            <SnapshotPeriodPicker period={period} onChange={onPeriodChange} />
           </div>
           <p className="text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
         </div>
@@ -747,7 +736,7 @@ export function FleetOperationsOverview({
             <div className="flex items-center gap-2.5 text-ink-dim">
               <Fuel className="h-5 w-5" strokeWidth={1.75} />
               <span className="text-xs font-semibold uppercase tracking-[0.12em]">
-                Fuel burned · last {periodDays} days
+                Fuel burned · {windowLabel}
               </span>
             </div>
             {/* An em-dash read as "broken". A fleet that burned nothing burned
@@ -907,7 +896,7 @@ export function FleetOperationsOverview({
               its own reason — one period's loss × 52 is a forecast nothing
               supports. Fleet health likewise moved up into the verdict. */}
           <DistanceBreakdownCard
-            periodDays={periodDays}
+            period={period}
             idleHours={fuelContext?.idleHours}
             idleCostNgn={fuelContext?.idleCost}
             className="sm:col-span-2 lg:col-span-6"
@@ -1285,7 +1274,7 @@ export function FleetOperationsOverview({
               <Users className="h-4 w-4 text-accent-y" /> Fuel economy vs baseline
             </h2>
             <p className="mt-1 text-xs text-ink-dim">
-              Actual km/L as a share of the vehicle&apos;s baseline, last {periodDays} days. The
+              Actual km/L as a share of the vehicle&apos;s baseline, {windowLabel}. The
               ranked efficiency score is on Driver management.
             </p>
             <ol className="mt-3 divide-y divide-divider">

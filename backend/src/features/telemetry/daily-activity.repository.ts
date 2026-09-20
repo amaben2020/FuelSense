@@ -1,9 +1,15 @@
 import { sql, SQL } from 'drizzle-orm';
-import { idleDeltaSeconds, telemetryDeltasCte } from './telemetry-deltas.repository';
+import {
+  ReportWindow,
+  idleDeltaSeconds,
+  telemetryDeltasCte,
+  windowEnd,
+  windowStart,
+} from './telemetry-deltas.repository';
 
 interface DailyActivityParams {
   customerId: string;
-  days: number;
+  days: number | ReportWindow;
 }
 
 export function dailyActivitySql({ customerId, days }: DailyActivityParams): SQL {
@@ -28,7 +34,8 @@ export function dailyActivitySql({ customerId, days }: DailyActivityParams): SQL
       JOIN vehicles v ON v.id = t.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
       WHERE t.customer_id = ${customerId}
-        AND t.recorded_at > NOW() - (${days} || ' days')::INTERVAL
+        AND t.recorded_at >= ${windowStart(days)}
+        AND t.recorded_at < ${windowEnd(days)}
     ),
     daily AS (
       SELECT

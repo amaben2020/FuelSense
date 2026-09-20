@@ -57,6 +57,7 @@ import {
 } from '@/lib/api';
 import { useAuthStore } from '@/store/authStore';
 import { useLatest } from '@/lib/use-latest';
+import { SnapshotPeriod, periodFromRange, periodQuery } from '@/lib/period';
 import { buildVehicleTracks } from '@/lib/map-utils';
 import { BrandMark } from '@/components/BrandMark';
 import { BrandTheme } from '@/components/BrandTheme';
@@ -325,7 +326,22 @@ export default function DashboardPage() {
   // Window the operational snapshot aggregates over. The API caps `days` at 90,
   // so a "year" option would have to be faked — these three are all real.
   const [periodDays, setPeriodDays] = useState(7);
-  const periodDaysRef = useLatest(periodDays);
+  // A from–to range picked on the snapshot calendar. Null means the window is
+  // the last `periodDays` days.
+  const [periodRange, setPeriodRange] = useState<{ from: string; to: string } | null>(null);
+  const period: SnapshotPeriod = useMemo(
+    () => (periodRange ? periodFromRange(periodRange.from, periodRange.to) : { days: periodDays }),
+    [periodDays, periodRange]
+  );
+  const periodRef = useLatest(period);
+  const setPeriod = useCallback((next: SnapshotPeriod) => {
+    if (next.from && next.to) {
+      setPeriodRange({ from: next.from, to: next.to });
+    } else {
+      setPeriodRange(null);
+      setPeriodDays(next.days);
+    }
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   // Sidebar visibility. Defaults to everything on so the nav never flashes
@@ -472,7 +488,7 @@ export default function DashboardPage() {
 
       try {
         const efficiencyData = await api<FleetEfficiencyResponse>(
-          `/telemetry/fleet-efficiency?days=${periodDaysRef.current}`
+          `/telemetry/fleet-efficiency?${periodQuery(periodRef.current)}`
         );
         efficiencyRows = efficiencyData.vehicles ?? [];
         setEfficiencySummary(efficiencyData.summary ?? null);
@@ -486,7 +502,7 @@ export default function DashboardPage() {
 
       try {
         summaryRow = await api<DashboardSummary>(
-          `/dashboard/summary?days=${periodDaysRef.current}`
+          `/dashboard/summary?${periodQuery(periodRef.current)}`
         );
       } catch {
         summaryRow = null;
@@ -709,7 +725,7 @@ export default function DashboardPage() {
     }
     if (!getToken()) return;
     loadDashboard();
-  }, [periodDays]);
+  }, [period]);
 
   useEffect(() => {
     const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
@@ -1335,8 +1351,8 @@ export default function DashboardPage() {
             <div className="space-y-6">
               <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
               <FleetOperationsOverview
-                periodDays={periodDays}
-                onPeriodChange={setPeriodDays}
+                period={period}
+                onPeriodChange={setPeriod}
                 summary={summary}
                 todaySummary={todaySummary}
                 efficiency={efficiency}

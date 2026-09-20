@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X, Fuel, Gauge, History, Receipt, Route } from 'lucide-react';
+import { SnapshotPeriod, periodLabel, periodQuery, periodStartMs } from '@/lib/period';
 import {
   api,
   formatNgn,
@@ -32,7 +33,7 @@ const formatDate = (iso: string): string =>
 export function FuelInputsDrillDown({
   open,
   onClose,
-  periodDays,
+  period,
   liters,
   burnedCost,
   // Still plumbed through while the average itself is hidden, so restoring it
@@ -42,7 +43,7 @@ export function FuelInputsDrillDown({
 }: {
   open: boolean;
   onClose: () => void;
-  periodDays: number;
+  period: SnapshotPeriod;
   liters: number;
   burnedCost: number;
   blendedPricePerLiter: number;
@@ -59,7 +60,7 @@ export function FuelInputsDrillDown({
     setError(null);
     Promise.all([
       api<FuelPurchasesResponse>(
-        `/telemetry/fuel-purchases?days=${periodDays}&limit=100&include_summary=true`
+        `/telemetry/fuel-purchases?${periodQuery(period)}&limit=100&include_summary=true`
       ),
       api<FuelPriceResponse>('/fuel-price'),
       fetchCalibrationStatus().catch(() => null),
@@ -71,7 +72,7 @@ export function FuelInputsDrillDown({
         // window, plus the one period that was already active when the window
         // opened — that one priced the window's earliest litres even though it
         // was declared before the window started.
-        const cutoff = Date.now() - periodDays * 24 * 60 * 60 * 1000;
+        const cutoff = periodStartMs(period);
         const history = priceData.history ?? [];
         const firstBeforeWindowIndex = history.findIndex(
           (p) => new Date(p.effective_from).getTime() < cutoff
@@ -82,7 +83,7 @@ export function FuelInputsDrillDown({
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load fuel inputs'))
       .finally(() => setLoading(false));
-  }, [open, periodDays]);
+  }, [open, period]);
 
   if (!open) return null;
 
@@ -104,7 +105,7 @@ export function FuelInputsDrillDown({
               <Fuel className="h-4 w-4 text-accent-y" /> What the fuel figures are built on
             </h3>
             <p className="mt-0.5 text-xs text-ink-dim">
-              Last {periodDays} days · these trackers carry no fuel sensor, so every litre is
+              {periodLabel(period).replace(/^\w/, (c) => c.toUpperCase())} · these trackers carry no fuel sensor, so every litre is
               modelled from the four inputs below
             </p>
           </div>
