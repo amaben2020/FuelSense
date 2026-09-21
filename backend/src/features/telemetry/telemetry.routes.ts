@@ -34,7 +34,8 @@ import {
 } from './activity-thresholds.service';
 import { parseReportWindow, windowEnd, windowStart } from './telemetry-deltas.repository';
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../receipts/receipt-reconciliation.service';
-import { creditRefuel } from '../fuel/virtual-tank.service';
+import { calibrateTank, creditRefuel } from '../fuel/virtual-tank.service';
+import { odometerAtPurchase } from './odometer.service';
 import { reconcileFuelPurchase, consumptionTrend } from '../fuel/fuel-calibration.service';
 import { lookupPlace, cachedPlaceNames, placeKeyFor } from '../places/place-lookup.service';
 import { latestReceiptPrice, currentBenchmarkPrice, effectivePriceAt } from '../fuel/fuel-price.service';
@@ -1523,6 +1524,7 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     purchased_at: purchasedAt,
     odometer_km: odometerKm,
     odometer_photo_url: odometerPhotoUrl,
+    filled_to_full: filledToFullRaw,
   } = req.body as {
     vehicle_id?: string;
     liters_declared?: number;
@@ -1531,10 +1533,22 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     purchased_at?: string;
     odometer_km?: number;
     odometer_photo_url?: string;
+    /** The pump clicked off with the tank full. This is the only fact that
+     *  pins the level exactly, and two of them in a row teach the rate. */
+    filled_to_full?: boolean;
   };
+  const filledToFull = filledToFullRaw === true;
 
   if (!vehicleId || !litersDeclared) {
     res.status(400).json({ error: 'vehicle_id and liters_declared are required' });
+    return;
+  }
+  if (!(Number(litersDeclared) > 0) || Number(litersDeclared) > 1000) {
+    res.status(400).json({ error: 'liters_declared must be between 0 and 1000' });
+    return;
+  }
+  if (odometerKm != null && (!Number.isFinite(Number(odometerKm)) || Number(odometerKm) < 0 || Number(odometerKm) > 2_000_000)) {
+    res.status(400).json({ error: 'odometer_km must be between 0 and 2,000,000' });
     return;
   }
 
@@ -1573,11 +1587,15 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
         obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
         ignitionOnAt: obdMatch.ignitionOnAt,
         costPerLiterNgn: pricePerLiter,
+        // The dash reading if the manager typed one, else the tracker's own
+        // odometer at the purchase time — the driver app already does this,
+        // and a fill without an odometer can never calibrate anything.
         odometerKm:
-          odometerKm != null && Number.isFinite(Number(odometerKm))
+          odometerKm != null && Number.isFinite(Number(odometerKm)) && Number(odometerKm) > 0
             ? Math.round(Number(odometerKm))
-            : null,
+            : await odometerAtPurchase(vehicleId, customerId, when),
         odometerPhotoUrl: odometerPhotoUrl ?? null,
+        filledToFull,
         status,
         source: 'receipt_upload',
       })
@@ -1592,6 +1610,15 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     await creditRefuel(vehicleId, customerId, litersActual ?? declared, {
       pricePerLiter,
     }).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
+
+    // A fill to full pins the level at capacity, the same as it does from the
+    // driver app. Without this a manager-logged full tank only credited the
+    // litres bought, so whatever the model had drifted by survived the fill.
+    if (filledToFull) {
+      await calibrateTank(vehicleId, customerId, null, 'receipt_full').catch((err) =>
+        console.error('[virtual_tank] full-fill calibration failed:', err)
+      );
+    }
 
     // Fill-to-fill reconciliation: compares this odometer reading against the
     // previous fill and against GPS, then refreshes the vehicle's rate.

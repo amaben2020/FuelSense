@@ -429,6 +429,13 @@ router.get('/catalogue', async (_req: Request, res: Response) => {
         model: spec.model,
         type: spec.type,
         tank_liters: spec.tankLiters,
+        // Per-generation sizes; the form picks the one matching the year.
+        tank_by_year: (spec.tankByYear ?? []).map((g) => ({
+          year_from: g.years[0],
+          year_to: Math.min(g.years[1], new Date().getFullYear() + 1),
+          tank_liters: g.tankLiters,
+          note: g.note ?? null,
+        })),
         consumption_l_per_100km: spec.consumptionL100km,
         idle_burn_l_per_hour: spec.idleBurnLph,
         year_from: spec.years[0],

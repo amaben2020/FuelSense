@@ -9,6 +9,7 @@ import {
   ReceiptVerification,
   formatNgn,
   api,
+  milesToKm,
 } from '@/lib/api';
 import { resolvePendingReceipt } from '@/lib/api';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
@@ -124,6 +125,9 @@ export function ReceiptsPanel({
   const [merchant, setMerchant] = useState('');
   const [receiptRef, setReceiptRef] = useState('');
   const [purchasedAtLocal, setPurchasedAtLocal] = useState(() => toDatetimeLocalValue());
+  const [odometer, setOdometer] = useState('');
+  const [odometerUnit, setOdometerUnit] = useState<'mi' | 'km'>('mi');
+  const [filledToFull, setFilledToFull] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   /**
@@ -189,6 +193,11 @@ export function ReceiptsPanel({
           merchant,
           receipt_reference: receiptRef || undefined,
           purchased_at: new Date(purchasedAtLocal).toISOString(),
+          // Stored in km whatever the dash reads; the unit is only a display fact.
+          odometer_km: odometer
+            ? Math.round(odometerUnit === 'mi' ? milesToKm(Number(odometer)) : Number(odometer))
+            : undefined,
+          filled_to_full: filledToFull,
         }),
       });
       setMessage(result.message);
@@ -344,7 +353,48 @@ export function ReceiptsPanel({
                   className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 />
               </label>
+              <label className="text-xs text-ink-dim">
+                Odometer at the pump
+                <div className="mt-1 flex gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    value={odometer}
+                    onChange={(e) => setOdometer(e.target.value)}
+                    className="w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
+                    placeholder="from the dash"
+                  />
+                  <select
+                    value={odometerUnit}
+                    onChange={(e) => setOdometerUnit(e.target.value as 'mi' | 'km')}
+                    className="rounded-lg border border-edge bg-panel px-1 py-2 text-sm text-ink"
+                    aria-label="Odometer unit"
+                  >
+                    <option value="mi">mi</option>
+                    <option value="km">km</option>
+                  </select>
+                </div>
+              </label>
+              <label className="flex items-center gap-2 self-end pb-2 text-xs text-ink-mid">
+                <input
+                  type="checkbox"
+                  checked={filledToFull}
+                  onChange={(e) => setFilledToFull(e.target.checked)}
+                  className="h-4 w-4 rounded border-edge"
+                />
+                Filled to full
+              </label>
             </div>
+            {/* The two inputs calibration actually needs, said up front: a
+                full tank pins the gauge, and two full tanks with odometer
+                readings measure the vehicle's real rate. */}
+            <p className="mt-2 text-[11px] text-ink-dim">
+              {filledToFull
+                ? odometer
+                  ? 'This pins the gauge to a full tank. The next full fill with an odometer reading measures this vehicle\u2019s real L/100 km.'
+                  : 'This pins the gauge to a full tank. Add the odometer reading and the next full fill will measure the real L/100 km.'
+                : 'A partial fill credits the litres but cannot calibrate the gauge or the rate — tick "Filled to full" when the pump clicked off.'}
+            </p>
             <button
               type="button"
               disabled={submitting}

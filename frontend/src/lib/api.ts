@@ -2150,10 +2150,20 @@ export type VehicleBodyType =
   | 'heavy_truck'
   | 'motorcycle';
 
+export interface CatalogueTankGeneration {
+  year_from: number;
+  year_to: number;
+  tank_liters: number;
+  note: string | null;
+}
+
 export interface CatalogueModel {
   model: string;
   type: VehicleBodyType;
+  /** Model-wide figure; prefer the generation matching the year. */
   tank_liters: number;
+  /** Per-generation sizes. Twin-tank models list the total a fill-to-full takes. */
+  tank_by_year: CatalogueTankGeneration[];
   /** Mixed city traffic, not a combined-cycle rating. */
   consumption_l_per_100km: number;
   idle_burn_l_per_hour: number;
@@ -2175,6 +2185,18 @@ export interface VehicleCatalogue {
 
 export function fetchVehicleCatalogue(): Promise<VehicleCatalogue> {
   return api<VehicleCatalogue>('/vehicles/catalogue');
+}
+
+/** The tank size for a catalogue model in a given year, with its note. */
+export function catalogueTankFor(
+  model: CatalogueModel,
+  year: number | null
+): { liters: number; note: string | null } {
+  if (year != null) {
+    const gen = model.tank_by_year.find((g) => year >= g.year_from && year <= g.year_to);
+    if (gen) return { liters: gen.tank_liters, note: gen.note };
+  }
+  return { liters: model.tank_liters, note: model.note };
 }
 
 // ---------------------------------------------------------------------------

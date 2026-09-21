@@ -93,17 +93,58 @@ overspeeding in the **past** — a device-side event never could.
 counts distance since it was fitted, so true mileage is this baseline plus the
 device's counter since the anchor instant.
 
-## 3. Tank anchor
+### Tank size
 
-`POST /vehicles/{id}/virtual-tank/calibrate` with the current level in litres —
-ideally right after a fill, when the level is known exactly.
+Chosen for you when the vehicle is added: pick make, model and **year** and
+the tank capacity fills in from the catalogue for that year's generation — a
+2013 RAV4 is 60 L, a 2020 one 55 L; a 2009 Camry 70 L, a 2014 one 64 L, a 2020
+one 60 L; every Corolla since 2003 is 50 L. Twin-tank models (Land Cruiser,
+Prado) list the **total** both tanks take at a fill to full, with the split in
+the note. The figure is editable, and the form says where it came from.
 
-This writes a **marker row** so the step change is never counted as consumption
+The API refuses a tank outside 20–600 L, a year the model was not sold in, or
+a figure less than half or more than double the manufacturer's — those are
+typos, not variants. A long-range tank or a disconnected sub-tank still fits
+inside that band.
+
+Get this right before the first fill: **a fill to full is measured against
+this number**, and a 60 L tank recorded as 55 L makes every full fill look like
+5 L walked away.
+
+## 3. Tank anchor — fill it to full
+
+The tank has no sensor, so it needs one exact fact to start from. **A fill to
+full is that fact.** Log the fill with "Filled to full" ticked — in the driver
+app, or on Receipts → *Add a receipt* in the dashboard — and the model pins the
+level at the tank capacity, whatever it had drifted to before.
+
+For a fleet-wide calibration, fill every vehicle and log each one as full,
+same day. From that moment:
+
+1. **Every gauge reads full, exactly.** The virtual tank is anchored at
+   capacity and burns down from there at the vehicle's rate.
+2. **The second full fill measures the real rate.** Litres bought ÷ km driven
+   between the two fills × 100 is this vehicle's L/100 km, in its own traffic
+   with its own idling. It replaces the catalogue figure automatically and
+   `rate_source` becomes `calibrated`. Only full-to-full pairs count — a
+   partial top-up in between still credits its litres but teaches nothing,
+   because the level at the two ends is not the same.
+3. **The odometer comes from the tracker**, not the driver. AVL 16 is the
+   vehicle's own total (validated against the dash to 0.03%), read in metres at
+   the purchase time. Type a dash reading only if the tracker was not fitted
+   yet.
+4. **A fill the tank could not have taken** — more litres than the modelled
+   headroom plus 8% — is recorded as a discrepancy before the level is pinned,
+   so the model's drift is measured, not silently erased.
+
+Five full-to-full intervals make the rolling average; a flagged interval
+(odometer did not advance, jumped more than 5,000 km, or disagrees with GPS
+by more than 15%) never moves it.
+
+`POST /vehicles/{id}/virtual-tank/calibrate` with a litre figure is the manual
+form of the same anchor, for when the level is known without a receipt.
+Both write a **marker row** so the step change is never counted as consumption
 or mistaken for a siphon. See [The fuel model](/data/fuel-model).
-
-Re-anchor whenever the modelled level and reality have visibly drifted apart.
-The model has no feedback loop; it is only as good as its rates and its last
-anchor.
 
 ## Verifying it took
 
@@ -117,4 +158,12 @@ FROM vehicles;
 ```
 
 Then check the estimate page: the **Your km/L** column should show the rate you
-entered, not a model average.
+entered, not a model average. After two full fills, `rate_source` reads
+`calibrated` and `real_consumption_l_per_100km` on the second purchase row is
+the measured figure:
+
+```sql
+SELECT purchased_at, liters_declared, odometer_km, filled_to_full,
+       real_consumption_l_per_100km, flag_reason
+FROM fuel_purchases WHERE vehicle_id = '…' ORDER BY purchased_at DESC;
+```

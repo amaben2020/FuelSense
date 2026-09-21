@@ -202,7 +202,13 @@ async function recalculateVehicleRate(
         eq(fuelPurchases.vehicleId, vehicleId),
         sql`${fuelPurchases.realConsumptionL100km} IS NOT NULL`,
         // A flagged interval is untrustworthy input, so it never moves the rate.
-        eq(fuelPurchases.implausibleOdometer, false)
+        eq(fuelPurchases.implausibleOdometer, false),
+        // Only a fill that ended full measures anything. Rows written before
+        // that rule existed still carry a "rate" from a partial top-up, and on
+        // the reference RAV4 those scattered 14–22 L/100 km — averaging them
+        // produced a confident 18.05 that no full-to-full pair had ever
+        // measured.
+        eq(fuelPurchases.filledToFull, true)
       )
     )
     .orderBy(desc(fuelPurchases.purchasedAt))
@@ -231,6 +237,13 @@ async function recalculateVehicleRate(
         rate: current.rate != null ? Number(current.rate) : null,
         source: 'catalogue',
       };
+    }
+    // Likewise a rate that was once calibrated stays until a better one is
+    // measured. Knocking it back to the class average because the newest
+    // fills were top-ups would make the estimate worse on the days the
+    // manager is logging the most.
+    if (current?.rateSource === 'calibrated' && current.rate != null) {
+      return { rate: Number(current.rate), source: 'calibrated' };
     }
 
     const preset = presetForVehicleType(vehicle?.vehicleType);

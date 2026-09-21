@@ -517,8 +517,19 @@ export const openApiSpec = {
                   license_plate: { type: 'string' },
                   make: { type: 'string' },
                   model: { type: 'string' },
-                  year: { type: 'integer' },
-                  tank_capacity_liters: { type: 'integer' },
+                  year: {
+                    type: 'integer',
+                    description:
+                      'Must fall inside the years the catalogue lists the model for. Picks the generation whose tank size seeds the vehicle.',
+                  },
+                  tank_capacity_liters: {
+                    type: 'integer',
+                    minimum: 20,
+                    maximum: 600,
+                    description:
+                      'Litres. Omit to take the catalogue figure for the make, model and year. A value given is refused if it is under half or over double that figure — a typo, not a variant. Twin-tank models are the total both tanks take at a fill to full.',
+                  },
+                  odometer_baseline_km: { type: 'integer', minimum: 0, maximum: 2000000 },
                   vehicle_type: {
                     type: 'string',
                     description:
@@ -869,7 +880,39 @@ export const openApiSpec = {
       post: {
         tags: ['Telemetry'],
         summary: 'Log a purchase from a receipt',
-        description: 'Receipts are the authority on actual spend and on price per litre.',
+        description:
+          'Receipts are the authority on actual spend and on price per litre. A fill logged with `filled_to_full` pins the virtual tank at capacity, and two such fills in a row measure the vehicle\'s real consumption from the odometer distance between them.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['vehicle_id', 'liters_declared'],
+                properties: {
+                  vehicle_id: { type: 'string', format: 'uuid' },
+                  liters_declared: { type: 'number', exclusiveMinimum: 0, maximum: 1000 },
+                  merchant: { type: 'string' },
+                  receipt_reference: { type: 'string' },
+                  purchased_at: { type: 'string', format: 'date-time' },
+                  odometer_km: {
+                    type: 'integer',
+                    minimum: 0,
+                    maximum: 2000000,
+                    description:
+                      'Dash reading at the pump, in km. Omit and the tracker\'s own odometer at `purchased_at` is used, which is the more reliable source.',
+                  },
+                  filled_to_full: {
+                    type: 'boolean',
+                    default: false,
+                    description:
+                      'The pump clicked off with the tank full. Pins the tank level at capacity; only full-to-full intervals teach the consumption rate.',
+                  },
+                },
+              },
+            },
+          },
+        },
         responses: { ...ok('Purchase recorded.'), ...errors },
       },
     },

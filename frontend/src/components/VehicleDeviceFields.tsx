@@ -14,6 +14,7 @@ import {
   ECONOMY_UNIT_LABELS,
   EconomyUnit,
   VehicleCatalogue,
+  catalogueTankFor,
   fetchVehicleCatalogue,
 } from '@/lib/api';
 import { VehicleBodyPreview } from '@/components/VehicleBodyPreview';
@@ -167,6 +168,30 @@ export function VehicleDeviceFields({
   const isOther = data.make === OTHER;
   const models = makes.find((m) => m.make === data.make)?.models ?? [];
   const selected = models.find((m) => m.model === data.model) ?? null;
+  const yearNum = data.year ? Number(data.year) : null;
+  // The tank for THIS year's generation — a 2009 Camry holds 70 L, a 2020 one
+  // 60 L — filled into the field the moment the year is chosen, so the
+  // manager confirms a number rather than looking one up.
+  const catalogueTank = selected ? catalogueTankFor(selected, yearNum) : null;
+  const tankNum = data.tankCapacityLiters ? Number(data.tankCapacityLiters) : null;
+  const tankProblem = (() => {
+    if (tankNum == null) return null;
+    if (!Number.isFinite(tankNum) || tankNum < 20 || tankNum > 600) return 'Enter a tank size between 20 and 600 L.';
+    if (catalogueTank && (tankNum < catalogueTank.liters / 2 || tankNum > catalogueTank.liters * 2)) {
+      return `That does not look like a ${selected!.model} tank — the manufacturer figure is ${catalogueTank.liters} L.`;
+    }
+    return null;
+  })();
+  const tankIsCatalogue = catalogueTank != null && tankNum === catalogueTank.liters;
+
+  const pickYear = (year: string) => {
+    if (!selected) {
+      set('year', year);
+      return;
+    }
+    const gen = catalogueTankFor(selected, year ? Number(year) : null);
+    onChange({ ...data, year, tankCapacityLiters: gen.liters ? String(gen.liters) : data.tankCapacityLiters });
+  };
 
   // Years the chosen model was actually sold, newest first — an open-ended
   // number box let someone register a 2019 Hiace as a 1019.
@@ -217,7 +242,7 @@ export function VehicleDeviceFields({
             onChange={(e) => {
               // Changing make invalidates the model beneath it, and the year
               // range with it.
-              onChange({ ...data, make: e.target.value, model: '', year: '' });
+              onChange({ ...data, make: e.target.value, model: '', year: '', tankCapacityLiters: '' });
             }}
             className={inputClass}
           >
@@ -244,7 +269,7 @@ export function VehicleDeviceFields({
               required
               value={data.model}
               disabled={!data.make}
-              onChange={(e) => onChange({ ...data, model: e.target.value, year: '' })}
+              onChange={(e) => onChange({ ...data, model: e.target.value, year: '', tankCapacityLiters: '' })}
               className={`${inputClass} disabled:opacity-50`}
             >
               <option value="">{data.make ? 'Select a model…' : 'Pick a make first'}</option>
@@ -264,7 +289,7 @@ export function VehicleDeviceFields({
             required
             value={data.year}
             disabled={!isOther && !data.model}
-            onChange={(e) => set('year', e.target.value)}
+            onChange={(e) => pickYear(e.target.value)}
             className={`${inputClass} disabled:opacity-50`}
           >
             <option value="">{years.length ? 'Select a year…' : 'Pick a model first'}</option>
@@ -278,13 +303,31 @@ export function VehicleDeviceFields({
         <Field label="Tank capacity (L)">
           <input
             type="number"
+            min={20}
+            max={600}
+            step={1}
             value={data.tankCapacityLiters}
             onChange={(e) => set('tankCapacityLiters', e.target.value)}
-            className={inputClass}
-            placeholder={selected ? String(selected.tank_liters) : '80'}
+            className={`${inputClass} ${tankProblem ? 'border-bad' : ''}`}
+            placeholder={catalogueTank ? String(catalogueTank.liters) : '80'}
+            aria-invalid={tankProblem ? true : undefined}
+            aria-describedby="tank-help"
           />
         </Field>
       </div>
+      {/* Says where the litres came from, so a pre-filled number is not
+          mistaken for one the manager typed — and warns before the API does. */}
+      <p id="tank-help" className={`-mt-3 mb-4 text-[11px] ${tankProblem ? 'text-bad' : 'text-ink-dim'}`}>
+        {tankProblem
+          ? tankProblem
+          : tankIsCatalogue
+            ? `Manufacturer figure for the ${data.year} ${selected?.model}${catalogueTank?.note ? ` — ${catalogueTank.note}` : ''} Change it only if this vehicle is different.`
+            : catalogueTank && tankNum != null
+              ? `Manufacturer figure is ${catalogueTank.liters} L; using your ${tankNum} L.`
+              : catalogueTank
+                ? 'Pick a year and the tank size fills in.'
+                : 'From the vehicle handbook — a fill to full is measured against this.'}
+      </p>
 
       {/* What picking this model will actually do to the estimate, stated
           before it is applied rather than discovered later in Calibration. */}
@@ -304,7 +347,7 @@ export function VehicleDeviceFields({
               <span className="font-mono text-ink">
                 {selected.consumption_l_per_100km} L/100 km
               </span>{' '}
-              and a <span className="font-mono text-ink">{selected.tank_liters} L</span> tank.
+              and a <span className="font-mono text-ink">{catalogueTank?.liters ?? selected.tank_liters} L</span> tank.
               Your fill-ups replace that with this vehicle&apos;s measured rate.
             </p>
             <p className="mt-1 text-[11px] text-ink-dim">

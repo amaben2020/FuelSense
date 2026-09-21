@@ -21,12 +21,32 @@
 
 import { VehicleType } from '../fuel/fuel-metrics.service';
 
+/**
+ * A tank size that applies to one generation of a model.
+ *
+ * Tank sizes change between generations far more than consumption does — a
+ * Camry went 70 → 64 → 60 L across three — so the litre figure is resolved by
+ * year while the burn figures stay per model. Where a vehicle carries a
+ * sub-tank that the main tank draws from automatically (Land Cruiser, Prado),
+ * `tankLiters` is the TOTAL, because a fill to full at the pump fills both
+ * and that total is what fill-to-full calibration measures against.
+ */
+export interface TankGeneration {
+  years: [number, number];
+  tankLiters: number;
+  note?: string;
+}
+
 export interface VehicleModelSpec {
   model: string;
   /** Drives the class preset fallback and the body-class 3D illustration. */
   type: VehicleType;
-  /** Litres. Manufacturer figure — a manager can override per vehicle. */
+  /** Litres for the model when no generation matches — a manager can override
+   *  per vehicle. Prefer `tankLitersFor()`, which consults `tankByYear`. */
   tankLiters: number;
+  /** Per-generation tank sizes, checked before `tankLiters`. Petrol figures;
+   *  hybrids of the same model usually carry 10–15% less. */
+  tankByYear?: TankGeneration[];
   /** L/100 km in mixed city traffic, not a combined-cycle rating. */
   consumptionL100km: number;
   /** L/h with the engine running and the vehicle stationary, AC on. */
@@ -52,15 +72,74 @@ export const VEHICLE_CATALOGUE: VehicleMakeEntry[] = [
   {
     make: 'Toyota',
     models: [
-      { model: 'Hiace', type: 'van_bus', tankLiters: 70, consumptionL100km: 13.5, idleBurnLph: 1.3, years: [2005, 2026] },
-      { model: 'Hilux', type: 'suv_pickup', tankLiters: 80, consumptionL100km: 12.8, idleBurnLph: 1.2, years: [2005, 2026] },
-      { model: 'Corolla', type: 'sedan', tankLiters: 50, consumptionL100km: 9.0, idleBurnLph: 0.8, years: [2003, 2026] },
-      { model: 'Camry', type: 'sedan', tankLiters: 60, consumptionL100km: 10.5, idleBurnLph: 0.9, years: [2002, 2026] },
-      { model: 'RAV4', type: 'suv_pickup', tankLiters: 60, consumptionL100km: 11.8, idleBurnLph: 1.1, years: [2006, 2026] },
-      { model: 'Land Cruiser', type: 'suv_pickup', tankLiters: 93, consumptionL100km: 18.5, idleBurnLph: 1.6, years: [2003, 2026] },
-      { model: 'Prado', type: 'suv_pickup', tankLiters: 87, consumptionL100km: 16.0, idleBurnLph: 1.4, years: [2003, 2026] },
-      { model: 'Highlander', type: 'suv_pickup', tankLiters: 72, consumptionL100km: 13.0, idleBurnLph: 1.2, years: [2004, 2026] },
-      { model: 'Sienna', type: 'van_bus', tankLiters: 75, consumptionL100km: 13.0, idleBurnLph: 1.2, years: [2004, 2026] },
+      // Tank sizes per generation are manufacturer (petrol) figures, cross-
+      // checked 2026-09-21 against US-spec listings (autopadre, edmunds,
+      // fueltankcap) and the model Wikipedia pages. Diesel and hybrid variants
+      // of the same body can differ by a few litres; the manager's own figure
+      // always wins over these.
+      {
+        model: 'Hiace', type: 'van_bus', tankLiters: 70, consumptionL100km: 13.5, idleBurnLph: 1.3, years: [2005, 2026],
+        tankByYear: [{ years: [2005, 2026], tankLiters: 70, note: 'H200 and H300 both carry 70 L.' }],
+      },
+      {
+        model: 'Hilux', type: 'suv_pickup', tankLiters: 80, consumptionL100km: 12.8, idleBurnLph: 1.2, years: [2005, 2026],
+        tankByYear: [{ years: [2005, 2026], tankLiters: 80 }],
+      },
+      {
+        model: 'Corolla', type: 'sedan', tankLiters: 50, consumptionL100km: 9.0, idleBurnLph: 0.8, years: [2003, 2026],
+        // 13.2 US gal on every petrol generation since the E120.
+        tankByYear: [{ years: [2003, 2026], tankLiters: 50, note: 'Hybrid variants carry 43 L.' }],
+      },
+      {
+        model: 'Camry', type: 'sedan', tankLiters: 60, consumptionL100km: 10.5, idleBurnLph: 0.9, years: [2002, 2026],
+        tankByYear: [
+          { years: [2002, 2011], tankLiters: 70, note: 'XV30/XV40 — 18.5 US gal.' },
+          { years: [2012, 2017], tankLiters: 64, note: 'XV50 — 17 US gal.' },
+          { years: [2018, 2024], tankLiters: 60, note: 'XV70 — 15.8 US gal.' },
+          { years: [2025, 2026], tankLiters: 49, note: 'XV80 is hybrid-only — 13 US gal.' },
+        ],
+      },
+      {
+        model: 'RAV4', type: 'suv_pickup', tankLiters: 60, consumptionL100km: 11.8, idleBurnLph: 1.1, years: [2006, 2026],
+        tankByYear: [
+          { years: [2006, 2018], tankLiters: 60, note: 'XA30 and XA40 — 15.9 US gal.' },
+          { years: [2019, 2026], tankLiters: 55, note: 'XA50 — 14.5 US gal.' },
+        ],
+      },
+      {
+        model: 'Land Cruiser', type: 'suv_pickup', tankLiters: 138, consumptionL100km: 18.5, idleBurnLph: 1.6, years: [2003, 2026],
+        // Twin tanks: the sub feeds the main automatically, so a fill to full
+        // is the total. Enter the main tank alone (93 / 80) only if the sub
+        // is disconnected.
+        tankByYear: [
+          { years: [2003, 2007], tankLiters: 145, note: '100 series — 96 L main + 49 L sub.' },
+          { years: [2008, 2021], tankLiters: 138, note: '200 series — 93 L main + 45 L sub.' },
+          { years: [2022, 2026], tankLiters: 110, note: '300 series — 80 L main + 30 L sub.' },
+        ],
+      },
+      {
+        model: 'Prado', type: 'suv_pickup', tankLiters: 150, consumptionL100km: 16.0, idleBurnLph: 1.4, years: [2003, 2026],
+        tankByYear: [
+          { years: [2003, 2009], tankLiters: 87, note: '120 series — 87 L main; some markets add a 63 L sub (150 L total).' },
+          { years: [2010, 2023], tankLiters: 150, note: '150 series — 87 L main + 63 L sub. 87 L if there is no sub-tank.' },
+          { years: [2024, 2026], tankLiters: 110, note: '250 series — single 110 L tank.' },
+        ],
+      },
+      {
+        model: 'Highlander', type: 'suv_pickup', tankLiters: 68, consumptionL100km: 13.0, idleBurnLph: 1.2, years: [2004, 2026],
+        tankByYear: [
+          { years: [2004, 2007], tankLiters: 73, note: 'XU20 — 19.2 US gal.' },
+          { years: [2008, 2019], tankLiters: 73, note: 'XU40/XU50 petrol — 19.2 US gal. Hybrid 65 L.' },
+          { years: [2020, 2026], tankLiters: 68, note: 'XU70 — 17.9 US gal. Hybrid 65 L.' },
+        ],
+      },
+      {
+        model: 'Sienna', type: 'van_bus', tankLiters: 68, consumptionL100km: 13.0, idleBurnLph: 1.2, years: [2004, 2026],
+        tankByYear: [
+          { years: [2004, 2020], tankLiters: 76, note: 'XL20/XL30 — 20 US gal.' },
+          { years: [2021, 2026], tankLiters: 68, note: 'XL40 is hybrid-only — 18 US gal.' },
+        ],
+      },
       { model: 'Coaster', type: 'van_bus', tankLiters: 95, consumptionL100km: 19.0, idleBurnLph: 1.8, years: [2000, 2026] },
       { model: 'Dyna', type: 'medium_truck', tankLiters: 100, consumptionL100km: 24.0, idleBurnLph: 1.9, years: [2000, 2026] },
     ],
@@ -197,6 +276,28 @@ export function catalogueMakes(): string[] {
   return VEHICLE_CATALOGUE.map((m) => m.make);
 }
 
+/**
+ * The tank size for a model in a given year. Generations are checked first;
+ * the model-level figure is the answer when no year is given or none matches.
+ */
+export function tankLitersFor(spec: VehicleModelSpec, year?: number | null): TankGeneration {
+  if (year != null && spec.tankByYear) {
+    const gen = spec.tankByYear.find((g) => year >= g.years[0] && year <= g.years[1]);
+    if (gen) return gen;
+  }
+  return { years: spec.years, tankLiters: spec.tankLiters };
+}
+
+/** Whether a year falls inside the model's production range. */
+export function yearInRange(spec: VehicleModelSpec, year: number): boolean {
+  return year >= spec.years[0] && year <= Math.min(spec.years[1], new Date().getFullYear() + 1);
+}
+
+/** The catalogue entry for a make/model, or null. */
+export function catalogueSpec(make: string, model: string): VehicleModelSpec | null {
+  return findSpec(make, model);
+}
+
 /** Models offered for a make, narrowed to those sold in the chosen year. */
 export function catalogueModels(make: string, year?: number | null): VehicleModelSpec[] {
   const entry = VEHICLE_CATALOGUE.find((m) => norm(m.make) === norm(make));
@@ -254,15 +355,16 @@ export function resolveVehicleSpec(
     };
   }
 
+  const tank = tankLitersFor(spec, year);
   return {
     make: make!,
     model: spec.model,
     year: year ?? null,
     type: spec.type,
-    tankLiters: spec.tankLiters,
+    tankLiters: tank.tankLiters,
     consumptionL100km: spec.consumptionL100km,
     idleBurnLph: spec.idleBurnLph,
     matched: true,
-    note: spec.note,
+    note: tank.note ?? spec.note,
   };
 }

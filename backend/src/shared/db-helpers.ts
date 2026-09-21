@@ -27,7 +27,12 @@ import {
   isVehicleType,
   presetForVehicleType,
 } from '../features/fuel/fuel-metrics.service';
-import { resolveVehicleSpec } from '../features/vehicles/vehicle-catalogue.service';
+import {
+  catalogueSpec,
+  resolveVehicleSpec,
+  tankLitersFor,
+  yearInRange,
+} from '../features/vehicles/vehicle-catalogue.service';
 
 export const IMEI_PATTERN = /^\d{15}$/;
 
@@ -117,6 +122,39 @@ export const createVehicle = async (
   if (!licensePlate?.trim()) {
     throw Object.assign(new Error('License plate is required'), { status: 400 });
   }
+  const bad = (message: string) => Object.assign(new Error(message), { status: 400 });
+
+  // Every figure that feeds the fuel model is checked here, not trusted from
+  // the form: a tank of 0 L makes the gauge divide by zero, a tank of 6000 L
+  // (a typo for 60) makes every fill look like a 1% top-up, and a year the
+  // model was never sold in picks the wrong generation's tank.
+  const yearNum = year != null && year !== ('' as unknown) ? Number(year) : null;
+  if (yearNum != null && (!Number.isInteger(yearNum) || yearNum < 1980 || yearNum > new Date().getFullYear() + 1)) {
+    throw bad(`Year must be between 1980 and ${new Date().getFullYear() + 1}`);
+  }
+  const known = make && model ? catalogueSpec(make, model) : null;
+  if (known && yearNum != null && !yearInRange(known, yearNum)) {
+    throw bad(`${make} ${known.model} was sold from ${known.years[0]}; ${yearNum} is outside that range`);
+  }
+  const tankNum = tankCapacityLiters != null && tankCapacityLiters !== ('' as unknown) ? Number(tankCapacityLiters) : null;
+  if (tankNum != null && (!Number.isFinite(tankNum) || tankNum < 20 || tankNum > 600)) {
+    throw bad('Tank capacity must be between 20 and 600 litres');
+  }
+  if (known && tankNum != null) {
+    // A manager may fit a long-range tank or disconnect a sub-tank, so a
+    // different figure is allowed — but not one that cannot be the same
+    // vehicle. Half or double the catalogue size is a typo, not a variant.
+    const expected = tankLitersFor(known, yearNum).tankLiters;
+    if (tankNum < expected * 0.5 || tankNum > expected * 2) {
+      throw bad(
+        `${tankNum} L does not look right for a ${yearNum ?? ''} ${make} ${known.model} — the manufacturer figure is ${expected} L. Leave it blank to use that, or enter a value within half to double of it.`
+      );
+    }
+  }
+  const odoNum = odometerBaselineKm != null && odometerBaselineKm !== ('' as unknown) ? Number(odometerBaselineKm) : null;
+  if (odoNum != null && (!Number.isFinite(odoNum) || odoNum < 0 || odoNum > 2_000_000)) {
+    throw bad('Odometer must be between 0 and 2,000,000 km');
+  }
 
   // Seeded from the actual make and model where we know it, and only from the
   // class average where we do not.
@@ -128,7 +166,7 @@ export const createVehicle = async (
   // exist — this only makes day one defensible.
   const fallbackType = isVehicleType(vehicleType) ? vehicleType : DEFAULT_VEHICLE_TYPE;
   const fallback = presetForVehicleType(fallbackType);
-  const spec = resolveVehicleSpec(make, model, year ? Number(year) : null, {
+  const spec = resolveVehicleSpec(make, model, yearNum, {
     type: fallbackType,
     consumptionL100km: fallback.consumptionL100km,
     idleBurnLph: fallback.idleBurnLph,
@@ -147,16 +185,12 @@ export const createVehicle = async (
       licensePlate: licensePlate.trim().toUpperCase(),
       make: make?.trim() || null,
       model: model?.trim() || null,
-      year: year ? Number(year) : null,
-      // The manager's own figure wins; the catalogue only fills a blank.
-      tankCapacityLiters: tankCapacityLiters
-        ? Number(tankCapacityLiters)
-        : spec.tankLiters || null,
-      odometerBaselineKm:
-        odometerBaselineKm != null && Number.isFinite(Number(odometerBaselineKm))
-          ? Math.round(Number(odometerBaselineKm))
-          : null,
-      odometerBaselineAt: odometerBaselineKm != null ? sql`NOW()` : null,
+      year: yearNum,
+      // The manager's own figure wins; the catalogue only fills a blank —
+      // with the size for that year's generation, not a model-wide average.
+      tankCapacityLiters: tankNum ?? (spec.tankLiters || null),
+      odometerBaselineKm: odoNum != null ? Math.round(odoNum) : null,
+      odometerBaselineAt: odoNum != null ? sql`NOW()` : null,
       vehicleType: resolvedType,
       consumptionRateL100km: preset.consumptionL100km.toFixed(2),
       idleBurnRateLph: preset.idleBurnLph.toFixed(2),

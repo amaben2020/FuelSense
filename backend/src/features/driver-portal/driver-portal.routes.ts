@@ -36,6 +36,7 @@ import {
 } from '../alerts/alert-catalogue.service';
 import { notifyDriverExplanation } from '../drivers/driver-explanation-notifier.service';
 import { logAndRespond } from '../../shared/errors';
+import { odometerAtPurchase } from '../telemetry/odometer.service';
 import { getSerializedIoValue } from '../tracker/avl-io.service';
 import { decodeSignal } from '../tracker/avl-catalogue.service';
 
@@ -465,45 +466,6 @@ router.get('/receipts', async (req: Request, res: Response) => {
     logAndRespond(res, req.path, error);
   }
 });
-
-// The device already reports the odometer, so the driver is not asked to read
-// it off the dash at the pump. Anchored to the purchase time rather than now,
-// because a receipt queued offline can arrive hours and many kilometres later.
-async function odometerAtPurchase(
-  vehicleId: string,
-  customerId: string,
-  when: Date
-): Promise<number | null> {
-  const before = await db.execute(sql`
-    SELECT odometer_km
-    FROM telemetry
-    WHERE vehicle_id = ${vehicleId}
-      AND customer_id = ${customerId}
-      AND odometer_km IS NOT NULL
-      AND recorded_at <= ${when}
-    ORDER BY recorded_at DESC
-    LIMIT 1
-  `);
-
-  // A receipt timed before this vehicle's first reading (clock skew on the
-  // phone, or a device fitted after the fill) still deserves the nearest fix.
-  const row =
-    before.rows[0] ??
-    (
-      await db.execute(sql`
-        SELECT odometer_km
-        FROM telemetry
-        WHERE vehicle_id = ${vehicleId}
-          AND customer_id = ${customerId}
-          AND odometer_km IS NOT NULL
-        ORDER BY recorded_at ASC
-        LIMIT 1
-      `)
-    ).rows[0];
-
-  const value = (row as Record<string, unknown> | undefined)?.odometer_km;
-  return value != null ? Number(value) : null;
-}
 
 /**
  * Is the driver standing at a filling station?
