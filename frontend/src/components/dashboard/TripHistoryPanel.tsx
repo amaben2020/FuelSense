@@ -15,6 +15,9 @@ import {
 import { tripColor, tripInk } from '@/lib/map-utils';
 import { TripHistoryChart, type TripDay } from './TripHistoryChart';
 import { TableSkeleton } from '@/components/ui/chrome';
+import { formatMinutes, formatMinutesShort } from '@/lib/duration';
+import { TripRules } from '@/components/dashboard/TripRules';
+import { TRIP_BREAK_MINUTES } from '@/lib/trip-rules';
 
 const PERIODS = [
   { label: 'Today', minutes: 1440 },
@@ -30,11 +33,6 @@ interface FlatTrip {
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 function formatDayHeading(date: string): string {
@@ -90,7 +88,7 @@ function StopTimeRow({ stop }: { stop: TripStop }) {
       <td className="px-6 py-1.5 font-mono">
         {formatTime(stop.arrived_at)}–{formatTime(stop.departed_at)}
       </td>
-      <td className="px-6 py-1.5 font-mono">{formatDuration(stop.duration_minutes)}</td>
+      <td className="px-6 py-1.5 font-mono">{formatMinutes(stop.duration_minutes)}</td>
       <td className="px-6 py-1.5" colSpan={6}>
         {label}
       </td>
@@ -482,7 +480,7 @@ export function TripHistoryPanel({
         <StatCard
           icon={Timer}
           label="Driving time"
-          value={loading && !data ? '…' : formatDuration(totals.minutes)}
+          value={loading && !data ? '…' : formatMinutes(totals.minutes)}
           detail="Engine-on journey time"
         />
         <StatCard
@@ -515,12 +513,13 @@ export function TripHistoryPanel({
           <div className="min-w-0">
             <h2 className="font-semibold text-ink">Trip history</h2>
             <p className="mt-1 text-xs text-ink-dim">
-              A trip ends after 30+ minutes with the ignition off. Fuel figures are estimates —
-              driving (distance ÷ baseline) + idle burn.
+              A trip ends after {TRIP_BREAK_MINUTES}+ minutes with the ignition off. Fuel figures
+              are estimates — driving (distance ÷ baseline) + idle burn.
               {data?.source === 'historical'
                 ? ' Nothing in this window, so the most recent journeys are shown.'
                 : ''}
             </p>
+            <TripRules className="mt-2 max-w-xl" />
           </div>
           {/* The table answers "what happened on this trip". The graph answers
               "what does the week look like" — a question the table can only
@@ -665,7 +664,7 @@ export function TripHistoryPanel({
                           {formatTime(trip.start_at)}–{formatTime(trip.end_at)}
                         </td>
                         <td className="px-6 py-2.5 font-mono">
-                          {formatDuration(trip.duration_minutes)}
+                          {formatMinutes(trip.duration_minutes)}
                         </td>
                         {/* The number alone makes the reader compare digits
                             down a column. A bar scaled to the longest trip in
@@ -694,7 +693,7 @@ export function TripHistoryPanel({
                           {trip.avg_speed_kph} / {trip.max_speed_kph} km/h
                         </td>
                         <td className="px-6 py-2.5 font-mono">
-                          {trip.idle_minutes > 0 ? `${trip.idle_minutes}m` : '—'}
+                          {trip.idle_minutes > 0 ? formatMinutesShort(trip.idle_minutes) : '—'}
                         </td>
                         <td className="px-6 py-2.5 font-mono">
                           {trip.estimated_fuel_liters} L

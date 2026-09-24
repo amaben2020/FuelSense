@@ -6,6 +6,7 @@ import { IdleStretch, ServerTrip, TripStop, formatNgn } from '@/lib/api';
 import { StopDetailModal } from './StopDetailModal';
 import { Avatar } from '@/components/ui/chrome';
 import { VehicleBodyPreview, type BodyClass } from '@/components/VehicleBodyPreview';
+import { formatMinutes } from '@/lib/duration';
 
 const HHMM: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
 
@@ -64,11 +65,6 @@ function tripTimeline(trip: ServerTrip): TimelineItem[] {
     const delta = new Date(a.at).getTime() - new Date(b.at).getTime();
     return delta !== 0 ? delta : a.type === 'stop' ? -1 : 1;
   });
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 const STOP_DOT: Record<TripStop['kind'], string> = {
@@ -226,7 +222,7 @@ export function TripDetailModal({
 
           <div className="grid grid-cols-2 gap-3 border-b border-edge px-6 py-4 sm:grid-cols-4">
             <Summary icon={Route} label="Distance" value={`${totals?.distance_km ?? 0} km`} />
-            <Summary icon={Clock} label="Idling" value={formatDuration(totalIdle)} tone="text-warn" />
+            <Summary icon={Clock} label="Idling" value={formatMinutes(totalIdle)} tone="text-warn" />
             {/* Fuel burned is a cost, not an achievement: green is reserved
                 for money kept. */}
             <Summary
@@ -253,9 +249,9 @@ export function TripDetailModal({
                       <p className="font-mono text-[11px] text-ink-dim">
                         {group.trips.length} trip{group.trips.length === 1 ? '' : 's'} ·{' '}
                         {group.distanceKm.toFixed(1)} km ·{' '}
-                        {formatDuration(group.durationMinutes)} driving
+                        {formatMinutes(group.durationMinutes)} driving
                         {group.idleMinutes > 0 && (
-                          <span className="text-warn"> · {formatDuration(group.idleMinutes)} idle</span>
+                          <span className="text-warn"> · {formatMinutes(group.idleMinutes)} idle</span>
                         )}
                       </p>
                     </div>
@@ -278,7 +274,7 @@ export function TripDetailModal({
                             className="relative py-2 text-xs text-ink-dim"
                           >
                             <span className="absolute -left-[21px] top-3.5 h-1.5 w-1.5 rounded-full bg-edge" />
-                            Parked {formatDuration(gap)}
+                            Parked {formatMinutes(gap)}
                           </li>,
                         ]
                       : []),
@@ -288,10 +284,10 @@ export function TripDetailModal({
                         <div>
                           <p className="font-mono text-sm font-medium text-ink">{timeRange(trip)}</p>
                           <p className="mt-0.5 text-xs text-ink-dim">
-                            {formatDuration(trip.duration_minutes)} · avg {trip.avg_speed_kph} km/h ·
+                            {formatMinutes(trip.duration_minutes)} · avg {trip.avg_speed_kph} km/h ·
                             top {trip.max_speed_kph} km/h
                             {trip.idle_minutes > 0 && (
-                              <span className="text-warn"> · idle {trip.idle_minutes}m</span>
+                              <span className="text-warn"> · idle {formatMinutes(trip.idle_minutes)}</span>
                             )}
                           </p>
                         </div>
@@ -339,7 +335,7 @@ export function TripDetailModal({
                               {item.stop.kind === 'destination' &&
                                 item.stop.duration_minutes > 0 && (
                                   <span className="text-ink-dim">
-                                    parked {item.stop.duration_minutes}m
+                                    parked {formatMinutes(item.stop.duration_minutes)}
                                   </span>
                                 )}
                               {(item.stop.kind === 'stop' ||
@@ -354,7 +350,7 @@ export function TripDetailModal({
                                         : 'text-warn'
                                   }
                                 >
-                                  for {item.stop.duration_minutes}m
+                                  for {formatMinutes(item.stop.duration_minutes)}
                                 </span>
                               )}
                               <span className="ml-auto text-brand">View place →</span>
@@ -381,7 +377,7 @@ export function TripDetailModal({
                             >
                               <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warn" />
                               <span className="min-w-0 truncate text-warn">
-                                Engine idling {item.idle.minutes}m
+                                Engine idling {formatMinutes(item.idle.minutes)}
                                 {item.idle.place_label ? ` at ${item.idle.place_label}` : ''}
                               </span>
                               <span className="text-ink-dim">{clockTime(item.at)}</span>

@@ -1810,6 +1810,8 @@ export interface BehaviorVehicle {
   grade: string;
   total_events: number;
   security_events: number;
+  /** Tracker supply events — device health, never counted against the driver. */
+  power_events?: number;
   counts: Record<string, number>;
   last_event_at: string | null;
 }
@@ -1820,6 +1822,7 @@ export interface DeviceEventsSummary {
     avg_score: number | null;
     total_events: number;
     security_events: number;
+    power_events?: number;
     idle_hours?: number;
     idle_fuel_liters?: number;
     counts_by_type: Record<string, number>;

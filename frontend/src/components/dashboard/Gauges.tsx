@@ -427,14 +427,23 @@ export function LiquidFuelGauge({
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center">
-          {Icon && <Icon className={`h-4 w-4 ${inReserve ? 'text-bad-bright' : 'text-ink-mid'}`} />}
+        {/* Constrained to the dial, not to the component box. The overlay used
+            to be `inset-0` — the full square — so "In reserve — refuel soon" ran
+            out past the rim on both sides and sat on the tick marks. The widest
+            line that fits inside a circle is its inscribed square, r√2, which is
+            `rDial * √2 / 100` of the rendered size; a little padding is taken off
+            so a descender never touches the rim. Long captions wrap instead. */}
+        <div
+          className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 text-center"
+          style={{ paddingInline: size * (1 - (rDial * Math.SQRT2) / 100) / 2 }}
+        >
+          {Icon && <Icon className={`h-4 w-4 shrink-0 ${inReserve ? 'text-bad-bright' : 'text-ink-mid'}`} />}
           <p
             className={`text-xl font-bold tabular-nums tracking-tight drop-shadow-sm ${inReserve ? 'text-bad-bright' : 'text-ink'}`}
           >
             {primary}
           </p>
-          {secondary}
+          <span className="block max-w-full text-balance leading-tight">{secondary}</span>
         </div>
       </div>
     </div>

@@ -44,6 +44,7 @@ import {
   severityRank,
   siphonContextLines,
 } from '@/lib/trust-language';
+import { formatHoursShort } from '@/lib/duration';
 
 /**
  * Minimum share of the fuel a distance should have burned that must actually
@@ -57,10 +58,7 @@ const FUEL_COVERAGE_FLOOR = 0.6;
 
 /** "2h 48m" — the unit a manager already thinks in for engine-on time. */
 function formatHoursMins(hours: number): string {
-  const total = Math.round((hours ?? 0) * 60);
-  const h = Math.floor(total / 60);
-  const m = total % 60;
-  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+  return formatHoursShort(hours);
 }
 
 function activityDateKey(iso: string) {

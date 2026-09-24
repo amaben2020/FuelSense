@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Clock, ExternalLink, Loader2, MapPin, X } from 'lucide-react';
 import { RotateCw } from 'lucide-react';
 import { StopPlace, TripStop, fetchStopPlace, placePhotoSrc } from '@/lib/api';
+import { formatMinutes } from '@/lib/duration';
 
 const KIND_LABEL: Record<TripStop['kind'], string> = {
   origin: 'Trip started here',
@@ -30,13 +31,6 @@ function formatWhen(iso: string): string {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m ? `${h}h ${m}m` : `${h}h`;
 }
 
 /** Shows exactly where a driver stopped — address, venue and photo — so a
@@ -199,7 +193,7 @@ export function StopDetailModal({
                     <Clock
                       className={`h-3 w-3 ${stop.kind === 'traffic' ? 'text-traffic' : 'text-warn'}`}
                     />
-                    {formatDuration(stop.duration_minutes)}
+                    {formatMinutes(stop.duration_minutes)}
                   </>
                 ) : (
                   formatWhen(stop.departed_at)

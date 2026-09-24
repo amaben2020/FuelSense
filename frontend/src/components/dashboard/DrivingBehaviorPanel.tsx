@@ -27,6 +27,7 @@ import {
 import { EventReplayPanel } from '@/components/dashboard/EventReplayPanel';
 import { ReplayTarget } from '@/lib/replay-target';
 import { parseServerTime } from '@/lib/map-utils';
+import { formatHoursShort, formatMinutes } from '@/lib/duration';
 
 // A harsh brake or a swerve is a claim about how someone drove. Replaying the
 // surrounding telemetry is what turns it into something you can discuss with
@@ -41,7 +42,7 @@ const REPLAYABLE_TYPES = new Set([
 
 const REFRESH_MS = 30000;
 
-type EventFilter = 'attention' | 'all' | 'driving' | 'security' | 'trips';
+type EventFilter = 'attention' | 'all' | 'driving' | 'security' | 'power' | 'trips';
 
 const DRIVING_TYPES = new Set([
   'harsh_acceleration',
@@ -51,14 +52,20 @@ const DRIVING_TYPES = new Set([
   'idling_start',
   'idling_end',
 ]);
+/**
+ * Tracker supply events. Split out of SECURITY_TYPES because a unit wired to
+ * a switched circuit loses power at every ignition-off — three times in one
+ * morning on the reference vehicle — and listing that under a driver's name
+ * on a Driving behaviour screen reads as an accusation of tampering against
+ * someone who only turned the engine off. It is the tracker's health.
+ */
+const POWER_TYPES = new Set(['power_unplug', 'power_dropout', 'power_restored']);
+
 const SECURITY_TYPES = new Set([
   'towing',
   'crash',
   'jamming_start',
   'jamming_end',
-  'power_unplug',
-  'power_dropout',
-  'power_restored',
   'geofence_enter',
   'geofence_exit',
 ]);
@@ -228,6 +235,9 @@ function buildFeed(events: DeviceEvent[], idleBurnLph: number): FeedItem[] {
       detail: eventValueDetail(e),
       needsAttention:
         !HOUSEKEEPING_TYPES.has(e.event_type) &&
+        // Tracker power is chased by whoever fits the trackers, not by the
+        // manager reviewing a driver, so it stays out of "needs attention".
+        !POWER_TYPES.has(e.event_type) &&
         (e.severity !== 'info' || SECURITY_TYPES.has(e.event_type)),
     });
   }
@@ -257,19 +267,9 @@ function eventValueDetail(e: DeviceEvent): string | null {
   return null;
 }
 
-function formatMinutes(minutes: number): string {
-  if (minutes < 60) return `${Math.round(minutes)}m`;
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
 function formatHours(hours: number | null | undefined): string {
   if (hours == null) return '—';
-  if (hours < 1) return `${Math.round(hours * 60)}m`;
-  const whole = Math.floor(hours);
-  const mins = Math.round((hours - whole) * 60);
-  return mins > 0 ? `${whole}h ${mins}m` : `${whole}h`;
+  return formatHoursShort(hours);
 }
 
 function scoreBarColor(score: number) {
@@ -349,7 +349,8 @@ export function DrivingBehaviorPanel() {
     if (filter === 'driving') {
       return feed.filter((e) => DRIVING_TYPES.has(e.eventType) || e.eventType === 'idling');
     }
-    const set = filter === 'security' ? SECURITY_TYPES : TRIP_TYPES;
+    const set =
+      filter === 'security' ? SECURITY_TYPES : filter === 'power' ? POWER_TYPES : TRIP_TYPES;
     return feed.filter((e) => set.has(e.eventType));
   }, [feed, filter]);
 
@@ -487,8 +488,13 @@ export function DrivingBehaviorPanel() {
         <StatTile
           label="Security events"
           value={String(summary?.fleet.security_events ?? 0)}
-          hint="Towing · crash · jamming · unplug"
+          hint="Towing · crash · jamming · geofence"
           tone={(summary?.fleet.security_events ?? 0) > 0 ? 'text-bad' : 'text-good'}
+        />
+        <StatTile
+          label="Tracker power"
+          value={String(summary?.fleet.power_events ?? 0)}
+          hint="Supply lost or restored — device health, not driving"
         />
         <StatTile
           label="Harsh driving"
@@ -561,6 +567,17 @@ export function DrivingBehaviorPanel() {
                         <ShieldAlert className="h-3 w-3" /> {v.security_events} security
                       </span>
                     )}
+                    {/* Neutral, and worded as the tracker's problem — it sits
+                        beside a driver's name, and a supply that drops at every
+                        ignition-off is a wiring job, not a driver to question. */}
+                    {(v.power_events ?? 0) > 0 && (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full bg-ink-dim/15 px-2 py-0.5 text-xs text-ink-mid"
+                        title="The tracker lost power. Usually means it is wired to a switched circuit rather than permanent battery — a fitting issue, not the driver."
+                      >
+                        <PlugZap className="h-3 w-3" /> tracker power ×{v.power_events}
+                      </span>
+                    )}
                     <span
                       className={`rounded-full px-2.5 py-0.5 text-sm font-bold ${GRADE_STYLES[v.grade] ?? 'bg-ink-dim/20 text-ink-mid'}`}
                     >
@@ -613,6 +630,7 @@ export function DrivingBehaviorPanel() {
                 ['attention', 'Needs attention'],
                 ['driving', 'Driving'],
                 ['security', 'Security'],
+                ['power', 'Tracker power'],
                 ['trips', 'Trips'],
                 ['all', 'Everything'],
               ] as [EventFilter, string][]

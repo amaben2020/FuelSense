@@ -15,6 +15,7 @@
 import { recordDeviceEvent } from '../devices/device-event-decoder.service';
 import { db, alerts } from '../../shared/db-helpers';
 import { idleFuelBurnLiters, DEFAULT_FUEL_PRICE_NGN_LITER } from '../fuel/fuel-metrics.service';
+import { IDLE_GAP_CAP_SECONDS } from './telemetry-deltas.repository';
 import { latestReceiptPrice } from '../fuel/fuel-price.service';
 import { DetectorState } from '../../shared/detector-state';
 
@@ -38,13 +39,51 @@ export interface IdleReading {
   recordedAt: Date;
 }
 
+/**
+ * Longest silence that may still be counted as idling, in ms.
+ *
+ * The same ceiling the delta queries apply per hop, so the event feed and the
+ * daily reports cannot disagree about what an unobserved gap is worth. On the
+ * reference vehicle the gap between frames while idling has a median of 25 s
+ * and a 90th percentile of 6.5 minutes, so a 10-minute ceiling costs almost
+ * nothing on real idling and refuses the outages outright.
+ */
+const MAX_IDLE_GAP_MS = IDLE_GAP_CAP_SECONDS * 1000;
+
 export interface IdleState {
   idleSince: Date;
+  /** The last frame seen during this stretch — the end of observed time. */
+  lastSeenAt: Date;
+  /**
+   * Idling we actually watched happen: the sum of gaps between consecutive
+   * frames, each capped at `MAX_IDLE_GAP_MS`.
+   *
+   * This is the whole point of the state machine. Measuring instead from
+   * `idleSince` to whichever frame arrives next books every silence as
+   * idling: on 23 September a tracker slept for 16.6 hours — with the
+   * ignition reading OFF on its last frame before the silence — and the next
+   * frame closed the stretch at "idled 16h 35m, ≈14.93 L burned", against a
+   * true figure of about 12 minutes. That is a fabricated accusation attached
+   * to a named driver, and no fleet manager can tell it from a real one.
+   */
+  observedMs: number;
   /** True once `idling_start` has been written for this stretch. */
   startEmitted: boolean;
   /** True once the long-idle alert has been raised for this stretch. */
   alerted?: boolean;
 }
+
+/** Observed idling so far, in minutes — the only duration ever reported. */
+export function observedIdleMinutes(state: IdleState): number {
+  return Math.round((state.observedMs / 60000) * 10) / 10;
+}
+
+const beginStretch = (at: Date): IdleState => ({
+  idleSince: at,
+  lastSeenAt: at,
+  observedMs: 0,
+  startEmitted: false,
+});
 
 export interface IdleEmission {
   eventType: 'idling_start' | 'idling_end';
@@ -65,49 +104,68 @@ export function stepIdle(
   state: IdleState | null,
   reading: IdleReading
 ): { state: IdleState | null; emissions: IdleEmission[] } {
+  /** Closes a stretch at the last frame that actually witnessed it. */
+  const close = (s: IdleState): IdleEmission[] => {
+    const minutes = observedIdleMinutes(s);
+    if (!s.startEmitted && s.observedMs < IDLE_MIN_MS) return [];
+    const out: IdleEmission[] = [];
+    // A qualifying stretch that ended before any frame crossed the threshold
+    // still gets both events, backdated. Without this, an idle that the device
+    // reported only at its start and its end would vanish entirely.
+    if (!s.startEmitted) {
+      out.push({ eventType: 'idling_start', occurredAt: s.idleSince, minutes: null });
+    }
+    // Ends at the last frame we saw, not at the frame that happens to be in
+    // hand — those are the same instant during normal reporting and hours
+    // apart after an outage.
+    out.push({ eventType: 'idling_end', occurredAt: s.lastSeenAt, minutes });
+    return out;
+  };
+
   if (isStationaryRunning(reading)) {
-    if (!state) {
-      return {
-        state: { idleSince: reading.recordedAt, startEmitted: false },
-        emissions: [],
-      };
+    if (!state) return { state: beginStretch(reading.recordedAt), emissions: [] };
+
+    const gap = reading.recordedAt.getTime() - state.lastSeenAt.getTime();
+
+    // Silence longer than the cap is not evidence of anything. Whatever the
+    // engine did through it, we did not see it: bank what was observed, and
+    // let this frame open a fresh stretch.
+    if (gap > MAX_IDLE_GAP_MS) {
+      return { state: beginStretch(reading.recordedAt), emissions: close(state) };
     }
 
-    const elapsed = reading.recordedAt.getTime() - state.idleSince.getTime();
-    if (!state.startEmitted && elapsed >= IDLE_MIN_MS) {
+    const next: IdleState = {
+      ...state,
+      lastSeenAt: reading.recordedAt,
+      observedMs: state.observedMs + Math.max(0, gap),
+    };
+
+    if (!next.startEmitted && next.observedMs >= IDLE_MIN_MS) {
       return {
-        state: { ...state, startEmitted: true },
+        state: { ...next, startEmitted: true },
         // Backdated to when the engine actually started sitting, not to the
         // frame that happened to cross the threshold.
-        emissions: [{ eventType: 'idling_start', occurredAt: state.idleSince, minutes: null }],
+        emissions: [{ eventType: 'idling_start', occurredAt: next.idleSince, minutes: null }],
       };
     }
-    return { state, emissions: [] };
+    return { state: next, emissions: [] };
   }
 
   // Engine off, or the vehicle has started moving — either way the stretch is
-  // over. This reading's timestamp is the moment it ended.
+  // over. Its final hop counts only up to the cap, for the same reason.
   if (!state) return { state: null, emissions: [] };
 
-  const elapsedMs = reading.recordedAt.getTime() - state.idleSince.getTime();
-  if (!state.startEmitted && elapsedMs < IDLE_MIN_MS) {
-    return { state: null, emissions: [] };
-  }
+  const finalGap = Math.max(0, reading.recordedAt.getTime() - state.lastSeenAt.getTime());
+  const ended: IdleState = {
+    ...state,
+    observedMs: state.observedMs + Math.min(finalGap, MAX_IDLE_GAP_MS),
+    lastSeenAt:
+      finalGap > MAX_IDLE_GAP_MS
+        ? new Date(state.lastSeenAt.getTime() + MAX_IDLE_GAP_MS)
+        : reading.recordedAt,
+  };
 
-  const emissions: IdleEmission[] = [];
-  // A qualifying stretch that ended before any frame crossed the threshold
-  // still gets both events, backdated. Without this, an idle that the device
-  // reported only at its start and its end would vanish entirely.
-  if (!state.startEmitted) {
-    emissions.push({ eventType: 'idling_start', occurredAt: state.idleSince, minutes: null });
-  }
-  emissions.push({
-    eventType: 'idling_end',
-    occurredAt: reading.recordedAt,
-    minutes: Math.round((elapsedMs / 60000) * 10) / 10,
-  });
-
-  return { state: null, emissions };
+  return { state: null, emissions: close(ended) };
 }
 
 // An idle stretch outlives a restart: parked with the engine running the
@@ -116,8 +174,24 @@ export function stepIdle(
 const stateByImei = new DetectorState<IdleState>('idle', {
   ttlSeconds: 6 * 60 * 60,
   revive: (raw) => {
-    const r = raw as { idleSince: string; startEmitted: boolean; alerted?: boolean };
-    return { ...r, idleSince: new Date(r.idleSince) };
+    const r = raw as {
+      idleSince: string;
+      lastSeenAt?: string;
+      observedMs?: number;
+      startEmitted: boolean;
+      alerted?: boolean;
+    };
+    const idleSince = new Date(r.idleSince);
+    return {
+      ...r,
+      idleSince,
+      // Rows written before observed-time accounting existed carry neither
+      // field. Treating them as "nothing observed yet" is the safe read: the
+      // stretch restarts from this frame rather than inheriting a wall-clock
+      // claim nobody measured.
+      lastSeenAt: r.lastSeenAt ? new Date(r.lastSeenAt) : idleSince,
+      observedMs: typeof r.observedMs === 'number' ? r.observedMs : 0,
+    };
   },
 });
 
@@ -186,7 +260,7 @@ export async function handleIdleForRecord(ctx: IdleContext): Promise<IdleEmissio
     // Alert while the engine is still running, not in hindsight: parked with
     // the ignition on, the FMC150 slows to its stop cadence, so the crossing
     // is detected on whichever frame arrives after the threshold passes.
-    const minutes = (ctx.recordedAt.getTime() - state.idleSince.getTime()) / 60000;
+    const minutes = observedIdleMinutes(state);
     if (!state.alerted && minutes >= IDLE_ALERT_MINUTES) {
       await raiseIdleAlert(ctx, minutes);
       state.alerted = true;

@@ -42,6 +42,7 @@ import { ZONE_PURPOSE_LABEL } from '@/lib/trust-language';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
 import { TripDetailModal } from './TripDetailModal';
 import { StopDetailModal } from './StopDetailModal';
+import { formatMinutes, formatMinutesShort } from '@/lib/duration';
 
 // The puck glides for the whole refresh interval rather than easing for two
 // seconds and sitting still for eighteen: a car that lurches once every
@@ -129,11 +130,6 @@ function formatTripTime(iso: string): string {
 
 function formatTripDay(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
 /** ISO → the `datetime-local` input format, in the viewer's own timezone. */
@@ -1193,7 +1189,7 @@ export function LiveMonitoringMap({
                     focusedTrip?.vehicleId === selectedTrack.vehicleId &&
                     focusedTrip.index === i
                   }
-                  title={`Trip ${i + 1} · ${trip.distance_km} km · ${formatDuration(trip.duration_minutes)}`}
+                  title={`Trip ${i + 1} · ${trip.distance_km} km · ${formatMinutes(trip.duration_minutes)}`}
                   onClick={() => handleFocusTrip(selectedTrack.vehicleId, i)}
                 />
               ))}
@@ -1207,7 +1203,7 @@ export function LiveMonitoringMap({
                 const end = trip.stops.find((s) => s.kind === 'destination');
                 if (!end || trip.active) return null;
                 const parked =
-                  end.duration_minutes > 0 ? ` · parked ${formatDuration(end.duration_minutes)}` : '';
+                  end.duration_minutes > 0 ? ` · parked ${formatMinutes(end.duration_minutes)}` : '';
                 return (
                   <TripBadgeMarker
                     key={`trip-end-${selectedTrack.vehicleId}-${i}`}
@@ -1245,7 +1241,7 @@ export function LiveMonitoringMap({
                       // differently: a visit, a moment's halt, and congestion.
                       label={HALT_LABEL[stop.kind] ?? 'P'}
                       color={HALT_COLOR[stop.kind] ?? 'var(--warn)'}
-                      title={`${HALT_TITLE[stop.kind] ?? 'Stopped'} · ${stop.duration_minutes}m`}
+                      title={`${HALT_TITLE[stop.kind] ?? 'Stopped'} · ${formatMinutes(stop.duration_minutes)}`}
                       focused={
                         hoveredStop?.stop.arrived_at === stop.arrived_at &&
                         hoveredStop?.stop.lat === stop.lat
@@ -2008,9 +2004,9 @@ export function LiveMonitoringMap({
                             </span>
                           </span>
                           <span className="mt-0.5 block pl-[22px] text-[10px] text-ink-dim">
-                            {formatDuration(trip.duration_minutes)} · avg {trip.avg_speed_kph}{' '}
+                            {formatMinutes(trip.duration_minutes)} · avg {trip.avg_speed_kph}{' '}
                             km/h · top {trip.max_speed_kph} km/h
-                            {trip.idle_minutes > 0 ? ` · idle ${trip.idle_minutes}m` : ''}
+                            {trip.idle_minutes > 0 ? ` · idle ${formatMinutesShort(trip.idle_minutes)}` : ''}
                           </span>
                         </button>
                       </li>
@@ -2058,11 +2054,11 @@ export function LiveMonitoringMap({
           <p className="text-sm font-semibold text-ink">
             {hoveredStop.stop.kind === 'destination'
               ? hoveredStop.stop.ongoing
-                ? `Trip ended · parked ${formatDuration(hoveredStop.stop.duration_minutes)} so far`
+                ? `Trip ended · parked ${formatMinutes(hoveredStop.stop.duration_minutes)} so far`
                 : hoveredStop.stop.duration_minutes > 0
-                  ? `Trip ended · parked ${formatDuration(hoveredStop.stop.duration_minutes)}`
+                  ? `Trip ended · parked ${formatMinutes(hoveredStop.stop.duration_minutes)}`
                   : 'Trip ended here'
-              : `Parked ${formatDuration(hoveredStop.stop.duration_minutes)}`}
+              : `Parked ${formatMinutes(hoveredStop.stop.duration_minutes)}`}
           </p>
           <p className="mt-0.5 font-mono text-xs text-ink-mid">
             {hoveredStop.stop.kind === 'destination' && hoveredStop.stop.ongoing

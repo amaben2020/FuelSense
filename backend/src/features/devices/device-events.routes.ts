@@ -25,13 +25,27 @@ const IDLE_PENALTY_PER_HOUR = 6;
 // Below this, idling is traffic and junctions rather than a habit worth scoring.
 const IDLE_FREE_HOURS = 0.5;
 
+/**
+ * What counts against the vehicle as a security concern.
+ *
+ * Tracker power events are deliberately NOT here. `power_unplug` and
+ * `power_dropout` say the device lost its supply — which on a unit wired to a
+ * switched circuit happens at every single ignition-off, and did three times
+ * in one morning on the reference vehicle. Counted as security, they appeared
+ * beside a named driver as "3 security" on a screen headed Driving behaviour,
+ * which reads as an accusation of tampering against someone whose only act was
+ * turning the engine off. They belong to the tracker's health, and are
+ * reported under `power` below.
+ */
 const SECURITY_EVENT_TYPES = [
   'towing',
   'crash',
   'jamming_start',
-  'power_unplug',
   'geofence_exit',
 ];
+
+/** Tracker supply events — device health, never driver conduct. */
+const POWER_EVENT_TYPES = ['power_unplug', 'power_dropout', 'power_restored'];
 
 /**
  * Turns a penalty rate into a 0-100 score that keeps meaning at the bad end.
@@ -72,7 +86,14 @@ router.get('/', async (req: Request, res: Response) => {
       sql`e.customer_id = ${customerId}`,
       sql`e.occurred_at > NOW() - (${days} || ' days')::INTERVAL`,
     ];
-    if (type === 'security') {
+    if (type === 'power') {
+      filters.push(
+        sql`e.event_type IN (${sql.join(
+          POWER_EVENT_TYPES.map((t) => sql`${t}`),
+          sql`, `
+        )})`
+      );
+    } else if (type === 'security') {
       filters.push(
         sql`e.event_type IN (${sql.join(
           SECURITY_EVENT_TYPES.map((t) => sql`${t}`),
@@ -191,6 +212,7 @@ router.get('/summary', async (req: Request, res: Response) => {
         0
       );
       const totalEvents = Object.values(counts).reduce((s, c) => s + c, 0);
+      const powerEvents = POWER_EVENT_TYPES.reduce((s, t) => s + (counts[t] || 0), 0);
 
       return {
         vehicle_id: vid,
@@ -204,6 +226,8 @@ router.get('/summary', async (req: Request, res: Response) => {
         grade: gradeForScore(score),
         total_events: totalEvents,
         security_events: securityEvents,
+        /** Tracker supply events. Device health — not counted against the driver. */
+        power_events: powerEvents,
         counts,
         last_event_at: lastEventByVehicle.get(vid) ?? null,
       };
@@ -226,6 +250,7 @@ router.get('/summary', async (req: Request, res: Response) => {
           (s, t) => s + (fleetCounts[t] || 0),
           0
         ),
+        power_events: POWER_EVENT_TYPES.reduce((s, t) => s + (fleetCounts[t] || 0), 0),
         idle_hours: round1(vehicles.reduce((s, v) => s + v.idle_hours, 0)),
         idle_fuel_liters: round1(vehicles.reduce((s, v) => s + v.idle_fuel_liters, 0)),
         counts_by_type: fleetCounts,

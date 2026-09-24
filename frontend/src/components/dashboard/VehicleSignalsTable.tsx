@@ -18,6 +18,7 @@ import {
   getVehicleSignals,
 } from '@/lib/api';
 import { TableSkeleton } from '@/components/ui/chrome';
+import { formatMinutes } from '@/lib/duration';
 
 const RANGES = [
   { days: 1, label: 'Today' },
@@ -53,12 +54,12 @@ const num = (v: string | number | null | undefined): number => {
   return n == null || Number.isNaN(n) ? 0 : n;
 };
 
+/** Seconds, for the engine-hours tiles. Sub-minute is shown as seconds; the
+ *  rest defers to the shared duration rule. */
 function formatDuration(seconds: number): string {
   if (seconds <= 0) return '—';
   if (seconds < 60) return `${Math.round(seconds)}s`;
-  const mins = Math.round(seconds / 60);
-  if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  return formatMinutes(seconds / 60);
 }
 
 const formatClock = (iso: string | null): string =>
