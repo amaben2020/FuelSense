@@ -96,7 +96,10 @@ async function run(): Promise<void> {
 
   const list = rows.rows as unknown as Row[];
   if (!list.length) {
-    console.log('Every stored idle stretch already matches its telemetry. Nothing to do.');
+    console.log('Every stored idle stretch already matches its telemetry.');
+    // The alerts those stretches raised are a separate store and can still be
+    // carrying the old figures, so that pass runs regardless.
+    await fixAlerts(apply);
     process.exit(0);
   }
 
@@ -155,7 +158,101 @@ async function run(): Promise<void> {
     `\nCorrected ${corrected} stretch(es); removed ${removed} that never met the ` +
       `${MIN_REAL_MINUTES}-minute bar to be an idle at all.`
   );
+
+  await fixAlerts(apply);
   process.exit(0);
+}
+
+/**
+ * The same correction for the alerts those stretches raised.
+ *
+ * This is the half that reaches a person: an open alert reading "idled 995 min
+ * — about 14.9L burned (₦21,571)" is an accusation against a named driver,
+ * carrying a number the telemetry never supported. An alert whose measured
+ * idling falls under the threshold that justifies raising one is deleted; the
+ * rest have their minutes, litres and naira rewritten to what was observed.
+ */
+async function fixAlerts(apply: boolean): Promise<void> {
+  const threshold = Number(process.env.IDLE_ALERT_MINUTES || 5);
+  // An alert is raised partway through a stretch, so the stretch that explains
+  // it is the first one to END at or after the alert was created. Reading a
+  // 24-hour window instead would pour a whole day's separate idles into one
+  // alert, which is the same kind of overstatement being corrected.
+  const rows = await db.execute(sql`
+    SELECT a.id, a.message, a.is_resolved,
+           (regexp_match(a.message, 'idled ([0-9]+) min'))[1]::numeric AS claimed,
+           (
+             SELECT e.value FROM device_events e
+             WHERE e.vehicle_id = a.vehicle_id
+               AND e.event_type = 'idling_end'
+               AND e.occurred_at >= a.created_at - INTERVAL '2 minutes'
+               AND e.occurred_at <= a.created_at + INTERVAL '12 hours'
+             ORDER BY e.occurred_at ASC LIMIT 1
+           ) AS observed
+    FROM alerts a
+    WHERE a.alert_type = 'excessive_idle'
+    ORDER BY a.created_at DESC
+  `);
+
+  const list = rows.rows as unknown as Array<{
+    id: number; message: string; liters: string | null; ngn: number | null;
+    claimed: string | null; observed: string | null; is_resolved: boolean;
+  }>;
+
+  // `observed` is null when no corrected stretch survives for that alert —
+  // the stretch it was raised from was removed for never being an idle, so
+  // the alert has nothing left to stand on.
+  const bad = list.filter((r) => {
+    const claimed = Number(r.claimed) || 0;
+    if (r.observed == null) return true;
+    return claimed - Number(r.observed) >= 1;
+  });
+
+  console.log(`\n${bad.length} of ${list.length} excessive-idle alert(s) overstate the idling:`);
+  for (const r of bad.slice(0, 12)) {
+    const claimed = Math.round(Number(r.claimed) || 0);
+    const observed = r.observed == null ? null : Math.round(Number(r.observed) * 10) / 10;
+    const verdict =
+      observed == null
+        ? 'remove (its stretch was not a real idle)'
+        : observed < threshold
+          ? 'remove (never met the alert bar)'
+          : 'rewrite';
+    console.log(
+      `  alert ${r.id}  claimed ${claimed} min -> observed ${observed ?? 'none'} min  ${verdict}` +
+        `${r.is_resolved ? '' : '  [OPEN]'}`
+    );
+  }
+
+  if (!apply) {
+    console.log('\nDry run — no alerts changed.');
+    return;
+  }
+
+  let removedAlerts = 0;
+  let rewritten = 0;
+  for (const r of bad) {
+    const observed = r.observed == null ? 0 : Math.round(Number(r.observed) * 10) / 10;
+    if (r.observed == null || observed < threshold) {
+      await db.execute(sql`DELETE FROM alerts WHERE id = ${r.id}`);
+      removedAlerts += 1;
+      continue;
+    }
+    // Keep the wording the detector produces, with the honest figures in it.
+    const liters = (observed / 60) * Number(process.env.IDLE_BURN_LITERS_PER_HOUR || 0.9);
+    const message = r.message
+      .replace(/idled [0-9]+ min/, `idled ${Math.round(observed)} min`)
+      .replace(/about [0-9.]+L burned/, `about ${liters.toFixed(1)}L burned`);
+    await db.execute(sql`
+      UPDATE alerts SET message = ${message}, fuel_drop_liters = ${liters.toFixed(2)}
+      WHERE id = ${r.id}
+    `);
+    rewritten += 1;
+  }
+  console.log(
+    `\nRemoved ${removedAlerts} alert(s) that never met the ${threshold}-minute bar; ` +
+      `rewrote ${rewritten}.`
+  );
 }
 
 run().catch((err) => {
