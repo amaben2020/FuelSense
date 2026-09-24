@@ -114,9 +114,17 @@ this number**, and a 60 L tank recorded as 55 L makes every full fill look like
 ## 3. Tank anchor — fill it to full
 
 The tank has no sensor, so it needs one exact fact to start from. **A fill to
-full is that fact.** Log the fill with "Filled to full" ticked — in the driver
-app, or on Receipts → *Add a receipt* in the dashboard — and the model pins the
-level at the tank capacity, whatever it had drifted to before.
+full is that fact.** Log the fill with "Filled to full" ticked on
+Receipts → *Add a receipt* in the dashboard, and the model pins the level at
+the tank capacity, whatever it had drifted to before.
+
+**The driver app does not ask about the tank**, on purpose. It used to offer
+"filled to full?" and, for a top-up, a gauge picker in eighths — and the pin
+that produced overrode the litres the same receipt had just credited. Eighths
+of a 60 L tank are 7.5 L apart and a car's gauge is not linear across its
+travel, so one hurried glance at a needle could erase everything the model had
+tracked since the last fill. Drivers file what they bought; what the tank now
+holds is asserted by the manager, deliberately, on the receipts page.
 
 For a fleet-wide calibration, fill every vehicle and log each one as full,
 same day. From that moment:

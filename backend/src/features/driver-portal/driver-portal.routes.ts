@@ -26,7 +26,7 @@ import { scanReceiptImage as ocrScanReceiptImage } from '../receipts/receipt-ocr
 import { buildPurchaseValuesFromReceipt } from '../receipts/driver-receipt-sync.service';
 import { notifyReceiptUploaded } from '../receipts/receipt-notifier.service';
 import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../fuel/fuel-metrics.service';
-import { calibrateTank, creditRefuel } from '../fuel/virtual-tank.service';
+import { creditRefuel } from '../fuel/virtual-tank.service';
 import { reconcileFuelPurchase } from '../fuel/fuel-calibration.service';
 import { dailyActivitySql } from '../telemetry/daily-activity.repository';
 import {
@@ -519,8 +519,6 @@ router.post('/receipts', async (req: Request, res: Response) => {
     receipt_latitude: receiptLatitude,
     receipt_longitude: receiptLongitude,
     transaction_date: transactionDate,
-    filled_to_full: filledToFullRaw,
-    gauge_eighths: gaugeEighthsRaw,
   } = req.body as {
     vehicle_id?: string;
     client_receipt_id?: string;
@@ -534,23 +532,20 @@ router.post('/receipts', async (req: Request, res: Response) => {
     receipt_latitude?: number | string;
     receipt_longitude?: number | string;
     transaction_date?: string;
-    /** The driver filled the tank to the top: the level is now capacity. */
-    filled_to_full?: boolean;
-    /** Otherwise, the dash gauge after the fill in eighths, 0 (E) to 8 (F). */
-    gauge_eighths?: number | null;
   };
 
-  // The tank facts, read strictly: a "true" string or a gauge outside 0–8 is
-  // not evidence and is dropped rather than guessed at.
-  const filledToFull = filledToFullRaw === true;
-  const gaugeEighths =
-    !filledToFull &&
-    typeof gaugeEighthsRaw === 'number' &&
-    Number.isInteger(gaugeEighthsRaw) &&
-    gaugeEighthsRaw >= 0 &&
-    gaugeEighthsRaw <= 8
-      ? gaugeEighthsRaw
-      : null;
+  // `filled_to_full` and `gauge_eighths` are deliberately NOT read here, even
+  // though receipts queued offline by an older app build still carry them.
+  //
+  // Both pinned the modelled tank level to something the driver eyeballed at
+  // the pump, and the gauge was the worse of the two: eighths of a 60 L tank
+  // are 7.5 L apart, car gauges are not linear across their travel, and the
+  // pin OVERRODE the litres the same receipt had just credited — so one glance
+  // at a needle could erase everything the model had tracked since the last
+  // fill. A driver files what they bought; what the tank now holds is the
+  // manager's to assert, on the receipts page, where a full fill is recorded
+  // deliberately rather than answered in a hurry at a forecourt.
+  const filledToFull = false;
 
   if (!vehicleId || !declaredLiters || !merchantName) {
     res.status(400).json({
@@ -680,7 +675,6 @@ router.post('/receipts', async (req: Request, res: Response) => {
           reconciliationStatus: verification.status,
         }),
         filledToFull,
-        gaugeEighths,
       });
 
       return [insertedReceipt];
@@ -697,21 +691,6 @@ router.post('/receipts', async (req: Request, res: Response) => {
         : declared,
       { pricePerLiter: price }
     ).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
-
-    // What the driver saw at the pump outranks the credit above. A fill to
-    // full pins the level at capacity — the only exact fact the model ever
-    // gets — and a gauge reading pins it to within an eighth of a tank.
-    // Either one wipes out whatever the model had drifted by.
-    if (filledToFull) {
-      await calibrateTank(vehicleId, req.driver.customerId, null, 'receipt_full').catch((err) =>
-        console.error('[virtual_tank] full-fill calibration failed:', err)
-      );
-    } else if (gaugeEighths != null && vehicle.tankCapacityLiters) {
-      const liters = (Number(vehicle.tankCapacityLiters) * gaugeEighths) / 8;
-      await calibrateTank(vehicleId, req.driver.customerId, liters, 'driver_gauge').catch((err) =>
-        console.error('[virtual_tank] gauge calibration failed:', err)
-      );
-    }
 
     // Reconcile this fill against the previous one and refresh the vehicle's
     // measured consumption rate.

@@ -12,6 +12,8 @@ export interface PendingDriverReceipt {
   receipt_latitude?: number;
   receipt_longitude?: number;
   transaction_date: string;
+  /** Present only on receipts queued by an older app build; the server
+   *  ignores both. The driver app no longer asks about the tank. */
   filled_to_full?: boolean;
   gauge_eighths?: number | null;
   sync_error?: string | null;
