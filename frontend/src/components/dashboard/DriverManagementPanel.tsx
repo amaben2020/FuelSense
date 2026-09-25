@@ -8,6 +8,8 @@ import {
   Gauge,
   Info,
   MapPin,
+  LayoutGrid,
+  List as ListIcon,
   Trophy,
   Route as RouteIcon,
   TrendingDown,
@@ -24,6 +26,7 @@ import {
 } from '@/lib/api';
 import { Avatar, HatchBar, Panel, SegmentedPills, StatusChip } from '@/components/ui/chrome';
 import { LoadErrorBanner } from './LoadErrorBanner';
+import { formatHoursShort } from '@/lib/duration';
 
 /** "2026-08" -> "August 2026". Parsed as UTC so the label never slips a month. */
 function monthLabel(month: string): string {
@@ -214,9 +217,9 @@ function DriverCard({
             />
             <Metric
               icon={Fuel}
-              label="Fuel"
-              value={row.fuel_liters > 0 ? `${row.fuel_liters.toFixed(1)} L` : null}
-              sub={row.fuel_liters > 0 ? null : 'no level data'}
+              label="Est. fuel"
+              value={row.fuel_liters > 0 ? `≈${row.fuel_liters.toFixed(1)} L` : null}
+              sub={row.fuel_liters > 0 ? 'modelled' : 'no level data'}
             />
             <Metric
               icon={Gauge}
@@ -316,6 +319,10 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
   const [toInput, setToInput] = useState('');
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [ranking, setRanking] = useState<Ranking>('distance');
+  // A card each is right for two or three drivers and unreadable for twenty:
+  // the fleet this is being installed for will have both. Rows put the ranked
+  // figure in a column the eye can run down; cards keep the detail.
+  const [view, setView] = useState<'card' | 'list'>('card');
 
   // `loading` starts true, so the first fetch does not set it synchronously
   // inside the effect — that cascades an extra render for no benefit. Only the
@@ -509,8 +516,8 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
             <Metric icon={RouteIcon} label="Trips" value={String(fleetTotals.trips)} />
             <Metric
               icon={Fuel}
-              label="Fuel burned"
-              value={fleetTotals.fuel > 0 ? `${fleetTotals.fuel.toFixed(1)} L` : null}
+              label="Est. fuel burned"
+              value={fleetTotals.fuel > 0 ? `≈${fleetTotals.fuel.toFixed(1)} L` : null}
             />
           </div>
         ) : loading ? (
@@ -560,29 +567,125 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
                 </button>
               ))}
             </div>
+            <div className="ml-auto flex overflow-hidden rounded-lg border border-edge text-xs">
+              {(
+                [
+                  ['card', 'Cards', LayoutGrid],
+                  ['list', 'List', ListIcon],
+                ] as const
+              ).map(([id, label, Icon]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setView(id)}
+                  aria-pressed={view === id}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors ${
+                    view === id ? 'bg-accent-y text-accent-y-ink' : 'text-ink-dim hover:text-ink'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            {(() => {
-              const scored = data.drivers
-                .map((d) => ({
-                  d,
-                  score: rankValue(d.periods.find((p) => p.period === activePeriod) ?? null, ranking),
-                }))
-                .sort((a, b) => b.score - a.score);
-              const top = scored[0]?.score;
-              const label = RANKINGS.find((r) => r.id === ranking)?.label ?? '';
-              return scored.map(({ d, score }) => (
-                <DriverCard
-                  key={d.driver_name}
-                  report={d}
-                  period={activePeriod}
-                  bucket={bucket}
-                  leader={Number.isFinite(score) && score === top ? label : undefined}
-                  onViewVehicle={onViewVehicle}
-                />
-              ));
-            })()}
-          </div>
+          {(() => {
+            const scored = data.drivers
+              .map((d) => ({
+                d,
+                score: rankValue(d.periods.find((p) => p.period === activePeriod) ?? null, ranking),
+              }))
+              .sort((a, b) => b.score - a.score);
+            const top = scored[0]?.score;
+            const label = RANKINGS.find((r) => r.id === ranking)?.label ?? '';
+
+            if (view === 'list') {
+              return (
+                <div className="overflow-hidden rounded-lg border border-edge bg-panel">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[720px] text-left text-sm">
+                      <thead className="bg-canvas text-[11px] uppercase tracking-wider text-ink-dim">
+                        <tr>
+                          <th className="px-4 py-2.5">Driver</th>
+                          <th className="px-4 py-2.5 text-right">Distance</th>
+                          {/* Never just "Fuel": nothing here measures litres. */}
+                          <th className="px-4 py-2.5 text-right">Est. fuel</th>
+                          <th className="px-4 py-2.5 text-right">Economy</th>
+                          <th className="px-4 py-2.5 text-right">Driving</th>
+                          <th className="px-4 py-2.5 text-right">Efficiency</th>
+                          <th className="px-4 py-2.5" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-divider text-ink-mid">
+                        {scored.map(({ d, score }) => {
+                          const row = d.periods.find((p) => p.period === activePeriod) ?? null;
+                          const eff = row ? driverEfficiencyScore(row) : null;
+                          const isLeader = Number.isFinite(score) && score === top;
+                          return (
+                            <tr key={d.driver_name} className="hover:bg-panel-hover">
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-ink">{d.driver_name}</span>
+                                  {isLeader && (
+                                    <span className="rounded-full bg-accent-y/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-y">
+                                      {label}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono">
+                                {row ? `${Math.round(row.distance_km).toLocaleString()} km` : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono">
+                                {row ? `≈${row.fuel_liters.toFixed(1)} L` : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono">
+                                {row?.efficiency_km_l != null
+                                  ? `${row.efficiency_km_l.toFixed(2)} km/L`
+                                  : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono">
+                                {row ? formatHoursShort(row.moving_hours) : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right font-mono">
+                                {eff?.total != null ? `${eff.total}/100` : '—'}
+                              </td>
+                              <td className="px-4 py-2.5 text-right">
+                                {onViewVehicle && (
+                                  <button
+                                    type="button"
+                                    onClick={onViewVehicle}
+                                    className="text-xs font-medium text-brand hover:underline"
+                                  >
+                                    View →
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {scored.map(({ d, score }) => (
+                  <DriverCard
+                    key={d.driver_name}
+                    report={d}
+                    period={activePeriod}
+                    bucket={bucket}
+                    leader={Number.isFinite(score) && score === top ? label : undefined}
+                    onViewVehicle={onViewVehicle}
+                  />
+                ))}
+              </div>
+            );
+          })()}
         </>
       )}
     </div>

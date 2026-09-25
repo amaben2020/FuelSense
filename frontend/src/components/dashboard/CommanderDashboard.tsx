@@ -233,13 +233,13 @@ export function CommanderDashboard({
         />
         <Tile
           icon={Fuel}
-          label="Fuel burned"
-          value={fmtL(burnedLiters)}
-          detail={`${formatNgn(summary?.total_fuel_cost_ngn ?? 0)} at the declared price`}
+          label="Est. fuel burned"
+          value={`≈${fmtL(burnedLiters)}`}
+          detail={`Modelled — ${formatNgn(summary?.total_fuel_cost_ngn ?? 0)} at the declared price`}
         />
         <Tile
           icon={ReceiptText}
-          label="Fuel bought"
+          label="Fuel bought (receipts)"
           value={fmtL(boughtLiters)}
           detail={`${formatNgn(bought?.total_cost_ngn ?? 0)} on ${bought?.receipt_count ?? 0} receipts`}
         />
