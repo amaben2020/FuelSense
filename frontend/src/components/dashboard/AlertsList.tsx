@@ -177,22 +177,28 @@ export function FuelAnomalyBanner({
   );
 
   return (
-    <div className="sticky top-0 mb-6 rounded-lg border-l-4 border-l-warn bg-warn-deep/15 p-4">
-      <p className="font-semibold text-warn">
-        {TRUST_COPY.siphonTitle} ({fuelAlerts.length})
+    // Was `sticky top-0` over a 15%-opacity background with no stacking
+    // context, so the page scrolled straight through the banner and the two
+    // sets of text sat on top of each other. It does not need to follow the
+    // reader down the page — it is a summary of what sits below it.
+    <div className="mb-6 rounded-lg border-l-4 border-l-warn bg-warn-deep/15 p-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <p className="text-sm font-semibold text-warn">
+          {TRUST_COPY.siphonTitle} ({fuelAlerts.length})
+        </p>
         {totalLossNgn > 0 && (
-          <span className="ml-2 font-mono text-sm font-normal text-ink-mid">
-            · {formatNgn(totalLossNgn)} est. impact · {TRUST_COPY.requiresReview}
-          </span>
+          <p className="font-mono text-xs text-ink-mid">
+            {formatNgn(totalLossNgn)} est. impact · {TRUST_COPY.requiresReview}
+          </p>
         )}
-      </p>
-      <p className="mt-1 text-xs text-ink-dim">{TRUST_COPY.notVerdict}</p>
+      </div>
+      <p className="mt-0.5 text-[11px] text-ink-dim">{TRUST_COPY.notVerdict}</p>
       {fuelAlerts.slice(0, 2).map((alert) => (
         <div
           key={alert.id}
           className="mt-2 flex flex-wrap items-center justify-between gap-2"
         >
-          <p className="text-sm text-ink-mid">
+          <p className="min-w-0 flex-1 text-xs leading-relaxed text-ink-mid">
             {alert.license_plate ? `${alert.license_plate}: ` : ''}
             {alert.message}
           </p>

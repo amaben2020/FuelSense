@@ -14,7 +14,7 @@ const ANOMALY_META: Record<string, { type: string; severity: string; title: stri
   fuel_theft: {
     type: 'theft',
     severity: 'critical',
-    title: 'Fuel theft detected',
+    title: 'Unexplained fuel drop',
   },
   receipt_fraud: {
     type: 'fraud',

@@ -403,7 +403,12 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
                 estimatedLossNgn,
                 latitude: tempLat,
                 longitude: tempLng,
-                message: `Fuel theft detected${locationHint}! Cumulative level dropped ${cumulativeDrop.toFixed(1)}L while parked (${originalFuelBefore.toFixed(1)}L → ${newFuelAfter.toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN. (Merged cluster)`,
+                // Never "theft detected". There is no fuel-level sensor on this
+                // hardware: the level is modelled from distance and idle time,
+                // so a drop is the MODEL disagreeing with itself, not a
+                // measurement of fuel leaving the tank. Stated as a fact it is
+                // an accusation the data cannot support, against a named driver.
+                message: `Unexplained fuel drop${locationHint}: the modelled level fell ${cumulativeDrop.toFixed(1)}L while parked (${originalFuelBefore.toFixed(1)}L → ${newFuelAfter.toFixed(1)}L), worth about ${estimatedLossNgn.toLocaleString('en-NG')} NGN. Modelled, not measured — check for a missing receipt before anything else. (Merged cluster)`,
               })
               .where(eq(alerts.id, latestSiphon.alertId));
           }
@@ -431,7 +436,7 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
           customerId: device.customerId,
           vehicleId: device.vehicleId,
           alertType: 'fuel_theft',
-          message: `Fuel theft detected${locationHint}! Level dropped ${drop.toFixed(1)}L while parked (${Number(bestDrop.startPoint.fuelLevelLiters).toFixed(1)}L → ${Number(bestDrop.lowPoint.fuelLevelLiters).toFixed(1)}L). Estimated loss ${estimatedLossNgn.toLocaleString('en-NG')} NGN.`,
+          message: `Unexplained fuel drop${locationHint}: the modelled level fell ${drop.toFixed(1)}L while parked (${Number(bestDrop.startPoint.fuelLevelLiters).toFixed(1)}L → ${Number(bestDrop.lowPoint.fuelLevelLiters).toFixed(1)}L), worth about ${estimatedLossNgn.toLocaleString('en-NG')} NGN. Modelled, not measured — check for a missing receipt before anything else.`,
           fuelLevelLiters: bestDrop.lowPoint.fuelLevelLiters!.toString(),
           fuelDropLiters: drop.toFixed(2),
           estimatedLossNgn,
