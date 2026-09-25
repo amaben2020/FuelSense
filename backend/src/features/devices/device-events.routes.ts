@@ -33,9 +33,22 @@ const SCORE_WEIGHTS: Record<string, number> = {
   overspeeding: 2,
 };
 
-// Idling is charged by the hour, not by the event. Counting idling_start made
-// one forty-minute wait and one traffic light cost the same point.
-const IDLE_PENALTY_PER_HOUR = 6;
+/**
+ * Idling costs nothing, for now.
+ *
+ * It was 6 points an hour — until the idle detector was found to be billing
+ * silent trackers as running engines, which overstated stored idling by 43.7
+ * hours across 64 stretches. The detector is fixed, but the score should not
+ * charge a driver for a measurement whose trustworthiness is still being
+ * watched, and idling in Lagos traffic is frequently the road's doing rather
+ * than the driver's.
+ *
+ * Set this back to 6 once a few weeks of corrected idle data look right. The
+ * hours are still measured, still shown on the behaviour page, and still count
+ * toward the efficiency score at a low weight — they simply do not deduct from
+ * the safety score.
+ */
+const IDLE_PENALTY_PER_HOUR = 0;
 // Below this, idling is traffic and junctions rather than a habit worth scoring.
 const IDLE_FREE_HOURS = 0.5;
 

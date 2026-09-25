@@ -527,8 +527,9 @@ export function DrivingBehaviorPanel() {
           <p className="mt-0.5 text-xs text-ink-dim">
             Starts at 100. <span className="text-ink-mid">Every harsh acceleration and harsh
             brake costs 2 points</span> — they are what the driver controls and what burns the
-            fuel. Cornering and overspeeding cost less, a crash costs 25, and idling past the
-            first 30 minutes is charged by the hour. Ignition and trip events count for nothing.
+            fuel. Cornering costs 1, overspeeding 2, a crash 25. Idling, ignition and trip
+            events cost nothing: idle hours are shown below but are not charged against a
+            driver while the measurement is still being proven.
           </p>
         </div>
         {vehiclesWithData.length === 0 ? (
