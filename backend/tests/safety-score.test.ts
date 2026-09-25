@@ -1,35 +1,34 @@
 import { describe, it, expect } from '@jest/globals';
 import { scoreForPenalty } from '../src/features/devices/device-events.routes';
 
-describe('safety score curve', () => {
+// The score exists to change driving, so its contract is that a driver can
+// check it: two points per harsh manoeuvre, subtracted, nothing else in the
+// way. An exponential per-100 km curve ranked the bad end more finely but
+// nobody — driver or manager — could say what a single event had cost.
+describe('safety score', () => {
   it('is 100 when nothing was penalised', () => {
     expect(scoreForPenalty(0)).toBe(100);
     expect(scoreForPenalty(-5)).toBe(100);
   });
 
-  it('tracks the old straight line in the healthy range', () => {
-    // The curve is chosen so a fleet that was scoring well keeps the number it
-    // had: the old formula was 100 - penalty, and the two agree within a point
-    // until the penalty gets large.
-    for (const p of [5, 10, 15, 20]) {
-      expect(Math.abs(scoreForPenalty(p) - (100 - p))).toBeLessThan(2);
+  it('removes exactly the points deducted', () => {
+    for (const p of [1, 2, 5, 18, 40, 99]) {
+      expect(scoreForPenalty(p)).toBe(100 - p);
     }
   });
 
-  it('never reaches zero, however bad the driving', () => {
-    // The bug: everything past a penalty of 100 clamped to exactly 0, so the
-    // real vehicle's 128.8 was indistinguishable from ten times worse.
-    expect(scoreForPenalty(128.8)).toBeGreaterThan(0);
-    expect(scoreForPenalty(500)).toBeGreaterThan(0);
-    expect(scoreForPenalty(5000)).toBeGreaterThan(0);
+  it('costs two points per harsh manoeuvre, as the screen says it does', () => {
+    // Nine harsh accelerations and two harsh brakes, the reference week.
+    const penalty = 9 * 2 + 2 * 2;
+    expect(scoreForPenalty(penalty)).toBe(78);
+    // One more harsh brake is one more two-point step, every time.
+    expect(scoreForPenalty(penalty) - scoreForPenalty(penalty + 2)).toBe(2);
   });
 
-  it('still ranks two bad fleets against each other', () => {
-    const bad = scoreForPenalty(128.8);
-    const worse = scoreForPenalty(400);
-    const awful = scoreForPenalty(1000);
-    expect(bad).toBeGreaterThan(worse);
-    expect(worse).toBeGreaterThan(awful);
+  it('floors at zero rather than going negative', () => {
+    expect(scoreForPenalty(100)).toBe(0);
+    expect(scoreForPenalty(128.8)).toBe(0);
+    expect(scoreForPenalty(5000)).toBe(0);
   });
 
   it('stays inside 0-100', () => {
@@ -40,15 +39,14 @@ describe('safety score curve', () => {
     }
   });
 
+  it('returns whole numbers — a score is not a measurement', () => {
+    for (const p of [1.4, 7.5, 33.3]) {
+      expect(Number.isInteger(scoreForPenalty(p))).toBe(true);
+    }
+  });
+
   it('survives a non-finite penalty rather than reporting NaN', () => {
     expect(scoreForPenalty(Number.NaN)).toBe(100);
     expect(scoreForPenalty(Number.POSITIVE_INFINITY)).toBe(100);
-  });
-
-  it('scores the real vehicle as bad but measurable', () => {
-    // 43 harsh manoeuvres plus 1.3 billable idle hours over 86 km.
-    const score = Math.round(scoreForPenalty(128.8));
-    expect(score).toBeGreaterThan(20);
-    expect(score).toBeLessThan(35);
   });
 });

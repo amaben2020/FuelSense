@@ -103,7 +103,7 @@ export function renderDailyReportPdf(report: DailyReport): Promise<Buffer> {
 
     const summaryLines = [
       `${t.distanceKm} km covered across ${t.tripCount} trip${t.tripCount === 1 ? '' : 's'}`,
-      `${t.fuelLiters} L estimated fuel burned${t.fuelCostNgn != null ? ` (${naira(t.fuelCostNgn)})` : ''}`,
+      `~${t.fuelLiters} L estimated fuel burned${t.fuelCostNgn != null ? ` (${naira(t.fuelCostNgn)})` : ''}`,
       `${duration(t.idleMinutes)} idling with the engine running`,
     ];
 
@@ -202,7 +202,7 @@ function driverSection(doc: PDFKit.PDFDocument, driver: ReportDriver): void {
     .text(
       [
         `${driver.distanceKm} km`,
-        `${driver.fuelLiters} L burned${driver.fuelCostNgn != null ? ` (${naira(driver.fuelCostNgn)})` : ''}`,
+        `~${driver.fuelLiters} L estimated${driver.fuelCostNgn != null ? ` (${naira(driver.fuelCostNgn)})` : ''}`,
         `${duration(driver.idleMinutes)} idle`,
         driver.receiptCount > 0
           ? `${naira(driver.spendNgn)} spent · ${driver.litersBought} L bought`
@@ -240,7 +240,7 @@ function driverSection(doc: PDFKit.PDFDocument, driver: ReportDriver): void {
 
     const detail = [
       `${trip.distanceKm} km`,
-      `${trip.fuelLiters} L`,
+      `~${trip.fuelLiters} L`,
       trip.idleMinutes > 0 ? `${duration(trip.idleMinutes)} idle` : null,
       trip.stopCount > 0 ? `${trip.stopCount} stop${trip.stopCount === 1 ? '' : 's'}` : null,
     ]

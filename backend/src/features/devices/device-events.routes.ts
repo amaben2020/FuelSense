@@ -9,14 +9,28 @@ const router = express.Router();
 
 router.use(authenticateCustomer);
 
-// Driving-behavior penalty weights, applied per event and normalised per
-// 100 km so a vehicle that drives more isn't punished for exposure.
+/**
+ * Points removed from a driver's score, per event.
+ *
+ * Harsh acceleration and harsh braking are the two the score is really about:
+ * they are how a driver treats the vehicle, they are what burns the fuel, and
+ * unlike idling they are nobody else's fault. Each costs a flat **2 points**.
+ *
+ * Flat, not normalised per 100 km. A manager should be able to look at
+ * "harsh acceleration x 9" and know it cost 18 points without doing arithmetic
+ * involving distance — and a driver should be able to predict the same thing
+ * before it happens. The old per-100 km exponential was defensible but no one
+ * could work out what any single event had cost them, which is worthless for
+ * changing behaviour.
+ */
 const SCORE_WEIGHTS: Record<string, number> = {
-  crash: 30,
-  overspeeding: 4,
-  harsh_braking: 3,
+  crash: 25,
+  harsh_braking: 2,
   harsh_acceleration: 2,
-  harsh_cornering: 2,
+  // Cornering is the noisiest of the three on a tracker without calibration,
+  // so it counts for less than the two the driver can plainly feel.
+  harsh_cornering: 1,
+  overspeeding: 2,
 };
 
 // Idling is charged by the hour, not by the event. Counting idling_start made
@@ -48,22 +62,29 @@ const SECURITY_EVENT_TYPES = [
 const POWER_EVENT_TYPES = ['power_unplug', 'power_dropout', 'power_restored'];
 
 /**
- * Turns a penalty rate into a 0-100 score that keeps meaning at the bad end.
+ * Events that say nothing about anybody and are kept out of the counts.
  *
- * This was `100 - penaltyPer100km`, clamped. Any fleet past 100 penalty per
- * 100 km therefore read exactly 0 — the real vehicle here scored 128.8 and
- * showed "0/100", indistinguishable from one ten times worse. The number had
- * stopped ranking anything.
- *
- * Exponential decay never reaches zero, so ordering survives however bad the
- * driving gets. The constant is 100 because that makes the initial gradient
- * identical to the old straight line: a fleet scoring in the healthy range
- * sees essentially the number it saw before (a penalty of 10 gave 90, and now
- * gives 90.5), and only the saturated end behaves differently.
+ * Every ignition turn and every trip edge is bookkeeping the app needs but no
+ * manager reads: 29 "Ignition on" and 28 "Ignition off" crowded a driver's
+ * chip list to the point that "Harsh braking x 2" was the eleventh thing on
+ * it. They are still stored, still drive trips and idling, and are still
+ * visible under the Everything filter — they just stop being presented as
+ * things the driver did.
  */
-export function scoreForPenalty(penaltyPer100km: number): number {
-  if (!Number.isFinite(penaltyPer100km) || penaltyPer100km <= 0) return 100;
-  return 100 * Math.exp(-penaltyPer100km / 100);
+const BOOKKEEPING_EVENT_TYPES = ['ignition_on', 'ignition_off', 'trip_start', 'trip_stop'];
+
+/**
+ * Points deducted, turned into a 0-100 score.
+ *
+ * Straight subtraction, floored at zero: two points off per harsh manoeuvre
+ * means the score moves by exactly two, which is the only version a driver can
+ * check against their own day. Everything past 100 points of penalty reads 0 —
+ * at fifty harsh events in a window the ranking has stopped mattering and the
+ * conversation is not about a score any more.
+ */
+export function scoreForPenalty(penalty: number): number {
+  if (!Number.isFinite(penalty) || penalty <= 0) return 100;
+  return Math.max(0, Math.round(100 - penalty));
 }
 
 const gradeForScore = (score: number): string => {
@@ -192,7 +213,10 @@ router.get('/summary', async (req: Request, res: Response) => {
     const vehicles = vehiclesResult.rows.map((row) => {
       const r = row as Record<string, unknown>;
       const vid = String(r.vehicle_id);
-      const counts = countsByVehicle.get(vid) ?? {};
+      const allCounts = countsByVehicle.get(vid) ?? {};
+      const counts = Object.fromEntries(
+        Object.entries(allCounts).filter(([t]) => !BOOKKEEPING_EVENT_TYPES.includes(t))
+      );
       const distanceKm = distanceByVehicle.get(vid) ?? 0;
       const idleHours = idleHoursByVehicle.get(vid) ?? 0;
       const billableIdleHours = Math.max(0, idleHours - IDLE_FREE_HOURS);
@@ -202,10 +226,7 @@ router.get('/summary', async (req: Request, res: Response) => {
         penalty += (counts[eventType] || 0) * weight;
       }
       penalty += billableIdleHours * IDLE_PENALTY_PER_HOUR;
-      // Floor the divisor so a single short trip with one harsh brake
-      // doesn't produce a catastrophic score.
-      const penaltyPer100km = (penalty * 100) / Math.max(distanceKm, 20);
-      const score = Math.round(scoreForPenalty(penaltyPer100km));
+      const score = scoreForPenalty(penalty);
 
       const securityEvents = SECURITY_EVENT_TYPES.reduce(
         (s, t) => s + (counts[t] || 0),

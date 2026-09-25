@@ -290,10 +290,10 @@ function StatTile({
   tone?: string;
 }) {
   return (
-    <div className="rounded-lg border border-edge bg-panel p-4">
-      <p className="text-xs uppercase tracking-wider text-ink-dim">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${tone}`}>{value}</p>
-      {hint && <p className="mt-1 text-xs text-ink-dim">{hint}</p>}
+    <div className="rounded-lg border border-edge bg-panel p-3">
+      <p className="text-[11px] uppercase tracking-wider text-ink-dim">{label}</p>
+      <p className={`mt-0.5 text-xl font-bold ${tone}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-[11px] leading-snug text-ink-dim">{hint}</p>}
     </div>
   );
 }
@@ -465,11 +465,13 @@ export function DrivingBehaviorPanel() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {/* Six tiles, one row from `lg` up. At five columns the sixth wrapped
+          onto a line of its own and left four empty cells across the page. */}
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatTile
           label="Fleet safety score"
           value={summary?.fleet.avg_score != null ? `${summary.fleet.avg_score}/100` : '—'}
-          hint="Harsh manoeuvres and idling, per 100 km"
+          hint="100 minus the points deducted"
           tone={
             summary?.fleet.avg_score != null
               ? summary.fleet.avg_score >= 80
@@ -503,7 +505,7 @@ export function DrivingBehaviorPanel() {
               (summary?.fleet.counts_by_type.harsh_braking ?? 0) +
               (summary?.fleet.counts_by_type.harsh_cornering ?? 0)
           )}
-          hint="Acceleration · braking · cornering"
+          hint="2 points each for acceleration and braking"
         />
         {/* Idling is charged by the hour, not by the event — a forty-minute
             wait and a traffic light are not the same thing. */}
@@ -523,8 +525,10 @@ export function DrivingBehaviorPanel() {
         <div className="border-b border-edge px-6 py-4">
           <h3 className="text-sm font-semibold text-ink">Driver scores</h3>
           <p className="mt-0.5 text-xs text-ink-dim">
-            100 = clean driving. Crashes, overspeeding and harsh maneuvers deduct points per
-            100 km, as does idling beyond the first 30 minutes.
+            Starts at 100. <span className="text-ink-mid">Every harsh acceleration and harsh
+            brake costs 2 points</span> — they are what the driver controls and what burns the
+            fuel. Cornering and overspeeding cost less, a crash costs 25, and idling past the
+            first 30 minutes is charged by the hour. Ignition and trip events count for nothing.
           </p>
         </div>
         {vehiclesWithData.length === 0 ? (

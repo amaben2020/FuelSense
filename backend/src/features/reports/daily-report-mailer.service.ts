@@ -58,7 +58,7 @@ export function reportEmailHtml(report: DailyReport): string {
           </td>
           <td style="padding:8px 12px;border-bottom:1px solid #e8ecef;text-align:right;color:#101419;">${d.distanceKm} km</td>
           <td style="padding:8px 12px;border-bottom:1px solid #e8ecef;text-align:right;color:#101419;">${d.trips.length}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e8ecef;text-align:right;color:#101419;">${d.fuelLiters} L</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e8ecef;text-align:right;color:#101419;">≈${d.fuelLiters} L</td>
           <td style="padding:8px 12px;border-bottom:1px solid #e8ecef;text-align:right;color:#101419;">${
             d.spendNgn > 0 ? naira(d.spendNgn) : '—'
           }</td>
@@ -80,19 +80,20 @@ export function reportEmailHtml(report: DailyReport): string {
         </td>
         <td style="width:12px;"></td>
         <td style="padding:12px;background:#f5f7f8;border-radius:6px;">
-          <div style="font-size:12px;color:#6b7280;">Fuel burned (est.)</div>
-          <div style="font-size:20px;font-weight:600;color:#101419;">${t.fuelLiters} L</div>
+          <div style="font-size:12px;color:#6b7280;">Estimated fuel burned</div>
+          <div style="font-size:20px;font-weight:600;color:#101419;">≈${t.fuelLiters} L</div>
+          <div style="font-size:11px;color:#8a8f98;">modelled, no tank sensor</div>
         </td>
         <td style="width:12px;"></td>
         <td style="padding:12px;background:#f5f7f8;border-radius:6px;">
-          <div style="font-size:12px;color:#6b7280;">Fuel purchased</div>
+          <div style="font-size:12px;color:#6b7280;">Fuel purchased (receipts)</div>
           <div style="font-size:20px;font-weight:600;color:#101419;">${
             t.litersBought > 0 ? `${t.litersBought} L` : '—'
           }</div>
         </td>
         <td style="width:12px;"></td>
         <td style="padding:12px;background:#f5f7f8;border-radius:6px;">
-          <div style="font-size:12px;color:#6b7280;">Spent at pumps</div>
+          <div style="font-size:12px;color:#6b7280;">Spent at pumps (receipts)</div>
           <div style="font-size:20px;font-weight:600;color:#101419;">${
             t.spendNgn > 0 ? naira(t.spendNgn) : '—'
           }</div>
@@ -124,7 +125,7 @@ export function reportEmailHtml(report: DailyReport): string {
           <th style="padding:6px 12px;">Driver</th>
           <th style="padding:6px 12px;text-align:right;">Distance</th>
           <th style="padding:6px 12px;text-align:right;">Trips</th>
-          <th style="padding:6px 12px;text-align:right;">Fuel</th>
+          <th style="padding:6px 12px;text-align:right;">Est. fuel</th>
           <th style="padding:6px 12px;text-align:right;">Spent</th>
         </tr>
       </thead>
@@ -133,8 +134,11 @@ export function reportEmailHtml(report: DailyReport): string {
 
     <p style="margin-top:20px;color:#6b7280;font-size:12px;line-height:1.5;">
       Every trip, with times and places, is in the attached PDF.
-      Fuel burned is modelled from distance and idling — these vehicles carry no tank sensor —
-      while fuel bought is what drivers logged at the pump.
+      <strong>Every fuel figure marked &ldquo;estimated&rdquo; or &ldquo;≈&rdquo; is modelled, not
+      measured.</strong> These vehicles carry no fuel-level sensor, so litres are calculated from
+      the distance driven at the vehicle&rsquo;s own rate, plus fuel burned while idling. The only
+      measured fuel figures here are the purchases, which come from receipts drivers logged at the
+      pump.
     </p>
   </div>`;
 }
@@ -150,7 +154,7 @@ export function reportEmailText(report: DailyReport): string {
   const lines = [
     `${report.customerName} — daily fleet report`,
     atAGlanceSummary(report),
-    `${t.distanceKm} km · ${t.tripCount} trips · ${t.fuelLiters} L burned · ${
+    `${t.distanceKm} km · ${t.tripCount} trips · ~${t.fuelLiters} L estimated · ${
       t.litersBought > 0 ? `${t.litersBought} L bought` : 'no fuel bought'
     } · ${t.spendNgn > 0 ? naira(t.spendNgn) : '₦0 spent'}`,
     ...(report.worstDriver
@@ -163,7 +167,7 @@ export function reportEmailText(report: DailyReport): string {
 
   for (const d of report.drivers) {
     lines.push(
-      `${d.driverName} (${d.licensePlate}): ${d.distanceKm} km, ${d.trips.length} trips, ${d.fuelLiters} L${
+      `${d.driverName} (${d.licensePlate}): ${d.distanceKm} km, ${d.trips.length} trips, ~${d.fuelLiters} L est.${
         d.spendNgn > 0 ? `, ${naira(d.spendNgn)} spent` : ''
       }`
     );
