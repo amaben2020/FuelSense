@@ -96,7 +96,6 @@ import { FuelPurchaseTable, ReceiptsPanel } from '@/components/dashboard/Receipt
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
-import { TheftAlertBanner } from '@/components/dashboard/AlertsList';
 import { AlertsWorkbench } from '@/components/dashboard/AlertsWorkbench';
 import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
 import { isPro } from '@/lib/plan';
@@ -1349,7 +1348,6 @@ export default function DashboardPage() {
 
           {activeView === 'overview' && (
             <div className="space-y-6">
-              <TheftAlertBanner alerts={alerts} onViewOnMap={handleViewAlertOnMap} />
               <FleetOperationsOverview
                 period={period}
                 onPeriodChange={setPeriod}

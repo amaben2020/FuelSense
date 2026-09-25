@@ -1,11 +1,10 @@
-import { db, alerts, siphonEvents, vehicles, telemetry, eq, and, desc, sql } from '../../shared/db-helpers';
+import { db, alerts, vehicles, telemetry, eq, and, desc, sql } from '../../shared/db-helpers';
 import {
   REFUEL_THRESHOLD_LITERS,
   IDLE_BURN_LITERS_PER_HOUR,
   DEFAULT_FUEL_PRICE_NGN_LITER,
   baselineEfficiencyKmL,
 } from './fuel-metrics.service';
-import { recordSiphonEvent } from './siphon-recorder.service';
 import { DetectorState } from '../../shared/detector-state';
 
 const lastFuelByImei = new DetectorState<number>('last-fuel', { ttlSeconds: 24 * 60 * 60 });
@@ -210,264 +209,20 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
   // record timestamps. The tick-counting engine that used to live here raised
   // a second `excessive_idle` alert for the same episode.
 
-  // 3. Noise-Proof Fuel Theft Detection Engine (Rules 1-10)
-  try {
-    const nowTime = row.recordedAt instanceof Date ? row.recordedAt : new Date(row.recordedAt);
-    const sixtyMinAgo = new Date(nowTime.getTime() - 60 * 60 * 1000);
-
-    const history = await db
-      .select({
-        id: telemetry.id,
-        recordedAt: telemetry.recordedAt,
-        fuelLevelLiters: telemetry.fuelLevelLiters,
-        odometerKm: telemetry.odometerKm,
-        latitude: telemetry.latitude,
-        longitude: telemetry.longitude,
-        speedKph: telemetry.speedKph,
-        ignitionOn: telemetry.ignitionOn,
-      })
-      .from(telemetry)
-      .where(
-        and(
-          eq(telemetry.vehicleId, device.vehicleId),
-          sql`recorded_at >= ${sixtyMinAgo.toISOString()}::timestamp`
-        )
-      )
-      .orderBy(telemetry.recordedAt);
-
-    if (history.length < 2) return;
-
-    const [vehicle] = await db
-      .select({
-        tankCapacityLiters: vehicles.tankCapacityLiters,
-        model: vehicles.model,
-      })
-      .from(vehicles)
-      .where(eq(vehicles.id, device.vehicleId))
-      .limit(1);
-
-    const tankCapacity = vehicle?.tankCapacityLiters || 60;
-    const dropThreshold = Math.max(5, tankCapacity * 0.05);
-
-    let bestDrop: { startPoint: typeof history[0]; lowPoint: typeof history[0]; dropLiters: number } | null = null;
-    let maxDropLiters = 0;
-
-    for (let i = 0; i < history.length; i++) {
-      const startPoint = history[i];
-      if (startPoint.fuelLevelLiters == null) continue;
-      const fStart = Number(startPoint.fuelLevelLiters);
-
-      for (let j = i + 1; j < history.length; j++) {
-        const lowPoint = history[j];
-        if (lowPoint.fuelLevelLiters == null) continue;
-        const fLow = Number(lowPoint.fuelLevelLiters);
-
-        const timeDiffMin = (new Date(lowPoint.recordedAt).getTime() - new Date(startPoint.recordedAt).getTime()) / 60000;
-        if (timeDiffMin > 30) break;
-
-        const drop = fStart - fLow;
-        if (drop > maxDropLiters) {
-          maxDropLiters = drop;
-          bestDrop = { startPoint, lowPoint, dropLiters: drop };
-        }
-      }
-    }
-
-    if (!bestDrop || bestDrop.dropLiters < dropThreshold) return;
-
-    const tLast = new Date(history[history.length - 1].recordedAt);
-    const tLow = new Date(bestDrop.lowPoint.recordedAt);
-    const timeSinceLowMin = (tLast.getTime() - tLow.getTime()) / 60000;
-
-    if (timeSinceLowMin < 3) return;
-
-    const lowIndex = history.findIndex(p => p.id === bestDrop!.lowPoint.id);
-    let rebounded = false;
-    for (let k = lowIndex + 1; k < history.length; k++) {
-      const p = history[k];
-      if (p.fuelLevelLiters == null) continue;
-      const f = Number(p.fuelLevelLiters);
-      const fStart = Number(bestDrop.startPoint.fuelLevelLiters);
-      const fLow = Number(bestDrop.lowPoint.fuelLevelLiters);
-      const rise = f - fLow;
-      if (f >= fStart - 1.5 || rise >= 0.5 * bestDrop.dropLiters) {
-        rebounded = true;
-        break;
-      }
-    }
-    if (rebounded) return;
-
-    const startIndex = history.findIndex(p => p.id === bestDrop!.startPoint.id);
-    let speedSum = 0;
-    let speedPointsCount = 0;
-    for (let k = startIndex; k <= lowIndex; k++) {
-      const p = history[k];
-      if (p.speedKph != null) {
-        speedSum += Number(p.speedKph);
-        speedPointsCount++;
-      }
-    }
-    const avgSpeed = speedPointsCount > 0 ? speedSum / speedPointsCount : 0;
-    if (avgSpeed > 15) return;
-
-    const thirtyMinAgo = new Date(nowTime.getTime() - 30 * 60 * 1000);
-    const recentHistory = history.filter(p => new Date(p.recordedAt) >= thirtyMinAgo && p.fuelLevelLiters != null);
-    let directionChanges = 0;
-    let lastDirection = 0;
-    for (let k = 0; k < recentHistory.length - 1; k++) {
-      const diff = Number(recentHistory[k + 1].fuelLevelLiters) - Number(recentHistory[k].fuelLevelLiters);
-      if (Math.abs(diff) > 0.3) {
-        const dir = diff > 0 ? 1 : -1;
-        if (lastDirection !== 0 && dir !== lastDirection) {
-          directionChanges++;
-        }
-        lastDirection = dir;
-      }
-    }
-    if (directionChanges > 4) return;
-
-    let score = 40;
-
-    const isIgnitionOff = !bestDrop.lowPoint.ignitionOn;
-    if (isIgnitionOff) {
-      score += 20;
-      score += 15;
-    }
-
-    const isStationary = bestDrop.lowPoint.speedKph === null || Number(bestDrop.lowPoint.speedKph) < 2;
-    if (isStationary) {
-      score += 15;
-    }
-
-    const sevenDaysAgo = new Date(nowTime.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const pastAlerts = await db
-      .select({ id: alerts.id })
-      .from(alerts)
-      .where(
-        and(
-          eq(alerts.vehicleId, device.vehicleId),
-          eq(alerts.alertType, 'fuel_theft'),
-          sql`created_at >= ${sevenDaysAgo}::timestamp`
-        )
-      )
-      .limit(1);
-    if (pastAlerts.length > 0) {
-      score += 10;
-    }
-
-    if (score < 50) return;
-
-    const fourHoursAgo = new Date(nowTime.getTime() - 4 * 60 * 60 * 1000).toISOString();
-    const [latestSiphon] = await db
-      .select()
-      .from(siphonEvents)
-      .where(
-        and(
-          eq(siphonEvents.vehicleId, device.vehicleId),
-          sql`occurred_at >= ${fourHoursAgo}::timestamp`
-        )
-      )
-      .orderBy(desc(siphonEvents.occurredAt))
-      .limit(1);
-
-    if (latestSiphon) {
-      const minutesAgo = (nowTime.getTime() - new Date(latestSiphon.occurredAt).getTime()) / 60000;
-      if (minutesAgo <= 60) {
-        const originalFuelBefore = Number(latestSiphon.fuelLevelBefore);
-        const newFuelAfter = Number(bestDrop.lowPoint.fuelLevelLiters);
-        const cumulativeDrop = originalFuelBefore - newFuelAfter;
-
-        if (cumulativeDrop > 0) {
-          const estimatedLossNgn = Math.round(cumulativeDrop * pricePerLiter);
-
-          await db
-            .update(siphonEvents)
-            .set({
-              litersStolen: cumulativeDrop.toFixed(2),
-              estimatedLossNgn,
-              fuelLevelAfter: newFuelAfter.toFixed(2),
-              occurredAt: new Date(bestDrop.lowPoint.recordedAt),
-            })
-            .where(eq(siphonEvents.id, latestSiphon.id));
-
-          if (latestSiphon.alertId) {
-            const tempLat = bestDrop.lowPoint.latitude;
-            const tempLng = bestDrop.lowPoint.longitude;
-            const locationHint = tempLat && tempLng ? ` near ${Number(tempLat).toFixed(5)}, ${Number(tempLng).toFixed(5)}` : '';
-
-            await db
-              .update(alerts)
-              .set({
-                fuelLevelLiters: newFuelAfter.toString(),
-                fuelDropLiters: cumulativeDrop.toFixed(2),
-                estimatedLossNgn,
-                latitude: tempLat,
-                longitude: tempLng,
-                // Never "theft detected". There is no fuel-level sensor on this
-                // hardware: the level is modelled from distance and idle time,
-                // so a drop is the MODEL disagreeing with itself, not a
-                // measurement of fuel leaving the tank. Stated as a fact it is
-                // an accusation the data cannot support, against a named driver.
-                message: `Unexplained fuel drop${locationHint}: the modelled level fell ${cumulativeDrop.toFixed(1)}L while parked (${originalFuelBefore.toFixed(1)}L → ${newFuelAfter.toFixed(1)}L), worth about ${estimatedLossNgn.toLocaleString('en-NG')} NGN. Modelled, not measured — check for a missing receipt before anything else. (Merged cluster)`,
-              })
-              .where(eq(alerts.id, latestSiphon.alertId));
-          }
-          console.log(`[Theft Engine] Merged cluster drop for vehicle ${device.vehicleId}: cumulative drop ${cumulativeDrop.toFixed(1)}L`);
-        }
-        return;
-      } else {
-        console.log(`[Theft Engine] Suppressed new alert for vehicle ${device.vehicleId} due to cooldown`);
-        return;
-      }
-    }
-
-    const drop = bestDrop.dropLiters;
-    const estimatedLossNgn = Math.round(drop * pricePerLiter);
-    const locationHint = lat && lng ? ` near ${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}` : '';
-
-    let alertId: number | null = null;
-    const status = score >= 80 ? 'active' : 'review';
-
-    if (score >= 80) {
-      const [alertRow] = await db
-        .insert(alerts)
-        .values({
-          imei: device.imei,
-          customerId: device.customerId,
-          vehicleId: device.vehicleId,
-          alertType: 'fuel_theft',
-          message: `Unexplained fuel drop${locationHint}: the modelled level fell ${drop.toFixed(1)}L while parked (${Number(bestDrop.startPoint.fuelLevelLiters).toFixed(1)}L → ${Number(bestDrop.lowPoint.fuelLevelLiters).toFixed(1)}L), worth about ${estimatedLossNgn.toLocaleString('en-NG')} NGN. Modelled, not measured — check for a missing receipt before anything else.`,
-          fuelLevelLiters: bestDrop.lowPoint.fuelLevelLiters!.toString(),
-          fuelDropLiters: drop.toFixed(2),
-          estimatedLossNgn,
-          latitude: lat?.toString() ?? null,
-          longitude: lng?.toString() ?? null,
-        })
-        .returning({ id: alerts.id });
-      alertId = alertRow.id;
-      console.log(`[Theft Engine] Generated new fuel theft alert for ${device.imei}: -${drop.toFixed(1)}L`);
-    } else {
-      console.log(`[Theft Engine] Generated review-only siphon event for ${device.imei}: -${drop.toFixed(1)}L (Confidence score: ${score})`);
-    }
-
-    await recordSiphonEvent({
-      customerId: device.customerId,
-      vehicleId: device.vehicleId,
-      alertId,
-      occurredAt: new Date(bestDrop.lowPoint.recordedAt),
-      litersStolen: drop,
-      estimatedLossNgn,
-      fuelLevelBefore: bestDrop.startPoint.fuelLevelLiters,
-      fuelLevelAfter: bestDrop.lowPoint.fuelLevelLiters,
-      engineStateBefore: bestDrop.startPoint.ignitionOn,
-      engineStateAfter: bestDrop.lowPoint.ignitionOn,
-      latitude: lat?.toString() ?? null,
-      longitude: lng?.toString() ?? null,
-      locationName: lat && lng ? `${Number(lat).toFixed(4)}, ${Number(lng).toFixed(4)}` : null,
-      status,
-    });
-
-  } catch (error) {
-    console.error('[Theft Engine] Error processing fuel theft detection rules:', error);
-  }
+  // Fuel-theft detection was removed on 2026-09-25, deliberately and in full.
+  //
+  // It inferred siphoning from the VIRTUAL TANK — a level modelled from
+  // distance and idle time, because this hardware carries no fuel-level
+  // sensor. A "drop while parked" was therefore the model disagreeing with
+  // itself, and the engine turned that into "Fuel theft detected! ... 8.1L ...
+  // Estimated loss 10,595 NGN" against a named driver. Nothing in the
+  // telemetry could confirm or refute it, which makes it unfalsifiable — and
+  // an unfalsifiable accusation is the one thing a fleet platform must never
+  // produce, because somebody loses their job over it.
+  //
+  // The rule now: every figure the system reports must be checkable against
+  // what the tracker actually sent. Real fuel evidence comes from receipts and
+  // from fill-to-full calibration; both are still here. If a fuel-level sensor
+  // is ever fitted, theft detection can be rebuilt on a measurement rather
+  // than on an inference.
 }
