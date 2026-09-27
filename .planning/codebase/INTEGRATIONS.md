@@ -22,7 +22,7 @@ FuelSense integrates with three external services: Teltonika GPS hardware over a
 
 - TCP port: `5027` (configurable via `TCP_PORT` env var)
 - Binds to `0.0.0.0` — accepts connections from any interface
-- Production endpoint: `ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:5027`
+- Production endpoint: `ec2-13-63-114-126.eu-north-1.compute.amazonaws.com:5027`
 
 **Authentication / device registry:**
 

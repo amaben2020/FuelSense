@@ -18,7 +18,7 @@ SSH_USER="ec2-user"
 
 # The real FuelSense box. Never a target, never a match.
 PROD_INSTANCE_ID="i-02365bd7ac603ace3"
-PROD_IP="13.61.2.216"
+PROD_IP="13.63.114.126"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"

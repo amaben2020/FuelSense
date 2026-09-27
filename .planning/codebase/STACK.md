@@ -191,7 +191,7 @@ FuelSense is a full-stack fleet fuel monitoring platform. The frontend is a Next
   - HTTP port: `5001`
   - TCP port: `5027` (Teltonika hardware)
 - **Production:** AWS EC2 (eu-north-1 region)
-  - Instance: `ec2-13-61-2-216.eu-north-1.compute.amazonaws.com`
+  - Instance: `ec2-13-63-114-126.eu-north-1.compute.amazonaws.com`
   - Deploy via `rsync` from local Mac (no CI pipeline)
   - Backend runs as Node.js process on EC2; `backend/Dockerfile` available but optional
   - TCP port `5027` must be open in EC2 Security Group

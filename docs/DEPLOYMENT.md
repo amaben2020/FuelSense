@@ -29,7 +29,7 @@ Required repository secrets:
 | Secret | Value |
 |---|---|
 | `EC2_SSH_KEY` | Private key contents, ideally a deploy-only key rather than a personal one |
-| `EC2_HOST` | `ec2-13-61-2-216.eu-north-1.compute.amazonaws.com` |
+| `EC2_HOST` | `ec2-13-63-114-126.eu-north-1.compute.amazonaws.com` |
 | `EC2_USER` | `ec2-user` |
 | `GOOGLE_MAPS_API_KEY` | Same value as the local `.env` |
 | `NEXT_PUBLIC_API_URL` | `https://api.fuelsense.ng/api` |
@@ -37,7 +37,7 @@ Required repository secrets:
 ## DNS
 
 `fuelsense.ng` and `www.fuelsense.ng` must point at the EC2 elastic IP
-(`13.61.2.216`) as A records. `api.fuelsense.ng` already does. Caddy issues and
+(`13.63.114.126`) as A records. `api.fuelsense.ng` already does. Caddy issues and
 renews the certificates itself once DNS resolves to the box.
 
 ## Deploying by hand
@@ -49,13 +49,13 @@ production `.env` and nothing in the repo should overwrite it.
 # Backend
 rsync -av --delete --exclude node_modules --exclude .git --exclude .env \
   -e 'ssh -i ~/.ssh/fuelsense.pem' \
-  backend/ ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:/home/ec2-user/backend/
+  backend/ ec2-user@ec2-13-63-114-126.eu-north-1.compute.amazonaws.com:/home/ec2-user/backend/
 ssh -i ~/.ssh/fuelsense.pem ec2-user@... 'sudo systemctl restart fuelsense-backend'
 
 # Frontend
 cd frontend && npx next build
 rsync -az --delete -e 'ssh -i ~/.ssh/fuelsense.pem' \
-  out/ ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:/var/www/fuelsense/
+  out/ ec2-user@ec2-13-63-114-126.eu-north-1.compute.amazonaws.com:/var/www/fuelsense/
 ```
 
 Do not run `npm install --omit=dev` on the server: the systemd unit executes

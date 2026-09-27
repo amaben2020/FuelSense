@@ -2,23 +2,23 @@
 
 ## Teltonika TCP configuration (this is what to use)
 
-- Host: `ec2-13-61-2-216.eu-north-1.compute.amazonaws.com`
+- Host: `ec2-13-63-114-126.eu-north-1.compute.amazonaws.com`
 - Port: `5027`
 - Protocol: `TCP`
-- Full endpoint string: `tcp://ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:5027`
+- Full endpoint string: `tcp://ec2-13-63-114-126.eu-north-1.compute.amazonaws.com:5027`
 
 ## Quick connectivity checks from your Mac
 
 Ping host:
 
 ```bash
-ping -c 4 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+ping -c 4 ec2-13-63-114-126.eu-north-1.compute.amazonaws.com
 ```
 
 Check TCP port 5027:
 
 ```bash
-nc -zv -w 5 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com 5027
+nc -zv -w 5 ec2-13-63-114-126.eu-north-1.compute.amazonaws.com 5027
 ```
 
 If timeout happens, open inbound security-group rules for `5027/tcp`.
@@ -26,7 +26,7 @@ If timeout happens, open inbound security-group rules for `5027/tcp`.
 ## Connect to EC2
 
 ```bash
-ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-63-114-126.eu-north-1.compute.amazonaws.com
 ```
 
 If key permission is wrong:
@@ -64,7 +64,7 @@ instead:
 ssh -i ~/.ssh/fuelsense.pem \
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o TCPKeepAlive=yes \
   -N -L 15432:fuelsense-prod.cf0m8smsiksj.eu-north-1.rds.amazonaws.com:5432 \
-  ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+  ec2-user@ec2-13-63-114-126.eu-north-1.compute.amazonaws.com
 ```
 
 Note the forward target is the **RDS endpoint**, not `localhost` — forwarding
@@ -75,7 +75,7 @@ to `localhost:5432` now lands on the retired local Postgres, not production.
 Get the real `DATABASE_URL` (username/password) from the EC2 box:
 
 ```bash
-ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com \
+ssh -i ~/.ssh/fuelsense.pem ec2-user@ec2-13-63-114-126.eu-north-1.compute.amazonaws.com \
   "grep '^DATABASE_URL=' /home/ec2-user/backend/.env"
 ```
 
@@ -167,7 +167,7 @@ rsync -avn --delete \
   --exclude node_modules --exclude .git --exclude .env --exclude dist \
   -e 'ssh -i ~/.ssh/fuelsense.pem' \
   /Users/uzochukwuamara/Code/FuelSense/backend/ \
-  ec2-user@ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:/home/ec2-user/backend/
+  ec2-user@ec2-13-63-114-126.eu-north-1.compute.amazonaws.com:/home/ec2-user/backend/
 ```
 
 Drop the `n` to apply.
@@ -266,12 +266,12 @@ sudo systemctl restart fuelsense
 
 ### 3. Port 5027 open + device pointed at EC2
 
-Teltonika server: `tcp://ec2-13-61-2-216.eu-north-1.compute.amazonaws.com:5027`
+Teltonika server: `tcp://ec2-13-63-114-126.eu-north-1.compute.amazonaws.com:5027`
 
 From your Mac:
 
 ```bash
-nc -zv -w 5 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com 5027
+nc -zv -w 5 ec2-13-63-114-126.eu-north-1.compute.amazonaws.com 5027
 ```
 
 AWS security group must allow **inbound TCP 5027** from `0.0.0.0/0` (or your SIM carrier IPs).
@@ -314,9 +314,9 @@ Stopping the server
 
 ```bash
 sudo systemctl stop fuelsense
-tcping ec2-13-61-2-216.eu-north-1.compute.amazonaws.com 5027
+tcping ec2-13-63-114-126.eu-north-1.compute.amazonaws.com 5027
 
-ping -c 4 ec2-13-61-2-216.eu-north-1.compute.amazonaws.com
+ping -c 4 ec2-13-63-114-126.eu-north-1.compute.amazonaws.com
 ```
 
 Resuming the server

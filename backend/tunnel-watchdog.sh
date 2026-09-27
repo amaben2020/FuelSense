@@ -15,7 +15,7 @@
 # Stop it: pkill -f tunnel-watchdog.sh
 
 TUNNEL_PORT=15432
-REMOTE_HOST="ec2-13-61-2-216.eu-north-1.compute.amazonaws.com"
+REMOTE_HOST="ec2-13-63-114-126.eu-north-1.compute.amazonaws.com"
 DB_HOST="fuelsense-prod.cf0m8smsiksj.eu-north-1.rds.amazonaws.com"
 SSH_KEY="$HOME/.ssh/fuelsense.pem"
 
