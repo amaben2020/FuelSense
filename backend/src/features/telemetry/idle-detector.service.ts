@@ -33,6 +33,32 @@ const IDLE_MIN_MS = Number(process.env.IDLE_MIN_SECONDS || 120) * 1000;
 // told while it is still happening rather than at the end of the day.
 const IDLE_ALERT_MINUTES = Number(process.env.IDLE_ALERT_MINUTES || 5);
 
+/**
+ * Speed at which the vehicle is unarguably driving, not drifting.
+ *
+ * A stationary GNSS fix wanders: on the reference vehicle a parked car
+ * regularly reported 3-6 km/h of Doppler noise. A single such frame used to
+ * close the idle stretch outright, so one 25-minute warm-up on 26 September
+ * was reported as two — 14 minutes ending 16:52, then 10 minutes starting
+ * 16:53, from positions 15 m apart, which is noise rather than a journey. The
+ * split doubled the excessive-idle alerts too, and those alerts drove the
+ * fleet verdict.
+ *
+ * Above this, movement is real and the stretch ends immediately.
+ */
+const MOVING_CONFIRM_KPH = Number(process.env.IDLE_MOVE_CONFIRM_KPH || 10);
+
+/**
+ * How long ambiguous movement (between the idle floor and the confirm speed)
+ * must persist before it counts as driving away rather than as noise.
+ *
+ * Long enough to outlast a GNSS wobble, short enough that genuinely crawling
+ * out of a car park is not booked as idling. Time inside this window is never
+ * credited as idling either way, so the conservative reading always wins.
+ */
+const MOVE_CONFIRM_MS =
+  Number(process.env.IDLE_MOVE_CONFIRM_SECONDS || 60) * 1000;
+
 export interface IdleReading {
   ignitionOn: boolean;
   speedKph: number | null;
@@ -71,6 +97,11 @@ export interface IdleState {
   startEmitted: boolean;
   /** True once the long-idle alert has been raised for this stretch. */
   alerted?: boolean;
+  /**
+   * When movement was first seen that might only be GNSS noise. While set,
+   * the stretch is held open pending confirmation — see MOVING_CONFIRM_KPH.
+   */
+  pendingMoveSince?: Date;
 }
 
 /** Observed idling so far, in minutes — the only duration ever reported. */
@@ -125,6 +156,27 @@ export function stepIdle(
   if (isStationaryRunning(reading)) {
     if (!state) return { state: beginStretch(reading.recordedAt), emissions: [] };
 
+    // The vehicle wobbled and settled: that was noise, not a departure, so the
+    // same stretch continues rather than a second one beginning. The wobble
+    // window itself is never credited as idling — we did not watch an engine
+    // sit through it, and under-claiming is the safe direction.
+    if (state.pendingMoveSince) {
+      const resumed: IdleState = {
+        ...state,
+        pendingMoveSince: undefined,
+        lastSeenAt: reading.recordedAt,
+      };
+      if (!resumed.startEmitted && resumed.observedMs >= IDLE_MIN_MS) {
+        return {
+          state: { ...resumed, startEmitted: true },
+          emissions: [
+            { eventType: 'idling_start', occurredAt: resumed.idleSince, minutes: null },
+          ],
+        };
+      }
+      return { state: resumed, emissions: [] };
+    }
+
     const gap = reading.recordedAt.getTime() - state.lastSeenAt.getTime();
 
     // Silence longer than the cap is not evidence of anything. Whatever the
@@ -155,6 +207,36 @@ export function stepIdle(
   // over. Its final hop counts only up to the cap, for the same reason.
   if (!state) return { state: null, emissions: [] };
 
+  // Ambiguous movement with the engine still running: too fast to be sitting
+  // still, too slow to be sure it is not the GNSS drifting. Hold the stretch
+  // open and bank the idling observed up to the moment the wobble started —
+  // if the vehicle settles, the stretch resumes; if it keeps moving, it ends
+  // here rather than at whichever frame finally exceeded the confirm speed.
+  if (reading.ignitionOn && (reading.speedKph ?? 0) < MOVING_CONFIRM_KPH) {
+    if (!state.pendingMoveSince) {
+      const gapToWobble = Math.max(
+        0,
+        reading.recordedAt.getTime() - state.lastSeenAt.getTime()
+      );
+      return {
+        state: {
+          ...state,
+          pendingMoveSince: reading.recordedAt,
+          observedMs: state.observedMs + Math.min(gapToWobble, MAX_IDLE_GAP_MS),
+          lastSeenAt: reading.recordedAt,
+        },
+        emissions: [],
+      };
+    }
+    const movingFor = reading.recordedAt.getTime() - state.pendingMoveSince.getTime();
+    if (movingFor < MOVE_CONFIRM_MS) {
+      return { state, emissions: [] };
+    }
+    // Sustained: it really did drive away. Close at the last frame that saw
+    // it stationary, not at this one.
+    return { state: null, emissions: close(state) };
+  }
+
   const finalGap = Math.max(0, reading.recordedAt.getTime() - state.lastSeenAt.getTime());
   const ended: IdleState = {
     ...state,
@@ -180,6 +262,7 @@ const stateByImei = new DetectorState<IdleState>('idle', {
       observedMs?: number;
       startEmitted: boolean;
       alerted?: boolean;
+      pendingMoveSince?: string;
     };
     const idleSince = new Date(r.idleSince);
     return {
@@ -191,6 +274,7 @@ const stateByImei = new DetectorState<IdleState>('idle', {
       // claim nobody measured.
       lastSeenAt: r.lastSeenAt ? new Date(r.lastSeenAt) : idleSince,
       observedMs: typeof r.observedMs === 'number' ? r.observedMs : 0,
+      pendingMoveSince: r.pendingMoveSince ? new Date(r.pendingMoveSince) : undefined,
     };
   },
 });

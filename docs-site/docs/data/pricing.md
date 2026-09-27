@@ -70,12 +70,28 @@ actively misleading:
 | Event replay loss valuation | Flat 1300 | `effectivePriceAt(customer, occurredAt)` |
 | Receipt replay shortfall | `COALESCE(price_per_liter, 1300)` in SQL | Receipt's own price, else benchmark at that date |
 | Estimated consumption | Flat 1300 for the whole window | Each day at that day's rate |
-| Fleet efficiency | — | Already benchmark → receipt → constant |
+| Fleet efficiency | Benchmark won outright | `effectiveFuelPrice()` — newest evidence wins |
+| Fleet efficiency price timeline | `fuel_prices` only | Unions declared prices **and** receipts |
+| Anomaly detector | Flat 1300, ignoring both | `effectiveFuelPrice()` |
+| Manager receipt route | **Stored** 1300 as "paid" | Requires a real price; stores null otherwise |
+| Driver receipt route | **Stored** 1300 as "paid" | Requires a real price; rejects otherwise |
+| Device events summary | — | `effectiveFuelPrice()` |
+
+:::danger Never store an assumed price
+The two receipt rows above were the serious ones. `cost_per_liter_ngn` means
+*what was actually paid*: it is read back by `latestReceiptPrice()` and plotted
+on the price chart as evidence. Defaulting it filed receipts at ₦1,300 that
+nobody paid ₦1,300 for, and dragged the fleet's latest-receipt price down to the
+constant. Both routes now require a price per litre or a total.
+
+Rows written before this change still carry the fabricated figure and are
+indistinguishable from fuel genuinely bought at ₦1,300.
+:::
 
 :::caution Still using the constant
-Idle detector, receipt sweep, driver report and several other modules still fall
-back to the constant when a fleet has recorded no price. That is defensible as a
-fallback, but worth a sweep if you want it gone everywhere.
+Receipt sweep, driver report and several other modules still fall back to the
+constant when a fleet has recorded no price. That is defensible as a *fallback*
+— never as a stored value — but worth a sweep if you want it gone everywhere.
 :::
 
 ## Valuing a loss

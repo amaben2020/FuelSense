@@ -308,6 +308,10 @@ export interface FleetVehicle {
   virtual_tank_capacity_liters?: number | string | null;
   virtual_tank_liters?: number | string | null;
   virtual_tank_confidence?: number | null;
+  /** Volume-weighted cost of the fuel held, at prices actually paid. */
+  virtual_tank_avg_cost_ngn?: number | string | null;
+  /** What that fuel is worth. Null until a priced fill has landed. */
+  virtual_tank_value_ngn?: number | string | null;
   virtual_tank_calibrated_at?: string | null;
   learned_idle_lph?: number | string | null;
 }

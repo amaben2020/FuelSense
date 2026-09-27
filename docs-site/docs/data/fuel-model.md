@@ -176,6 +176,31 @@ down to the constant. Both now **require** a price per litre or a total, and
 store null rather than a guess.
 :::
 
+## One idle spell, not several
+
+An idle stretch is held open through a **GNSS wobble**. A parked car regularly
+reports a few km/h of Doppler noise, and a single such frame used to close the
+stretch outright — so one 25-minute warm-up on 26 September was written as two
+spells, 14 minutes ending 16:52 and 10 minutes starting 16:53, from positions
+15 m apart.
+
+That is not a cosmetic double-entry. One `excessive_idle` alert is raised per
+stretch, and open alerts drove the fleet verdict, so a split warm-up made a
+working fleet read "Needs attention".
+
+| Speed, engine on | Reading |
+| --- | --- |
+| Below `IDLE_SPEED_KPH` (2) | Idling |
+| Between 2 and `MOVING_CONFIRM_KPH` (10) | Ambiguous — stretch held open |
+| At or above 10 | Driving; stretch ends at the last stationary frame |
+
+Ambiguous movement must persist for `MOVE_CONFIRM_MS` (60 s) before it counts
+as driving away. Ignition off always ends a stretch immediately. **Time inside
+the wobble window is never credited as idling** either way — if the vehicle
+settles, the stretch resumes without it; if it drives on, the stretch ends at
+the last frame that actually saw it stationary. Under-claiming is the safe
+direction.
+
 ## Benchmarks must include idle
 
 Expected fuel for a period has to include an idle allowance. Comparing

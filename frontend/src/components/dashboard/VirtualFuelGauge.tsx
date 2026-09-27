@@ -2,7 +2,13 @@
 
 import { useState } from 'react';
 import { Fuel, ShieldCheck, ShieldAlert, X } from 'lucide-react';
-import { FleetVehicle, calibrateVirtualTank, isInFuelReserve, usableFuelPercent } from '@/lib/api';
+import {
+  FleetVehicle,
+  calibrateVirtualTank,
+  formatNgn,
+  isInFuelReserve,
+  usableFuelPercent,
+} from '@/lib/api';
 import { LiquidFuelGauge } from './Gauges';
 
 function relativeTime(iso: string): string {
@@ -43,6 +49,15 @@ export function VirtualFuelGauge({
   const inReserve = isInFuelReserve(liters);
   const confidence = vehicle.virtual_tank_confidence ?? null;
   const calibratedAt = vehicle.virtual_tank_calibrated_at ?? null;
+  // Worth at the prices actually paid for this fuel, never at today's pump
+  // price — that would restate what last month's fuel cost every time the
+  // price moved. Absent until a priced fill has landed, and shown as absent.
+  const tankValueNgn =
+    vehicle.virtual_tank_value_ngn != null ? Number(vehicle.virtual_tank_value_ngn) : null;
+  const tankAvgCost =
+    vehicle.virtual_tank_avg_cost_ngn != null
+      ? Number(vehicle.virtual_tank_avg_cost_ngn)
+      : null;
 
   const submitCalibration = async (litersValue: number | null) => {
     setSaving(true);
@@ -102,6 +117,19 @@ export function VirtualFuelGauge({
               ? `Calibrated ${relativeTime(calibratedAt)}`
               : 'Not calibrated — set the level after a fill-up'}
           </span>
+          {tankValueNgn != null && (
+            <span
+              className="text-[11px] text-ink-dim"
+              title={
+                tankAvgCost != null
+                  ? `Weighted average of the prices actually paid for the fuel in this tank: ${formatNgn(tankAvgCost)}/L`
+                  : undefined
+              }
+            >
+              Worth {formatNgn(tankValueNgn)}
+              {tankAvgCost != null ? ` · ${formatNgn(tankAvgCost)}/L paid` : ''}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setCalibrating(true)}

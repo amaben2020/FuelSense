@@ -50,6 +50,10 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       vt.capacity_liters AS virtual_tank_capacity_liters,
       ROUND(vt.level_ml / 1000.0, 2) AS virtual_tank_liters,
       vt.confidence AS virtual_tank_confidence,
+      vt.avg_cost_ngn_per_liter AS virtual_tank_avg_cost_ngn,
+      -- What the fuel in the tank is worth at the prices actually paid for
+      -- it, not at today's pump price. NULL until a priced fill has landed.
+      ROUND((vt.level_ml / 1000.0) * vt.avg_cost_ngn_per_liter) AS virtual_tank_value_ngn,
       vt.calibrated_at AS virtual_tank_calibrated_at,
       vt.learned_idle_lph,
       CASE
