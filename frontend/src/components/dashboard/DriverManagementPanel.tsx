@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Clock,
   Fuel,
-  Gauge,
   Info,
   MapPin,
   LayoutGrid,
@@ -24,7 +23,7 @@ import {
   ReportBucket,
   fetchDriverReports,
 } from '@/lib/api';
-import { Avatar, HatchBar, Panel, SegmentedPills, StatusChip } from '@/components/ui/chrome';
+import { Avatar, Panel, SegmentedPills, StatusChip } from '@/components/ui/chrome';
 import { LoadErrorBanner } from './LoadErrorBanner';
 import { formatHoursShort } from '@/lib/duration';
 
@@ -114,15 +113,15 @@ function Metric({
 /**
  * The three questions a manager asks of a driver list, each a way to order
  * it. "Most active" is hours with the engine on and moving; "furthest" is
- * distance; "most efficient" is km per litre, and only counts a driver whose
- * fuel record is complete enough for the figure to mean anything.
+ * distance; "most efficient" is the score from harsh driving and idling —
+ * never km per litre, which without a fuel sensor is the vehicle's rate.
  */
 type Ranking = 'active' | 'distance' | 'efficient';
 
 const RANKINGS: Array<{ id: Ranking; label: string; hint: string }> = [
   { id: 'distance', label: 'Furthest', hint: 'Most distance covered' },
   { id: 'active', label: 'Most active', hint: 'Most hours on the road' },
-  { id: 'efficient', label: 'Most efficient', hint: 'Economy vs baseline, idling and harsh events — scored out of 100' },
+  { id: 'efficient', label: 'Most efficient', hint: 'Harsh driving and idling — scored out of 100' },
 ];
 
 function rankValue(row: DriverPeriod | null, ranking: Ranking): number {
@@ -156,11 +155,6 @@ function DriverCard({
   const trend =
     row && previous && previous.distance_km > 0
       ? ((row.distance_km - previous.distance_km) / previous.distance_km) * 100
-      : null;
-
-  const vsBaseline =
-    row?.efficiency_km_l != null && row.baseline_km_l != null && row.baseline_km_l > 0
-      ? ((row.efficiency_km_l - row.baseline_km_l) / row.baseline_km_l) * 100
       : null;
 
   return (
@@ -208,7 +202,7 @@ function DriverCard({
         </p>
       ) : (
         <>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             <Metric
               icon={RouteIcon}
               label="Distance"
@@ -222,49 +216,12 @@ function DriverCard({
               sub={row.fuel_liters > 0 ? 'modelled' : 'no level data'}
             />
             <Metric
-              icon={Gauge}
-              label="Economy"
-              value={row.efficiency_km_l != null ? `${row.efficiency_km_l} km/L` : null}
-              sub={
-                row.efficiency_km_l != null
-                  ? row.baseline_km_l != null
-                    ? `vs ${row.baseline_km_l} baseline`
-                    : null
-                  : // Says why the figure is absent instead of leaving a bare dash.
-                    row.fuel_complete === false
-                    ? 'partial fuel data'
-                    : 'not enough data'
-              }
-            />
-            <Metric
               icon={Clock}
               label="Driving"
               value={`${row.moving_hours}h`}
               sub={row.idle_hours > 0 ? `${row.idle_hours}h idling` : null}
             />
           </div>
-
-          {vsBaseline != null && (
-            <div className="mt-3">
-              <div className="mb-1.5 flex items-center justify-between text-xs">
-                <span className="text-ink-dim">Economy against vehicle baseline</span>
-                <span
-                  className={`font-semibold tabular-nums ${
-                    vsBaseline >= 0 ? 'text-good' : 'text-warn'
-                  }`}
-                >
-                  {vsBaseline >= 0 ? '+' : ''}
-                  {Math.round(vsBaseline)}%
-                </span>
-              </div>
-              <HatchBar
-                value={row.efficiency_km_l ?? 0}
-                max={Math.max(row.baseline_km_l ?? 1, row.efficiency_km_l ?? 1)}
-                tone={vsBaseline >= 0 ? 'good' : 'amber'}
-                showPercent={false}
-              />
-            </div>
-          )}
 
           <EfficiencyBreakdown row={row} />
 
@@ -610,7 +567,6 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
                           <th className="px-4 py-2.5 text-right">Distance</th>
                           {/* Never just "Fuel": nothing here measures litres. */}
                           <th className="px-4 py-2.5 text-right">Est. fuel</th>
-                          <th className="px-4 py-2.5 text-right">Economy</th>
                           <th className="px-4 py-2.5 text-right">Driving</th>
                           <th className="px-4 py-2.5 text-right">Efficiency</th>
                           <th className="px-4 py-2.5" />
@@ -638,11 +594,6 @@ export function DriverManagementPanel({ onViewVehicle }: { onViewVehicle?: () =>
                               </td>
                               <td className="px-4 py-2.5 text-right font-mono">
                                 {row ? `≈${row.fuel_liters.toFixed(1)} L` : '—'}
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-mono">
-                                {row?.efficiency_km_l != null
-                                  ? `${row.efficiency_km_l.toFixed(2)} km/L`
-                                  : '—'}
                               </td>
                               <td className="px-4 py-2.5 text-right font-mono">
                                 {row ? formatHoursShort(row.moving_hours) : '—'}
@@ -725,9 +676,9 @@ function EfficiencyBreakdown({ row }: { row: DriverPeriod }) {
           ))}
           {score.reason && <p className="text-warn">{score.reason}</p>}
           <p className="pt-1 text-[11px] leading-relaxed text-ink-dim">
-            Economy: matching the vehicle&apos;s baseline earns 40 of 50; each 10% better +5, each 10% worse −8.
-            Idling: 10% or less of engine time earns 25, 40% or more earns 0. Smooth driving: no harsh events earns 25,
-            ten or more per 100 km earns 0. The same rules for every driver, every period.
+            Smooth driving: no harsh events earns 75, ten or more per 100 km earns 0. Idling: 15% or less of engine
+            time earns 25, 50% or more earns 0. Fuel economy is left out: without a fuel sensor, litres are estimated
+            from distance, so km/L would score the vehicle, not the driver. The same rules for every driver, every period.
           </p>
         </div>
       )}
