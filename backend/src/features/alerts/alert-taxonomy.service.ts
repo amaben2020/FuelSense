@@ -51,6 +51,23 @@ const CLASSIFICATION: Record<string, AlertClass> = {
   device_offline: 'connectivity',
 };
 
+/**
+ * Idling alerts, which are a running cost rather than a fault.
+ *
+ * Kept as their own set because the health score must not let them behave
+ * like faults. One alert is raised per idle stretch past the threshold, and
+ * the detector splits a single stretch whenever a stationary GNSS fix blips
+ * over the movement floor — so a driver who warmed the car once can produce
+ * several. Counted one-for-one they own the fleet verdict: 24 open alerts at
+ * two points each read as "Needs attention" on a fleet whose only sin was
+ * leaving an engine running.
+ */
+export const IDLE_ALERT_TYPES = new Set(['excessive_idle', 'idle_fuel_waste']);
+
+export function isIdleAlert(alertType: string): boolean {
+  return IDLE_ALERT_TYPES.has(alertType);
+}
+
 /** Unknown types are treated as warnings: visible, but not score-wrecking. */
 export function classifyAlert(alertType: string): AlertClass {
   return CLASSIFICATION[alertType] ?? 'warning';

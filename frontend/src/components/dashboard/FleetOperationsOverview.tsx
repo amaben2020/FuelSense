@@ -93,6 +93,13 @@ type AttentionItem = {
  * problem: two different questions (is the fleet reachable, is it being
  * driven and fuelled well) were being answered with one number.
  */
+/**
+ * Most the fleet verdict will ever dock for idling, however many stretches.
+ * Six points is three stretches' worth — enough to be visible, never enough
+ * to move a healthy fleet into "Needs attention" by itself.
+ */
+const IDLE_SCORE_CAP = 6;
+
 function fleetHealthScore(summary: DashboardSummary, efficiency: FleetEfficiency[]) {
   // This filter was described here long before it existed: the score used to
   // subtract for *every* open alert, so a driver filing a receipt cost the
@@ -111,11 +118,27 @@ function fleetHealthScore(summary: DashboardSummary, efficiency: FleetEfficiency
       : summary.active_alerts - summary.theft_alerts;
   const theftAlerts = summary.theft_alerts;
   const underperforming = efficiency.filter((e) => e.status !== 'verified').length;
+
+  // Idling is a running cost, not a fault, and it must not be able to set the
+  // fleet verdict on its own. One alert is raised per idle stretch, and the
+  // detector splits a stretch whenever a stationary GNSS fix blips over the
+  // movement floor — so a single warm-up can raise several. Counted
+  // one-for-one they owned the score outright: 24 open alerts at two points
+  // each put a fleet whose only sin was a running engine at 52/100 and
+  // "Needs attention". Idling is now capped at IDLE_SCORE_CAP however many
+  // stretches there were; what it actually cost is on the money cards, in
+  // naira, which is the right place to argue about it.
+  const idleAlerts = Math.min(summary.idle_alerts ?? 0, concerningAlerts);
+  const faultAlerts = Math.max(0, concerningAlerts - idleAlerts);
+  const idlePenalty = Math.min(idleAlerts * 2, IDLE_SCORE_CAP);
+
   const score =
-    100 - concerningAlerts * 2 - theftAlerts * 10 - underperforming * 7;
+    100 - faultAlerts * 2 - idlePenalty - theftAlerts * 10 - underperforming * 7;
   return {
     score: Math.max(0, Math.min(100, Math.round(score))),
     concerningAlerts,
+    idleAlerts,
+    faultAlerts,
     theftAlerts,
     underperforming,
   };
@@ -911,6 +934,11 @@ export function FleetOperationsOverview({
           theftAlerts={health?.theftAlerts ?? 0}
           preventableLossNgn={preventableLoss}
           periodDays={periodDays}
+          hasFault={
+            (health?.faultAlerts ?? 0) > 0 ||
+            (health?.theftAlerts ?? 0) > 0 ||
+            (health?.underperforming ?? 0) > 0
+          }
           causeParts={lossCauseParts}
           harshEventCount={harshEventCount}
           harshEventEstimatedNgn={harshEventEstimatedNgn}

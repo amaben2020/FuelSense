@@ -204,7 +204,11 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
           <svg width="18" height="8" aria-hidden className="shrink-0">
             <path d="M0 6 L9 3 L18 2" fill="none" stroke="var(--accent-y)" strokeWidth="2" />
           </svg>
-          Declared benchmark
+          {/* "Declared benchmark" read as though the app had computed it —
+              an average of the receipts, say. It is the opposite: a price
+              somebody typed into Settings, held flat until somebody types the
+              next one. Saying whose price it is, is the whole clarification. */}
+          The price you set
         </span>
         {receipts.length > 0 && (
           <span className="flex items-center gap-1.5">
@@ -212,7 +216,7 @@ export function FuelPriceChart({ className = '' }: { className?: string }) {
               <circle cx="5" cy="4" r="3" fill="var(--warn)" />
               <circle cx="14" cy="4" r="3" fill="var(--warn)" />
             </svg>
-            Price paid on a receipt
+            What was actually paid
           </span>
         )}
       </div>

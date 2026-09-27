@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import {
   api,
+  formatNgn,
   BehaviorVehicle,
   DeviceEvent,
   DeviceEventsResponse,
@@ -71,6 +72,9 @@ const SECURITY_TYPES = new Set([
 ]);
 const TRIP_TYPES = new Set(['trip_start', 'trip_stop']);
 
+/** The two edges the device sends for one idle spell. Counted once, not twice. */
+const IDLE_COUNT_TYPES = new Set(['idling_start', 'idling_end']);
+
 // Raw ignition and trip edges are how the tracker talks, not what a manager
 // needs to see. They stay available under "Everything" but never lead the feed.
 const HOUSEKEEPING_TYPES = new Set([
@@ -79,6 +83,20 @@ const HOUSEKEEPING_TYPES = new Set([
   'trip_start',
   'trip_stop',
 ]);
+
+const HARSH_TYPES = ['harsh_acceleration', 'harsh_braking', 'harsh_cornering'];
+
+/**
+ * Only used if the API response predates `score_weights`. Kept in step with
+ * SCORE_WEIGHTS in device-events.routes.ts.
+ */
+const DEFAULT_SCORE_WEIGHTS: Record<string, number> = {
+  crash: 25,
+  harsh_braking: 2,
+  harsh_acceleration: 2,
+  harsh_cornering: 1,
+  overspeeding: 2,
+};
 
 /** An idle spell shorter than this is a junction or a queue, not a habit. */
 const IDLE_ATTENTION_MINUTES = 10;
@@ -208,8 +226,17 @@ function buildFeed(events: DeviceEvent[], idleBurnLph: number): FeedItem[] {
       const start = openIdle.get(key);
       openIdle.delete(key);
       if (!start) continue;
+      // The detector writes the minutes it actually WATCHED onto the end
+      // event, each gap between frames capped. Re-deriving them from the two
+      // timestamps here would undo that: a tracker that goes quiet mid-idle
+      // and wakes hours later would be shown as an engine that ran for hours.
+      // Only fall back to wall-clock for rows written before the detector
+      // carried a value.
+      const reported = Number(e.value);
       const minutes =
-        (new Date(e.occurred_at).getTime() - new Date(start.occurred_at).getTime()) / 60000;
+        e.unit === 'min' && Number.isFinite(reported) && reported > 0
+          ? reported
+          : (new Date(e.occurred_at).getTime() - new Date(start.occurred_at).getTime()) / 60000;
       if (minutes <= 0) continue;
       const liters = (minutes / 60) * idleBurnLph;
       items.push({
@@ -276,6 +303,70 @@ function scoreBarColor(score: number) {
   if (score >= 80) return 'bg-good';
   if (score >= 60) return 'bg-warn';
   return 'bg-bad';
+}
+
+type DriverChip = {
+  key: string;
+  label: string;
+  /** Points this cost the driver, if any. */
+  points: number;
+  tone: string;
+};
+
+/**
+ * Turns a vehicle's raw event tally into chips a fleet manager can read.
+ *
+ * Three things were wrong with printing `v.counts` directly. The tracker
+ * reports an idle as two rows, so nine idle spells appeared as "Idling
+ * started x 9" AND "Idling ended x 9" — eighteen chips' worth of alarm for
+ * nine kettles' worth of fuel, and the same spell counted twice. Tracker
+ * supply events sat in the same row as driver conduct. And nothing said what
+ * any of it cost, so the 73 at the end of the row was a number the manager had
+ * to take on faith. Now the chips that cost points say so and lead, idling is
+ * one chip carrying its hours, and device health has left the row entirely.
+ */
+function buildDriverChips(
+  v: BehaviorVehicle,
+  weights: Record<string, number>
+): DriverChip[] {
+  const chips: DriverChip[] = [];
+
+  for (const [type, count] of Object.entries(v.counts)) {
+    if (!count) continue;
+    if (IDLE_COUNT_TYPES.has(type)) continue;
+    if (POWER_TYPES.has(type)) continue;
+    const weight = weights[type] ?? 0;
+    chips.push({
+      key: type,
+      label: `${eventLabel(type)} × ${count}`,
+      points: weight * count,
+      tone:
+        weight > 0
+          ? 'border-flag/40 bg-flag/10 text-flag'
+          : 'border-edge bg-canvas text-ink-mid',
+    });
+  }
+
+  // A spell is one idle, however many edges the device sent for it. Prefer the
+  // ends — those are the spells that actually finished inside the window.
+  const spells = v.counts.idling_end || v.counts.idling_start || 0;
+  if (spells > 0 || (v.idle_hours ?? 0) > 0) {
+    const parts = [`Idled × ${spells}`];
+    if (v.idle_hours) parts.push(formatHours(v.idle_hours));
+    if (v.idle_fuel_ngn) parts.push(formatNgn(v.idle_fuel_ngn));
+    chips.push({
+      key: 'idling',
+      label: parts.join(' · '),
+      points: 0,
+      tone:
+        (v.idle_hours ?? 0) >= 1
+          ? 'border-warn/40 bg-warn/10 text-warn'
+          : 'border-edge bg-canvas text-ink-mid',
+    });
+  }
+
+  // Costliest first: the row should open with whatever moved the score.
+  return chips.sort((a, b) => b.points - a.points);
 }
 
 function StatTile({
@@ -410,6 +501,25 @@ export function DrivingBehaviorPanel() {
 
   const mutedCount = feed.length - feed.filter((e) => e.needsAttention).length;
 
+  // The server's own weights, so a chip that says a harsh brake cost 2 points
+  // and the score that deducted it cannot drift apart.
+  const scoreWeights = useMemo(
+    () => summary?.score_weights ?? DEFAULT_SCORE_WEIGHTS,
+    [summary]
+  );
+
+  const { harshTotal, harshPenalty } = useMemo(() => {
+    const counts = summary?.fleet.counts_by_type ?? {};
+    let total = 0;
+    let penalty = 0;
+    for (const type of HARSH_TYPES) {
+      const n = counts[type] ?? 0;
+      total += n;
+      penalty += n * (scoreWeights[type] ?? 0);
+    }
+    return { harshTotal: total, harshPenalty: penalty };
+  }, [summary, scoreWeights]);
+
   const vehiclesWithData = useMemo(
     () => (summary?.vehicles ?? []).filter((v) => v.total_events > 0 || v.distance_km > 0),
     [summary]
@@ -465,13 +575,25 @@ export function DrivingBehaviorPanel() {
         </div>
       )}
 
-      {/* Six tiles, one row from `lg` up. At five columns the sixth wrapped
-          onto a line of its own and left four empty cells across the page. */}
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* Four tiles, not six. "Events recorded: 151" counted every ignition
+          turn the tracker ever sent and told a manager nothing he could act
+          on, and tracker power is the fitter's problem — it now has its own
+          line below instead of a headline slot beside driver conduct. What is
+          left is the four things a fleet manager can actually do something
+          about this week. */}
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <StatTile
           label="Fleet safety score"
-          value={summary?.fleet.avg_score != null ? `${summary.fleet.avg_score}/100` : '—'}
-          hint="100 minus the points deducted"
+          value={
+            summary?.fleet.avg_score != null
+              ? `${summary.fleet.avg_score}/100`
+              : '—'
+          }
+          hint={
+            harshTotal > 0
+              ? `${harshTotal} harsh manoeuvre${harshTotal === 1 ? '' : 's'} cost ${harshPenalty} points`
+              : 'Nothing deducted this period'
+          }
           tone={
             summary?.fleet.avg_score != null
               ? summary.fleet.avg_score >= 80
@@ -482,54 +604,75 @@ export function DrivingBehaviorPanel() {
               : 'text-ink'
           }
         />
+        {/* Idling leads with money. Hours and litres are the workings; the
+            naira figure is the only part a manager repeats to a driver. */}
         <StatTile
-          label="Events recorded"
-          value={String(summary?.fleet.total_events ?? 0)}
-          hint={`Last ${days} days`}
-        />
-        <StatTile
-          label="Security events"
-          value={String(summary?.fleet.security_events ?? 0)}
-          hint="Towing · crash · jamming · geofence"
-          tone={(summary?.fleet.security_events ?? 0) > 0 ? 'text-bad' : 'text-good'}
-        />
-        <StatTile
-          label="Tracker power"
-          value={String(summary?.fleet.power_events ?? 0)}
-          hint="Supply lost or restored — device health, not driving"
-        />
-        <StatTile
-          label="Harsh driving"
-          value={String(
-            (summary?.fleet.counts_by_type.harsh_acceleration ?? 0) +
-              (summary?.fleet.counts_by_type.harsh_braking ?? 0) +
-              (summary?.fleet.counts_by_type.harsh_cornering ?? 0)
-          )}
-          hint="2 points each for acceleration and braking"
-        />
-        {/* Idling is charged by the hour, not by the event — a forty-minute
-            wait and a traffic light are not the same thing. */}
-        <StatTile
-          label="Time idling"
-          value={formatHours(summary?.fleet.idle_hours)}
+          label="Fuel burned idling"
+          value={
+            summary?.fleet.idle_fuel_ngn
+              ? formatNgn(summary.fleet.idle_fuel_ngn)
+              : formatHours(summary?.fleet.idle_hours)
+          }
           hint={
-            summary?.fleet.idle_fuel_liters
-              ? `≈${summary.fleet.idle_fuel_liters.toFixed(1)} L burned parked with the engine on`
-              : 'Engine on, vehicle stationary'
+            (summary?.fleet.idle_hours ?? 0) > 0
+              ? `${formatHours(summary?.fleet.idle_hours)} parked with the engine running · ≈${(summary?.fleet.idle_fuel_liters ?? 0).toFixed(1)} L`
+              : 'No engine-on standing time this period'
           }
           tone={(summary?.fleet.idle_hours ?? 0) >= 1 ? 'text-warn' : 'text-ink'}
         />
+        <StatTile
+          label="Harsh driving"
+          value={String(harshTotal)}
+          hint={
+            harshTotal > 0
+              ? 'Heavy acceleration, braking and cornering — the driver’s own habits'
+              : 'None recorded'
+          }
+          tone={harshTotal > 0 ? 'text-flag' : 'text-good'}
+        />
+        <StatTile
+          label="Security"
+          value={
+            (summary?.fleet.security_events ?? 0) > 0
+              ? String(summary?.fleet.security_events)
+              : 'All clear'
+          }
+          hint="Towing, crash, signal jamming or leaving a geofence"
+          tone={(summary?.fleet.security_events ?? 0) > 0 ? 'text-bad' : 'text-good'}
+        />
       </div>
+
+      {/* Tracker health, stated as the fitter's job. It used to sit in the
+          tile row reading "Tracker power 11" next to driving figures, which
+          invited the manager to read it as something a driver did. */}
+      {(summary?.fleet.power_events ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-panel px-4 py-2.5 text-xs text-ink-mid">
+          <PlugZap className="h-3.5 w-3.5 shrink-0 text-ink-dim" />
+          <span>
+            <span className="font-medium text-ink">
+              Tracker lost power {summary?.fleet.power_events} times
+            </span>{' '}
+            in {days} days. Normal when the unit is wired to a circuit that
+            switches off with the ignition — a job for whoever fits the
+            trackers, and nothing to do with how anyone drove.
+          </span>
+        </div>
+      )}
 
       <div className="rounded-lg border border-edge bg-panel">
         <div className="border-b border-edge px-6 py-4">
           <h3 className="text-sm font-semibold text-ink">Driver scores</h3>
           <p className="mt-0.5 text-xs text-ink-dim">
-            Starts at 100. <span className="text-ink-mid">Every harsh acceleration and harsh
-            brake costs 2 points</span> — they are what the driver controls and what burns the
-            fuel. Cornering costs 1, overspeeding 2, a crash 25. Idling, ignition and trip
-            events cost nothing: idle hours are shown below but are not charged against a
-            driver while the measurement is still being proven.
+            Every driver starts at 100 and loses points only for things they
+            chose to do:{' '}
+            <span className="text-ink-mid">
+              2 for a harsh acceleration or a harsh brake, 1 for hard cornering,
+              2 for overspeeding, 25 for a crash
+            </span>
+            . Idling costs nothing yet — the hours are shown so you can talk
+            about the fuel, but they are not charged to anyone while we finish
+            proving the measurement. Add the deductions under a driver&apos;s
+            name and you get their score.
           </p>
         </div>
         {vehiclesWithData.length === 0 ? (
@@ -554,15 +697,11 @@ export function DrivingBehaviorPanel() {
                     <CarFront className="h-5 w-5 text-ink-dim" />
                     <div>
                       <p className="font-medium text-ink">{v.license_plate ?? 'Unknown'}</p>
+                      {/* Idling moved into its own chip below, where it
+                          carries the spells, the hours and the money together
+                          instead of being repeated in two places. */}
                       <p className="text-xs text-ink-dim">
-                        {v.driver_name ?? 'Unassigned'} · {v.distance_km} km
-                        {v.idle_hours != null && v.idle_hours > 0 && (
-                          <span className={v.idle_hours >= 1 ? 'text-warn' : undefined}>
-                            {' · '}
-                            {formatHours(v.idle_hours)} idling
-                            {v.idle_fuel_liters ? ` (≈${v.idle_fuel_liters.toFixed(1)} L)` : ''}
-                          </span>
-                        )}
+                        {v.driver_name ?? 'Unassigned'} · {v.distance_km} km driven
                       </p>
                     </div>
                   </div>
@@ -599,20 +738,40 @@ export function DrivingBehaviorPanel() {
                     style={{ width: `${v.score}%` }}
                   />
                 </div>
-                {v.total_events > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {Object.entries(v.counts)
-                      .sort(([, a], [, b]) => b - a)
-                      .map(([type, count]) => (
-                        <span
-                          key={type}
-                          className="rounded-full border border-edge bg-canvas px-2 py-0.5 text-xs text-ink-mid"
-                        >
-                          {eventLabel(type)} × {count}
-                        </span>
-                      ))}
-                  </div>
-                )}
+                {(() => {
+                  const chips = buildDriverChips(v, scoreWeights);
+                  const charged = chips.filter((c) => c.points > 0);
+                  const deducted = charged.reduce((sum, c) => sum + c.points, 0);
+                  if (chips.length === 0) return null;
+                  return (
+                    <>
+                      {/* The arithmetic, spelled out. A score a manager cannot
+                          reproduce is a score he will not repeat to a driver. */}
+                      {charged.length > 0 && (
+                        <p className="mt-2 font-mono text-[11px] text-ink-dim">
+                          100
+                          {charged.map((c) => (
+                            <span key={c.key}> − {c.points} {c.key.replace(/^harsh_/, '')}</span>
+                          ))}{' '}
+                          = <span className="text-ink-mid">{Math.max(0, 100 - deducted)}</span>
+                        </p>
+                      )}
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {chips.map((c) => (
+                          <span
+                            key={c.key}
+                            className={`rounded-full border px-2 py-0.5 text-xs ${c.tone}`}
+                          >
+                            {c.label}
+                            {c.points > 0 && (
+                              <span className="ml-1 font-mono opacity-80">−{c.points} pts</span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  );
+                })()}
               </li>
             ))}
           </ul>

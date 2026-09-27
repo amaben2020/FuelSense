@@ -6,8 +6,27 @@ import { IconTile } from '@/components/ui/chrome';
 
 export type FleetStatusTone = 'good' | 'warn' | 'bad';
 
-/** Plain-language verdict from the same 0-100 score already computed. */
-export function fleetStatusWord(score: number | null): {
+/**
+ * Plain-language verdict from the same 0-100 score already computed.
+ *
+ * `hasFault` is what separates a fleet that is going wrong from one that is
+ * merely expensive. Without it the verdict was reachable by idling alone: a
+ * single vehicle whose driver left the engine running accumulated enough
+ * excessive-idle alerts to read "Needs attention" beside zero theft flags,
+ * zero route deviations and a tracker that was working perfectly. A status
+ * word that fires on a warm-up is a word a manager learns to ignore, and then
+ * it is not there on the day something is actually wrong.
+ *
+ * So: something must genuinely be at fault — a non-idling concerning alert, a
+ * theft flag, or a vehicle running below its baseline — before the fleet is
+ * told to act. Wasting fuel without any of those reads "Costly", which is
+ * honest and still warm-toned, and the naira figure beside it does the
+ * arguing.
+ */
+export function fleetStatusWord(
+  score: number | null,
+  hasFault = true
+): {
   word: string;
   tone: FleetStatusTone;
 } {
@@ -18,6 +37,7 @@ export function fleetStatusWord(score: number | null): {
   // calling a routine backlog critical is how a status word stops meaning
   // anything.
   if (score >= 75) return { word: 'Healthy', tone: 'good' };
+  if (!hasFault) return { word: 'Costly', tone: 'warn' };
   if (score >= 40) return { word: 'Needs attention', tone: 'warn' };
   return { word: 'Critical', tone: 'bad' };
 }
@@ -42,6 +62,7 @@ export function FleetStatusCard({
   theftAlerts,
   preventableLossNgn,
   periodDays,
+  hasFault = true,
   causeParts,
   harshEventCount = 0,
   harshEventEstimatedNgn,
@@ -55,6 +76,9 @@ export function FleetStatusCard({
   theftAlerts: number;
   preventableLossNgn: number;
   periodDays: number;
+  /** Whether anything is actually going wrong, as opposed to merely costing
+   *  money. Gates the verdict word — see fleetStatusWord. */
+  hasFault?: boolean;
   /** Each cause with what it cost, biggest first. */
   causeParts: Array<{ label: string; ngn: number }>;
   /** There is no honest litres-per-harsh-brake rate, so this is a rough
@@ -67,7 +91,7 @@ export function FleetStatusCard({
    *  answer to "what needs attention", not just the loss breakdown. */
   onOpenAlerts?: () => void;
 }) {
-  const { word, tone } = fleetStatusWord(score);
+  const { word, tone } = fleetStatusWord(score, hasFault);
 
   const accent = {
     good: 'text-good',

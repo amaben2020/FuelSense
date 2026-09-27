@@ -15,7 +15,7 @@ import {
   latestReceiptPrice,
   effectivePriceAt,
 } from '../fuel/fuel-price.service';
-import { countsTowardHealth } from '../alerts/alert-taxonomy.service';
+import { countsTowardHealth, isIdleAlert } from '../alerts/alert-taxonomy.service';
 import {
   round1,
   round2,
@@ -137,6 +137,10 @@ router.get('/summary', async (req: Request, res: Response) => {
     const concerningAlerts = alertRows.filter((a) =>
       countsTowardHealth(a.alert_type ?? '')
     ).length;
+    // Split out so the health score can stop treating a warmed-up engine like
+    // a route deviation. See IDLE_ALERT_TYPES for why one stretch can raise
+    // several of these.
+    const idleAlerts = alertRows.filter((a) => isIdleAlert(a.alert_type ?? '')).length;
     const theftAlerts = alertRows.filter((a) => a.alert_type === 'fuel_theft');
     const theftLossNgn = theftAlerts.reduce(
       (sum, a) => sum + (Number(a.estimated_loss_ngn) || 0),
@@ -168,6 +172,7 @@ router.get('/summary', async (req: Request, res: Response) => {
         total_fuel_cost_ngn: totalFuelCostNgn,
         active_alerts: activeAlerts,
         concerning_alerts: concerningAlerts,
+        idle_alerts: idleAlerts,
         theft_alerts: theftAlerts.length,
         estimated_theft_loss_ngn: theftLossNgn,
       };
