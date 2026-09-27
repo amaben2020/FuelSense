@@ -11,7 +11,7 @@
 import { db, vehicles, alerts, deviceEvents, telemetry, eq, and, sql } from '../../shared/db-helpers';
 import { virtualTanks } from '../../config/db/schema';
 import type { FuelMarkerSource } from './fuel-metrics.service';
-import { speedBucketMultiplier } from './fuel-metrics.service';
+import { speedBucketMultiplier, round2 } from './fuel-metrics.service';
 import { alertEmail, sendMail } from '../../shared/mailer';
 import { resolveAlertRecipient } from '../alerts/alert-mail.service';
 
@@ -100,6 +100,8 @@ export interface VirtualTankState {
   modelledBurnMl: number;
   anchorModelledMl: number | null;
   lastOdometerM: number | null;
+  /** Volume-weighted cost of the fuel in the tank, or null if never priced. */
+  avgCostNgnPerLiter: number | null;
   confidence: number;
 }
 
@@ -385,6 +387,8 @@ const rowToState = (row: typeof virtualTanks.$inferSelect): VirtualTankState => 
   modelledBurnMl: Number(row.modelledBurnMl ?? 0),
   anchorModelledMl: row.anchorModelledMl != null ? Number(row.anchorModelledMl) : null,
   lastOdometerM: row.lastOdometerM != null ? Number(row.lastOdometerM) : null,
+  avgCostNgnPerLiter:
+    row.avgCostNgnPerLiter != null ? Number(row.avgCostNgnPerLiter) : null,
   confidence: row.confidence,
 });
 
@@ -960,6 +964,35 @@ export async function applyReceiptBurnFactor(
     .where(eq(virtualTanks.vehicleId, vehicleId));
 }
 
+/**
+ * The tank's cost per litre after `addedLiters` go in at `fillPrice`.
+ *
+ * Weighted by what is actually in the tank, because that is what a mixed tank
+ * costs: 10 L left at 1,275 plus 40 L at 1,440 is 50 L at 1,407, and the next
+ * litre burned costs 1,407 whichever pump it came from.
+ *
+ * Two deliberate choices at the edges. A fill with no known price leaves the
+ * average alone — better to keep costing the tank at what we last knew than
+ * to blend in a guess. And a tank whose prior fuel was never priced takes the
+ * fill price outright rather than staying unknown: the newest fill is the
+ * only evidence there is, and pricing the whole tank at it beats refusing to
+ * cost the fuel at all.
+ */
+export function blendedTankCost(
+  levelLitersBefore: number,
+  avgCostBefore: number | null,
+  addedLiters: number,
+  fillPrice: number | null
+): number | null {
+  if (fillPrice == null || !(fillPrice > 0)) return avgCostBefore;
+  if (!(addedLiters > 0)) return avgCostBefore;
+  if (avgCostBefore == null || !(avgCostBefore > 0)) return round2(fillPrice);
+  const before = Math.max(0, levelLitersBefore);
+  const total = before + addedLiters;
+  if (!(total > 0)) return round2(fillPrice);
+  return round2((before * avgCostBefore + addedLiters * fillPrice) / total);
+}
+
 export async function creditRefuel(
   vehicleId: string,
   customerId: string,
@@ -985,10 +1018,21 @@ export async function creditRefuel(
       ? capacityMl
       : Math.min(capacityMl, state.levelMl + Math.round(liters * 1000));
 
+  // Priced before the level moves: the blend needs what was in the tank, not
+  // what is about to be.
+  const addedLiters = Math.max(0, (levelMl - state.levelMl) / 1000);
+  const avgCostNgnPerLiter = blendedTankCost(
+    state.levelMl / 1000,
+    state.avgCostNgnPerLiter,
+    addedLiters,
+    options.pricePerLiter ?? null
+  );
+
   const [row] = await db
     .update(virtualTanks)
     .set({
       levelMl,
+      avgCostNgnPerLiter: avgCostNgnPerLiter != null ? avgCostNgnPerLiter.toFixed(2) : null,
       // Re-anchor: everything the accumulator counts from here is measured
       // against this fill, not against a calibration weeks ago.
       anchorLevelMl: levelMl,

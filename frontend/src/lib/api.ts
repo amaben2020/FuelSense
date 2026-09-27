@@ -323,6 +323,11 @@ export interface VirtualTank {
   consumed_since_calibration_liters: number;
   learned_idle_lph: number | string | null;
   last_reading_at: string | null;
+  /** Volume-weighted cost of the fuel in the tank, at the prices actually
+   *  paid for it. Null until a priced fill has landed. */
+  avg_cost_ngn_per_liter: number | string | null;
+  /** level_liters x avg cost. Null when the fuel has never been priced. */
+  fuel_value_ngn: number | null;
 }
 
 export async function calibrateVirtualTank(
@@ -583,6 +588,9 @@ export interface DashboardSummary {
    * before this field existed simply omits it.
    */
   concerning_alerts?: number;
+  /** Open idling alerts. Capped in the health score — idling is a running
+   *  cost, not a fault. */
+  idle_alerts?: number;
   theft_alerts: number;
   estimated_theft_loss_ngn: number;
 }
@@ -1806,6 +1814,7 @@ export interface BehaviorVehicle {
   distance_km: number;
   idle_hours?: number;
   idle_fuel_liters?: number;
+  idle_fuel_ngn?: number;
   score: number;
   grade: string;
   total_events: number;
@@ -1825,9 +1834,15 @@ export interface DeviceEventsSummary {
     power_events?: number;
     idle_hours?: number;
     idle_fuel_liters?: number;
+    idle_fuel_ngn?: number;
     counts_by_type: Record<string, number>;
   };
   idle_burn_liters_per_hour?: number;
+  ngn_per_liter?: number;
+  fuel_price_source?: 'benchmark' | 'receipt' | 'default';
+  /** Points deducted per event type — the server's own weights, so the UI
+   *  never restates the scoring rules from memory. */
+  score_weights?: Record<string, number>;
   vehicles: BehaviorVehicle[];
 }
 

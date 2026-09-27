@@ -85,6 +85,19 @@ const serializeTank = (tank: NonNullable<Awaited<ReturnType<typeof getVirtualTan
   ),
   learned_idle_lph: tank.learnedIdleLph,
   last_reading_at: tank.lastReadingAt,
+  /**
+   * What the fuel in the tank cost, at the prices actually paid for it.
+   *
+   * Not today's pump price times the level — that restates last month's fuel
+   * every time the price moves, and on this fleet the declared price sat at
+   * 1,310 while receipts ran to 1,440, so the two answers differ by a tenth.
+   * Null when no priced fill has landed yet: unknown is shown as unknown.
+   */
+  avg_cost_ngn_per_liter: tank.avgCostNgnPerLiter,
+  fuel_value_ngn:
+    tank.avgCostNgnPerLiter != null
+      ? Math.round((tank.levelMl / 1000) * tank.avgCostNgnPerLiter)
+      : null,
 });
 
 const ownedVehicle = async (vehicleId: string, customerId: string) => {

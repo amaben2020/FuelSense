@@ -398,6 +398,20 @@ export const virtualTanks = pgTable('virtual_tanks', {
   // AVL 12 restarts at zero on every power cycle, so the running total is the
   // raw reading plus everything counted before the resets.
   accumulatorOffsetMl: bigint('accumulator_offset_ml', { mode: 'number' }).notNull().default(0),
+  /**
+   * What the fuel currently in this tank cost per litre, weighted by volume.
+   *
+   * Fuel physically mixes, so a tank is not a queue: 10 L bought at 1,275
+   * plus 40 L bought at 1,440 is 50 L that genuinely costs 1,407 a litre, and
+   * there is no way to burn "the old litres first". Weighted average is the
+   * honest model, and it has the useful property that consumption never moves
+   * it — only a fill does.
+   *
+   * Null until a priced fill lands. A tank holding fuel of unknown price says
+   * so rather than borrowing today's pump rate, which would restate what last
+   * month's fuel cost every time the price moved.
+   */
+  avgCostNgnPerLiter: numeric('avg_cost_ngn_per_liter', { precision: 10, scale: 2 }),
   confidence: integer('confidence').notNull().default(30),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
