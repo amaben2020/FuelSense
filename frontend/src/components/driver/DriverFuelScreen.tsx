@@ -79,7 +79,12 @@ export function DriverFuelScreen({
   const [merchantName, setMerchantName] = useState('');
   const [merchantAddress, setMerchantAddress] = useState('');
   const [declaredLiters, setDeclaredLiters] = useState('');
-  const [pricePerLiter, setPricePerLiter] = useState('1300');
+  // Empty, not 1300. A pre-filled default is the same lie as a server-side
+  // one: a driver who taps through files a receipt priced at a number nobody
+  // charged, and that figure is stored as "what was actually paid", read back
+  // as the fleet's latest price, and plotted as evidence. Pump prices move
+  // week to week — the driver is standing at the pump and can read it.
+  const [pricePerLiter, setPricePerLiter] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
 
   /**
@@ -270,12 +275,18 @@ export function DriverFuelScreen({
       return;
     }
     const declared = Number(declaredLiters);
-    const price = Number(pricePerLiter) || 1300;
-    const total = totalAmount
-      ? Number(totalAmount)
-      : Math.round(declared * price);
+    const typedPrice = Number(pricePerLiter) > 0 ? Number(pricePerLiter) : null;
+    const typedTotal = Number(totalAmount) > 0 ? Number(totalAmount) : null;
+    // Either is enough — whichever the slip shows. One of them is not.
+    const price =
+      typedPrice ?? (typedTotal != null && declared > 0 ? typedTotal / declared : null);
+    const total = typedTotal ?? (price != null ? Math.round(declared * price) : null);
     if (!merchantName || !declared) {
       setError('Merchant and liters are required');
+      return;
+    }
+    if (price == null || total == null) {
+      setError('Enter the price per litre, or the total paid — fuel prices change');
       return;
     }
     setSubmitting(true);
