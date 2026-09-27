@@ -107,6 +107,11 @@ The anchored state behind the modelled level:
 - `modelled_burn_ml` — monotonic lifetime counter
 - `anchor_liters` / `anchor_modelled_ml` — the last calibration point
 - `last_odometer_m` — where the model last charged from
+- `avg_cost_ngn_per_liter` — volume-weighted cost of the fuel currently held
 
 Level is derived as `anchor_liters − (modelled_burn_ml − anchor_modelled_ml)`,
 so re-anchoring is a single write rather than a rewrite of history.
+
+`avg_cost_ngn_per_liter` is nullable and never backfilled — a tank prices
+itself on its first priced fill. Only fills move it; consumption does not. See
+[the fuel model](../data/fuel-model.md) for the blend and its edge cases.

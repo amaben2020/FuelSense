@@ -108,6 +108,74 @@ not retroactively taggable. Older calibrations still read as burn unless
 backfilled individually from `virtual_tanks.calibrated_at`.
 :::
 
+## What the fuel in the tank cost
+
+The tank models **litres**. It carries no price of its own beyond one number:
+`virtual_tanks.avg_cost_ngn_per_liter`, the volume-weighted cost of the fuel
+currently in it.
+
+Fuel mixes, so a tank is not a queue — there is no way to burn "the old litres
+first", and FIFO would be a fiction. Each priced fill is blended in:
+
+```
+new_avg = (litres_before × avg_before + litres_added × fill_price)
+          ÷ (litres_before + litres_added)
+```
+
+10 L left at NGN 1,275 plus 40 L at NGN 1,440 is 50 L at **NGN 1,407/L**, and
+the next litre burned costs 1,407 whichever pump it came from. Consumption
+never moves the average — only a fill does — so there is nothing to recompute
+per reading and nothing to drift.
+
+Two edges, both deliberate:
+
+- **A fill with no known price leaves the average alone.** Keeping the last
+  known cost beats blending in a guess.
+- **A tank whose fuel was never priced takes the fill price outright.** The
+  newest fill is the only evidence there is.
+
+`avg_cost_ngn_per_liter` is **nullable and never backfilled**. Nobody knows what
+the fuel already sitting in a tank cost, and inventing a figure would be the
+same mistake described below. A tank prices itself on its first priced fill;
+until then `fuel_value_ngn` is null and the UI shows litres without money.
+
+:::warning Never value a tank at today's price
+`level × today's pump price` restates what last month's fuel cost every time
+the price moves. On the reference fleet the declared benchmark sat at NGN 1,310
+from 18 August while receipts ran to NGN 1,440 — a 10% gap, applied to every
+litre burned in between.
+:::
+
+## Which price values a litre
+
+Four things once disagreed about what a litre was worth, and the same litre
+could be valued three ways on one afternoon. There is now one resolution order,
+`effectiveFuelPrice()`, and **nothing averages prices across time**:
+
+| Order | Source | Why |
+|---|---|---|
+| 1 | Declared benchmark, if newer | What the manager committed to |
+| 2 | Latest receipt, if newer | Proof beats intent, and pump prices move |
+| 3 | `DEFAULT_FUEL_PRICE_NGN_LITER` | Last resort, must be labelled an assumption |
+
+**Newest evidence wins.** A receipt dated after the last declaration is proof
+the declaration has been overtaken; a stale benchmark silently understates
+every naira figure in the product.
+
+Period costs are valued **at the price in force on the day each litre burned**,
+never at one flat rate for the window. `price_periods` in
+`fleet-efficiency.repository.ts` unions declared prices with receipt prices so
+each hop picks whichever evidence was most recent at that moment.
+
+:::danger Never store an assumed price
+`fuel_purchases.cost_per_liter_ngn` means *what was actually paid* — it is read
+back by `latestReceiptPrice()` and plotted as evidence. Both receipt routes
+once defaulted it to the compiled-in constant, filing receipts at NGN 1,300
+that nobody paid NGN 1,300 for and dragging the fleet's latest-receipt price
+down to the constant. Both now **require** a price per litre or a total, and
+store null rather than a guess.
+:::
+
 ## Benchmarks must include idle
 
 Expected fuel for a period has to include an idle allowance. Comparing
