@@ -169,12 +169,18 @@ function BlindOriginLink({
   to: google.maps.LatLngLiteral;
 }) {
   const map = useMap();
+  // The caller builds fresh literals every render and the live map re-renders
+  // constantly; keying on the objects rebuilt the marker each time and made
+  // its label flicker. The coordinates only change when the trip does.
+  const { lat: fromLat, lng: fromLng } = from;
+  const { lat: toLat, lng: toLng } = to;
 
   useEffect(() => {
     if (!map) return;
+    const from = { lat: fromLat, lng: fromLng };
     const line = new google.maps.Polyline({
       map,
-      path: [from, to],
+      path: [from, { lat: toLat, lng: toLng }],
       strokeOpacity: 0,
       clickable: false,
       zIndex: 1,
@@ -217,7 +223,7 @@ function BlindOriginLink({
       line.setMap(null);
       marker.setMap(null);
     };
-  }, [map, from, to]);
+  }, [map, fromLat, fromLng, toLat, toLng]);
 
   return null;
 }
