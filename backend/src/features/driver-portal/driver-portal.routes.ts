@@ -25,7 +25,6 @@ import { parseReceiptText } from '../receipts/receipt-parser.service';
 import { scanReceiptImage as ocrScanReceiptImage } from '../receipts/receipt-ocr.service';
 import { buildPurchaseValuesFromReceipt } from '../receipts/driver-receipt-sync.service';
 import { notifyReceiptUploaded } from '../receipts/receipt-notifier.service';
-import { DEFAULT_FUEL_PRICE_NGN_LITER } from '../fuel/fuel-metrics.service';
 import { creditRefuel } from '../fuel/virtual-tank.service';
 import { reconcileFuelPurchase } from '../fuel/fuel-calibration.service';
 import { dailyActivitySql } from '../telemetry/daily-activity.repository';
@@ -593,10 +592,28 @@ router.post('/receipts', async (req: Request, res: Response) => {
     }
 
     const when = transactionDate ? new Date(transactionDate) : new Date();
-    const price = Number(pricePerLiter) || DEFAULT_FUEL_PRICE_NGN_LITER;
     const typedLiters = Number(declaredLiters);
-    const total =
-      totalAmount != null ? Number(totalAmount) : Math.round(typedLiters * price);
+
+    // The price the driver was charged, or the one their total implies —
+    // never the compiled-in constant. This is stored as `cost_per_liter_ngn`,
+    // which the app reads back as "what was actually paid" and plots on the
+    // price chart, so defaulting it filed a receipt at 1,300 that nobody paid
+    // 1,300 for, and dragged the fleet's latest-receipt price down with it.
+    // Pump prices move week to week; an unstated price is unknown, and this
+    // route cannot proceed without one because it derives litres from
+    // total / price below.
+    const typedPrice = Number(pricePerLiter) > 0 ? Number(pricePerLiter) : null;
+    const typedTotal = totalAmount != null && Number(totalAmount) > 0 ? Number(totalAmount) : null;
+    const price =
+      typedPrice ?? (typedTotal != null && typedLiters > 0 ? typedTotal / typedLiters : null);
+    if (price == null || !(price > 0)) {
+      res.status(400).json({
+        error:
+          'Enter the price per litre or the total paid — fuel prices change, so this cannot be assumed',
+      });
+      return;
+    }
+    const total = typedTotal ?? Math.round(typedLiters * price);
 
     // Drivers here buy by naira, not by litre — "₦15,000 of petrol" — and the
     // amount paid is the hard fact: it left the account and it is printed on

@@ -13,13 +13,32 @@ export function fleetEfficiencyAggSql({ customerId, days, pricePerLiter }: Fleet
 
   return sql`
     WITH ${telemetryDeltasCte({ customerId, days })},
-    -- Each declared price opens a period that runs until the next one starts.
+    -- Every price the fleet has evidence for, declared or paid, each opening a
+    -- period that runs until the next one starts.
+    --
+    -- Receipts belong here as much as declarations do. Reading only
+    -- fuel_prices meant a manager who declared a price in August and never
+    -- revised it had every litre since valued at the August rate, however
+    -- many receipts at the real pump price had been filed in between — on the
+    -- reference fleet, 1,310 against receipts at 1,440, understating every
+    -- cost on the dashboard by about 10% for over a month. Pump prices move
+    -- constantly; a declaration is a statement of intent, a receipt is proof,
+    -- and whichever is more recent at a given moment is the better answer for
+    -- that moment.
     price_periods AS (
       SELECT
         ngn_per_liter::numeric AS price_ngn,
         effective_from
       FROM fuel_prices
       WHERE customer_id = ${customerId}
+      UNION ALL
+      SELECT
+        cost_per_liter_ngn::numeric AS price_ngn,
+        purchased_at AS effective_from
+      FROM fuel_purchases
+      WHERE customer_id = ${customerId}
+        AND cost_per_liter_ngn IS NOT NULL
+        AND cost_per_liter_ngn > 0
     ),
     -- Value every litre at the price that applied the day it was burned, so a
     -- price change today cannot restate what last month cost.

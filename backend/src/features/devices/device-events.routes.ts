@@ -3,6 +3,7 @@ import { authenticateCustomer } from '../auth/auth.middleware';
 import { db, sql } from '../../shared/db-helpers';
 import { distanceDeltasCte } from '../telemetry/telemetry-deltas.repository';
 import { IDLE_BURN_LITERS_PER_HOUR, round1 } from '../fuel/fuel-metrics.service';
+import { effectiveFuelPrice } from '../fuel/fuel-price.service';
 import { logAndRespond } from '../../shared/errors';
 
 const router = express.Router();
@@ -172,7 +173,7 @@ router.get('/summary', async (req: Request, res: Response) => {
   const customerId = req.user.customerId;
 
   try {
-    const [countsResult, distanceResult, vehiclesResult] = await Promise.all([
+    const [countsResult, distanceResult, vehiclesResult, price] = await Promise.all([
       db.execute(sql`
         SELECT vehicle_id, event_type, COUNT(*)::int AS count,
                MAX(occurred_at) AS last_at
@@ -197,7 +198,14 @@ router.get('/summary', async (req: Request, res: Response) => {
         LEFT JOIN drivers dr ON dr.id = v.driver_id
         WHERE v.customer_id = ${customerId}
       `),
+      // Idling is the one figure on this screen a manager can act on today,
+      // and it only lands as money. Same price resolution as every other
+      // naira figure, so the idling cost here and the idling cost on the
+      // dashboard are the same number.
+      effectiveFuelPrice(customerId),
     ]);
+
+    const ngnPerLiter = price.ngnPerLiter;
 
     const distanceByVehicle = new Map<string, number>();
     const idleHoursByVehicle = new Map<string, number>();
@@ -256,6 +264,7 @@ router.get('/summary', async (req: Request, res: Response) => {
         distance_km: distanceKm,
         idle_hours: round1(idleHours),
         idle_fuel_liters: round1(idleHours * IDLE_BURN_LITERS_PER_HOUR),
+        idle_fuel_ngn: Math.round(idleHours * IDLE_BURN_LITERS_PER_HOUR * ngnPerLiter),
         score,
         grade: gradeForScore(score),
         total_events: totalEvents,
@@ -287,9 +296,16 @@ router.get('/summary', async (req: Request, res: Response) => {
         power_events: POWER_EVENT_TYPES.reduce((s, t) => s + (fleetCounts[t] || 0), 0),
         idle_hours: round1(vehicles.reduce((s, v) => s + v.idle_hours, 0)),
         idle_fuel_liters: round1(vehicles.reduce((s, v) => s + v.idle_fuel_liters, 0)),
+        idle_fuel_ngn: vehicles.reduce((s, v) => s + v.idle_fuel_ngn, 0),
         counts_by_type: fleetCounts,
       },
       idle_burn_liters_per_hour: IDLE_BURN_LITERS_PER_HOUR,
+      ngn_per_liter: Math.round(ngnPerLiter),
+      fuel_price_source: price.source,
+      // Shipped to the UI rather than restated there, so the chip that says a
+      // harsh brake cost 2 points and the score that deducted it can never
+      // drift apart. A manager who adds the chips up must land on the score.
+      score_weights: SCORE_WEIGHTS,
       vehicles,
     });
   } catch (error) {

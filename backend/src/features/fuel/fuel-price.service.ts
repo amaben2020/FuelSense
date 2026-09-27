@@ -6,6 +6,7 @@
 // price, and callers get null — the UI then shows litres without money rather
 // than presenting an assumed rate as fact.
 import { db, fuelPurchases, fuelPrices, eq, and, desc, sql } from '../../shared/db-helpers';
+import { DEFAULT_FUEL_PRICE_NGN_LITER } from './fuel-metrics.service';
 
 export interface FuelPrice {
   ngnPerLiter: number;
@@ -278,6 +279,32 @@ export async function effectivePriceAt(
     return { ngnPerLiter: receipt.ngnPerLiter, source: 'receipt', asOf: receipt.asOf };
   }
   return null;
+}
+
+/**
+ * `effectivePriceAt` with the last-resort constant applied, for the callers
+ * that must render a number rather than hide the money.
+ *
+ * Exists because four call sites had each grown their own precedence — the
+ * same litre could be valued at 1,300 on a manager-logged refuel, 1,310 on
+ * the dashboard and 1,440 in an idle alert on one afternoon. `source` is
+ * returned so a caller can label an assumed price as assumed.
+ */
+export async function effectiveFuelPrice(
+  customerId: string,
+  at: Date = new Date()
+): Promise<{
+  ngnPerLiter: number;
+  source: 'benchmark' | 'receipt' | 'default';
+  asOf: Date | null;
+}> {
+  const price = await effectivePriceAt(customerId, at).catch(() => null);
+  if (price) return price;
+  return {
+    ngnPerLiter: Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER),
+    source: 'default',
+    asOf: null,
+  };
 }
 
 /** The newest receipt price paid on or before `at`. */

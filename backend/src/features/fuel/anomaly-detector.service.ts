@@ -2,9 +2,9 @@ import { db, alerts, vehicles, telemetry, eq, and, desc, sql } from '../../share
 import {
   REFUEL_THRESHOLD_LITERS,
   IDLE_BURN_LITERS_PER_HOUR,
-  DEFAULT_FUEL_PRICE_NGN_LITER,
   baselineEfficiencyKmL,
 } from './fuel-metrics.service';
+import { effectiveFuelPrice } from './fuel-price.service';
 import { DetectorState } from '../../shared/detector-state';
 
 const lastFuelByImei = new DetectorState<number>('last-fuel', { ttlSeconds: 24 * 60 * 60 });
@@ -168,7 +168,13 @@ export async function detectAnomalies(device: DeviceInfo, row: TelemetryRow, { l
   const fuel = row.fuelLevelLiters != null ? Number(row.fuelLevelLiters) : null;
   const lat = row.latitude;
   const lng = row.longitude;
-  const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
+  // Every naira this detector puts on an alert is litres x this. It used to
+  // be the compiled-in constant outright — not the fleet's declared benchmark,
+  // not a receipt — so a tank drop was valued at 1,300/L while the fleet had
+  // been paying 1,440 at the pump for weeks, and the loss on the alert was
+  // understated by a tenth. Resolved like every other price now: the newest
+  // evidence, declared or paid, with the constant only as a last resort.
+  const pricePerLiter = (await effectiveFuelPrice(device.customerId)).ngnPerLiter;
 
   const prevFuel = (await lastFuelByImei.get(imei)) ?? undefined;
 

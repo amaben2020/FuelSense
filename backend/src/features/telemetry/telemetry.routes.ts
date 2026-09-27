@@ -38,7 +38,12 @@ import { calibrateTank, creditRefuel } from '../fuel/virtual-tank.service';
 import { odometerAtPurchase } from './odometer.service';
 import { reconcileFuelPurchase, consumptionTrend } from '../fuel/fuel-calibration.service';
 import { lookupPlace, cachedPlaceNames, placeKeyFor } from '../places/place-lookup.service';
-import { latestReceiptPrice, currentBenchmarkPrice, effectivePriceAt } from '../fuel/fuel-price.service';
+import {
+  latestReceiptPrice,
+  currentBenchmarkPrice,
+  effectivePriceAt,
+  effectiveFuelPrice,
+} from '../fuel/fuel-price.service';
 import { googleUsageSnapshot } from '../places/google-usage.service';
 import { getSerializedIoValue } from '../tracker/avl-io.service';
 import { decodeSignal } from '../tracker/avl-catalogue.service';
@@ -821,13 +826,14 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
     // for periods before any price was declared — the SQL prices each litre by
     // the period it was burned in.
     const benchmark = await currentBenchmarkPrice(customerId);
-    // With no benchmark declared, the last price a driver actually paid beats
-    // a compiled-in constant — pump prices move, and the receipt is evidence.
-    const receipt = benchmark ? null : await latestReceiptPrice(customerId);
-    const pricePerLiter =
-      benchmark?.ngnPerLiter ??
-      receipt?.ngnPerLiter ??
-      Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
+    // Newest evidence wins, via the same resolution every other naira figure
+    // uses. This used to let the benchmark win outright, so a manager who
+    // declared 1,310 in August was still quoted 1,310 in September after
+    // drivers had been paying 1,440 for weeks — every expected cost, cost per
+    // km and preventable-loss figure on the dashboard understated by 10%, and
+    // the only screen that showed it was the price chart.
+    const effective = await effectiveFuelPrice(customerId);
+    const pricePerLiter = effective.ngnPerLiter;
 
     const [result, alertRows, siphonRows, harshRows] = await Promise.all([
       db.execute(fleetEfficiencyAggSql({ customerId, days: window, pricePerLiter })),
@@ -1525,6 +1531,8 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     odometer_km: odometerKm,
     odometer_photo_url: odometerPhotoUrl,
     filled_to_full: filledToFullRaw,
+    cost_per_liter_ngn: costPerLiterRaw,
+    total_amount_ngn: totalAmountRaw,
   } = req.body as {
     vehicle_id?: string;
     liters_declared?: number;
@@ -1533,6 +1541,10 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     purchased_at?: string;
     odometer_km?: number;
     odometer_photo_url?: string;
+    /** What the slip says per litre. Either this or the total — whichever the
+     *  manager has in front of them. */
+    cost_per_liter_ngn?: number;
+    total_amount_ngn?: number;
     /** The pump clicked off with the tank full. This is the only fact that
      *  pins the level exactly, and two of them in a row teach the rate. */
     filled_to_full?: boolean;
@@ -1547,6 +1559,21 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'liters_declared must be between 0 and 1000' });
     return;
   }
+  // Required, because pump prices move constantly and there is no safe guess.
+  // This route used to fall back to a compiled-in 1300 and write it into the
+  // column that means "what was actually paid" — so a receipt from a station
+  // charging 1,440 was stored, charted and averaged as 1,300. Asking the
+  // manager for the number on the slip is the only honest source.
+  const hasPrice =
+    (Number.isFinite(Number(costPerLiterRaw)) && Number(costPerLiterRaw) > 0) ||
+    (Number.isFinite(Number(totalAmountRaw)) && Number(totalAmountRaw) > 0);
+  if (!hasPrice) {
+    res.status(400).json({
+      error:
+        'Give the price per litre or the total paid — fuel prices move, so this cannot be assumed',
+    });
+    return;
+  }
   if (odometerKm != null && (!Number.isFinite(Number(odometerKm)) || Number(odometerKm) < 0 || Number(odometerKm) > 2_000_000)) {
     res.status(400).json({ error: 'odometer_km must be between 0 and 2,000,000' });
     return;
@@ -1554,8 +1581,29 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
 
   try {
     const customerId = req.user.customerId;
-    const pricePerLiter = Number(process.env.FUEL_PRICE_NGN_LITER || DEFAULT_FUEL_PRICE_NGN_LITER);
     const when = purchasedAt ? new Date(purchasedAt) : new Date();
+
+    // The price on the slip, or the one implied by the total the manager
+    // typed. Never a constant: this column is read back by
+    // latestReceiptPrice() and plotted on the price chart under the label
+    // "what was actually paid", so writing the compiled-in 1300 here
+    // manufactured evidence — it made a fabricated price look like a receipt,
+    // dragged the newest-receipt price down to 1300, and did it invisibly.
+    // A receipt with no price is stored with no price; the UI shows litres
+    // without money rather than money nobody paid.
+    const totalAmountNgn =
+      Number.isFinite(Number(totalAmountRaw)) && Number(totalAmountRaw) > 0
+        ? Math.round(Number(totalAmountRaw))
+        : null;
+    const declaredPrice =
+      Number.isFinite(Number(costPerLiterRaw)) && Number(costPerLiterRaw) > 0
+        ? Math.round(Number(costPerLiterRaw))
+        : null;
+    const pricePerLiter =
+      declaredPrice ??
+      (totalAmountNgn != null && Number(litersDeclared) > 0
+        ? Math.round(totalAmountNgn / Number(litersDeclared))
+        : null);
 
     const obdMatch = await findObdRefuelMatch({
       vehicleId,
@@ -1587,6 +1635,9 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
         obdRefuelDetectedAt: obdMatch.obdRefuelDetectedAt,
         ignitionOnAt: obdMatch.ignitionOnAt,
         costPerLiterNgn: pricePerLiter,
+        totalAmountNgn:
+          totalAmountNgn ??
+          (pricePerLiter != null ? Math.round(pricePerLiter * Number(litersDeclared)) : null),
         // The dash reading if the manager typed one, else the tracker's own
         // odometer at the purchase time — the driver app already does this,
         // and a fill without an odometer can never calibrate anything.
@@ -1607,8 +1658,15 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     // inflated receipts separately).
     // A fill larger than the tank's modelled headroom is the audit moment for
     // the model, so the price rides along to value any gap it exposes.
+    // Storing a price and valuing a discrepancy are different questions. The
+    // receipt's own price is the only thing worth STORING, and stays null
+    // when the manager did not give one. But a tank gap still has to be worth
+    // something, so valuing falls back to the fleet's effective price rather
+    // than to the compiled-in constant this route used to reach for.
+    const valuationPrice =
+      pricePerLiter ?? (await effectiveFuelPrice(customerId)).ngnPerLiter;
     await creditRefuel(vehicleId, customerId, litersActual ?? declared, {
-      pricePerLiter,
+      pricePerLiter: valuationPrice,
     }).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
 
     // A fill to full pins the level at capacity, the same as it does from the

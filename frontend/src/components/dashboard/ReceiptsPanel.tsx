@@ -122,6 +122,11 @@ export function ReceiptsPanel({
   const [showForm, setShowForm] = useState(false);
   const [vehicleId, setVehicleId] = useState(fleet[0]?.id ?? '');
   const [declared, setDeclared] = useState('');
+  // The price on the slip. Without it the receipt is stored with no price at
+  // all — the route used to invent one, which put a compiled-in 1300 on the
+  // "what was actually paid" chart as though a driver had paid it.
+  const [pricePerLiter, setPricePerLiter] = useState('');
+  const [totalPaid, setTotalPaid] = useState('');
   const [merchant, setMerchant] = useState('');
   const [receiptRef, setReceiptRef] = useState('');
   const [purchasedAtLocal, setPurchasedAtLocal] = useState(() => toDatetimeLocalValue());
@@ -178,6 +183,12 @@ export function ReceiptsPanel({
   const theftCount = purchases.filter((p) => p.status === 'flagged_theft').length;
 
   const submitReceipt = async () => {
+    // Prices move week to week and there is no defensible default, so a
+    // receipt without one is refused here rather than stored with a guess.
+    if (!(Number(pricePerLiter) > 0) && !(Number(totalPaid) > 0)) {
+      setMessage('Enter the price per litre, or the total paid, from the receipt.');
+      return;
+    }
     setSubmitting(true);
     setMessage(null);
     try {
@@ -198,6 +209,8 @@ export function ReceiptsPanel({
             ? Math.round(odometerUnit === 'mi' ? milesToKm(Number(odometer)) : Number(odometer))
             : undefined,
           filled_to_full: filledToFull,
+          cost_per_liter_ngn: pricePerLiter ? Number(pricePerLiter) : undefined,
+          total_amount_ngn: totalPaid ? Number(totalPaid) : undefined,
         }),
       });
       setMessage(result.message);
@@ -334,6 +347,27 @@ export function ReceiptsPanel({
                   type="number"
                   value={declared}
                   onChange={(e) => setDeclared(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
+                />
+              </label>
+              <label className="text-xs text-ink-dim">
+                Price per litre (NGN) <span className="text-warn">*</span>
+                <input
+                  type="number"
+                  required
+                  value={pricePerLiter}
+                  onChange={(e) => setPricePerLiter(e.target.value)}
+                  placeholder="what the pump charged"
+                  className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
+                />
+              </label>
+              <label className="text-xs text-ink-dim">
+                Total paid (NGN)
+                <input
+                  type="number"
+                  value={totalPaid}
+                  onChange={(e) => setTotalPaid(e.target.value)}
+                  placeholder="or the total, if that is what the slip shows"
                   className="mt-1 w-full rounded-lg border border-edge bg-panel px-2 py-2 text-sm text-ink"
                 />
               </label>
