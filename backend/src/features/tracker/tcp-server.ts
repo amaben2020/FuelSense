@@ -422,6 +422,7 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
     db.insert(deviceFrames).values({
       imei: device.imei,
       telemetryId: savedRow?.id ?? null,
+      recordedAt,
       eventId: record.event ?? null,
       gpsSatellites: satellites != null ? satellites : null,
       gpsValid: validGps,

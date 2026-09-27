@@ -47,6 +47,7 @@ import {
 import { googleUsageSnapshot } from '../places/google-usage.service';
 import { getSerializedIoValue } from '../tracker/avl-io.service';
 import { decodeSignal } from '../tracker/avl-catalogue.service';
+import { countedHarshEvent } from './harsh-events.repository';
 import { serializeForApi } from '../../shared/serialize';
 import { logAndRespond } from '../../shared/errors';
 
@@ -865,6 +866,7 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           AND event_type IN (
             'harsh_braking', 'harsh_acceleration', 'harsh_cornering', 'overspeeding'
           )
+          AND ${countedHarshEvent('device_events')}
         GROUP BY vehicle_id
       `),
     ]);

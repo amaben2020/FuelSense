@@ -22,11 +22,26 @@ const LOOKBACK_DAYS = Number(process.env.HARSH_LOOKBACK_DAYS || 14);
 /** Frames per vehicle per pass. A day of driving is a few thousand. */
 const MAX_FRAMES = Number(process.env.HARSH_MAX_FRAMES || 20_000);
 
-interface FrameRow {
+export interface FrameRow {
   imei: string;
   received_at: string;
+  recorded_at: string | null;
   gps_valid: boolean | null;
   gps_raw: { speed?: number; angle?: number; latitude?: number; longitude?: number } | null;
+}
+
+/** One frame as the detector sees it, stamped with the time it is judged at. */
+export function frameToSample(frame: FrameRow, at: Date): DrivingSample {
+  return {
+    at,
+    speedKph: Number(frame.gps_raw?.speed ?? 0),
+    // Heading without a valid fix is not "due north", it is unknown — and
+    // feeding a stale 0° into a turn calculation invents hairpins.
+    headingDeg:
+      frame.gps_valid && frame.gps_raw?.angle != null ? Number(frame.gps_raw.angle) : null,
+    lat: frame.gps_raw?.latitude != null ? Number(frame.gps_raw.latitude) : null,
+    lng: frame.gps_raw?.longitude != null ? Number(frame.gps_raw.longitude) : null,
+  };
 }
 
 /**
@@ -61,28 +76,26 @@ export async function detectDrivingEvents(): Promise<{ found: number; written: n
   for (const vehicle of vehicles) {
     const frames = (
       await db.execute(sql`
-        SELECT imei, received_at, gps_raw, gps_valid
+        SELECT imei, received_at, recorded_at, gps_raw, gps_valid
         FROM device_frames
         WHERE imei = ${vehicle.imei}
           AND received_at > NOW() - (${LOOKBACK_DAYS} || ' days')::INTERVAL
           AND gps_raw IS NOT NULL
-        ORDER BY received_at ASC
+          -- Timed by the device's clock, never by arrival: the network adds a
+          -- variable 1-3 s, and a speed change divided by that jitter reads as
+          -- a violent manoeuvre. Older frames without it were re-timed once
+          -- by src/scripts/rederive-harsh-events.ts.
+          AND recorded_at IS NOT NULL
+        ORDER BY recorded_at ASC, id ASC
         LIMIT ${MAX_FRAMES}
       `)
     ).rows as unknown as FrameRow[];
 
     if (frames.length < 2) continue;
 
-    const samples: DrivingSample[] = frames.map((frame) => ({
-      at: new Date(frame.received_at),
-      speedKph: Number(frame.gps_raw?.speed ?? 0),
-      // Heading without a valid fix is not "due north", it is unknown — and
-      // feeding a stale 0° into a turn calculation invents hairpins.
-      headingDeg:
-        frame.gps_valid && frame.gps_raw?.angle != null ? Number(frame.gps_raw.angle) : null,
-      lat: frame.gps_raw?.latitude != null ? Number(frame.gps_raw.latitude) : null,
-      lng: frame.gps_raw?.longitude != null ? Number(frame.gps_raw.longitude) : null,
-    }));
+    const samples: DrivingSample[] = frames.map((frame) =>
+      frameToSample(frame, new Date(frame.recorded_at as string)),
+    );
 
     const events = detectHarshEvents(samples);
     found += events.length;

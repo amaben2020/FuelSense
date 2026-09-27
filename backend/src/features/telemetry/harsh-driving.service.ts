@@ -1,11 +1,12 @@
 // Harsh acceleration, braking and cornering, derived from what the tracker
 // already sends.
 //
-// The FMC150 can compute these itself, but only when its Eco/Green Driving
-// scenario is switched on, and this fleet's devices have it off — which is why
-// the driving-behaviour page has always been empty. Nothing has to change on
-// the hardware: a manoeuvre violent enough to matter is plainly visible in the
-// speed and heading series, which arrive roughly a second apart while moving.
+// The FMC150 can compute these itself when its Eco/Green Driving scenario is
+// on. It was believed off when this was written; since 2026-08-11 the tracker
+// has in fact been sending AVL 253 events too, at Teltonika's low defaults.
+// `countedHarshEvent` holds both sources to this file's thresholds and counts
+// a manoeuvre both of them saw once. Samples must be timed by the device's
+// clock (`device_frames.recorded_at`): arrival lags by a variable 1-3 s.
 //
 //   acceleration = Δspeed / Δt
 //   lateral acceleration in a turn = speed × rate of heading change
@@ -165,10 +166,10 @@ export interface HarshThresholds {
  * Braking sits higher than acceleration because heavy braking is the ordinary
  * response to someone else's mistake, and should not be scored like a choice.
  *
- * There is no ground truth to fit these against: the FMC150's Eco Driving
- * scenario is switched off, so the device reports no accelerometer events to
- * compare with. Treat them as a defensible starting point, not a measurement,
- * and tune with the env vars as real trips accumulate.
+ * Checked on 2026-09-27 against a month of the real vehicle's frames timed by
+ * the device clock: every surviving braking event was a sustained stop losing
+ * ~14 km/h per second over 4-5 s, i.e. real. Tune with the env vars as more
+ * trips accumulate.
  */
 export const DEFAULT_HARSH_THRESHOLDS: HarshThresholds = {
   accelerationMs2: Number(process.env.HARSH_ACCEL_MS2 || 3.2),
@@ -267,7 +268,16 @@ export function detectHarshEvents(
     };
 
     // --- longitudinal ----------------------------------------------------
-    if (accelMs2 >= thresholds.accelerationMs2) {
+    // A reported 0 is the tracker's static-navigation filter holding speed at
+    // zero until the vehicle is clearly moving, not a measured standstill, so
+    // the first moving fix after it jumps: six of nine "harsh accelerations"
+    // on the real vehicle were 0 -> 12-15 km/h in a second. A change to or
+    // from that clamp cannot be timed, so it is not judged.
+    const clamped = prev.speedKph === 0 || sample.speedKph === 0;
+    if (clamped) {
+      close('harsh_acceleration');
+      close('harsh_braking');
+    } else if (accelMs2 >= thresholds.accelerationMs2) {
       extend('harsh_acceleration', {
         ...shared,
         type: 'harsh_acceleration',

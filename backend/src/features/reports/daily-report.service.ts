@@ -11,6 +11,7 @@
 // and the same number on screen can never disagree.
 import { db, sql } from '../../shared/db-helpers';
 import { segmentTrips, TelemetryTripPoint } from '../telemetry/trip-segmentation.service';
+import { countedHarshEvent } from '../telemetry/harsh-events.repository';
 import { cachedPlaceNames, placeKeyFor } from '../places/place-lookup.service';
 import { latestReceiptPrice } from '../fuel/fuel-price.service';
 import {
@@ -210,6 +211,7 @@ export async function buildDailyReport(
         WHERE vehicle_id = ${vehicle.id}
           AND occurred_at >= ${from} AND occurred_at < ${to}
           AND event_type IN ('harsh_acceleration', 'harsh_braking', 'harsh_cornering', 'overspeeding')
+          AND ${countedHarshEvent('device_events')}
       `)
     ).rows[0] as Record<string, unknown>;
 

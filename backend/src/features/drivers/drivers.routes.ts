@@ -9,6 +9,7 @@ import {
   type ReportBucket,
 } from './driver-report.repository';
 import { round1, round2, baselineEfficiencyKmL, kmLToMpg } from '../fuel/fuel-metrics.service';
+import { countedHarshEvent } from '../telemetry/harsh-events.repository';
 import { localDate } from '../telemetry/telemetry-deltas.repository';
 import { withCache, cacheKey } from '../../config/redis';
 import { logAndRespond } from '../../shared/errors';
@@ -385,6 +386,7 @@ router.get('/reports', async (req: Request, res: Response) => {
           LEFT JOIN drivers dr ON dr.id = v.driver_id AND dr.customer_id = v.customer_id
           WHERE e.customer_id = ${customerId}
             AND e.event_type IN ('harsh_braking', 'harsh_acceleration', 'harsh_cornering')
+            AND ${countedHarshEvent('e')}
             AND e.occurred_at >= ${from ?? sql`NOW() - (${periods} || ' ${sql.raw(bucket)}s')::INTERVAL`}
             ${to ? sql`AND e.occurred_at <= ${to}` : sql``}
           GROUP BY 1, 2
@@ -395,7 +397,7 @@ router.get('/reports', async (req: Request, res: Response) => {
             driver_name,
             period,
             MIN(model) AS model,
-            MIN(manual_l100km) AS manual_l100km,
+            MIN(vehicle_l100km) AS vehicle_l100km,
             COUNT(DISTINCT license_plate) AS vehicles,
             COALESCE(SUM(dist_delta), 0) AS distance_km,
             COALESCE(SUM(fuel_delta), 0) AS fuel_liters,
@@ -411,7 +413,7 @@ router.get('/reports', async (req: Request, res: Response) => {
           t.driver_id,
           t.driver_name,
           to_char(t.period, ${periodFormat}) AS period,
-          t.manual_l100km,
+          t.vehicle_l100km,
           t.period AS period_start,
           (t.period + ('1 ' || ${bucket})::INTERVAL - INTERVAL '1 day')::date AS period_end,
           t.model,
@@ -470,7 +472,7 @@ router.get('/reports', async (req: Request, res: Response) => {
         period: string;
         period_start: string;
         period_end: string;
-        manual_l100km: string | null;
+        vehicle_l100km: string | null;
         model: string | null;
         vehicles: string;
         distance_km: string;
@@ -491,12 +493,12 @@ router.get('/reports', async (req: Request, res: Response) => {
       for (const row of monthly.rows as unknown as PeriodRow[]) {
         const distanceKm = Number(row.distance_km);
         const fuelLiters = Number(row.fuel_liters);
-        // The vehicle's own dashboard figure, when the manager entered one,
-        // outranks the model-name lookup it would otherwise fall back to.
-        const manualL100km = row.manual_l100km != null ? Number(row.manual_l100km) : null;
+        // The vehicle's own rate, entered or measured from receipts, outranks
+        // the model-name lookup it would otherwise fall back to.
+        const vehicleL100km = row.vehicle_l100km != null ? Number(row.vehicle_l100km) : null;
         const baselineKmL =
-          manualL100km != null && manualL100km > 0
-            ? round1(100 / manualL100km)
+          vehicleL100km != null && vehicleL100km > 0
+            ? round1(100 / vehicleL100km)
             : row.model
               ? round1(baselineEfficiencyKmL(row.model))
               : null;

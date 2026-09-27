@@ -654,6 +654,9 @@ export const deviceFrames = pgTable('device_frames', {
   // null when the record was dropped (e.g. GPS fix rejected, unknown device)
   telemetryId: bigint('telemetry_id', { mode: 'number' }).references(() => telemetry.id),
   receivedAt: timestamp('received_at').notNull().defaultNow(),
+  // When the device took the reading. Arrival trails it by a variable 1-3 s,
+  // so only this can time a manoeuvre. Null on frames stored before it was.
+  recordedAt: timestamp('recorded_at'),
   // AVL event ID that triggered this record (e.g. 239 = ignition, 11 = overspeeding)
   eventId: integer('event_id'),
   // Satellite count at capture time — key signal for GPS fix quality

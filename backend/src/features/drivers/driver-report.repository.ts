@@ -78,11 +78,15 @@ export function driverPeriodCte({
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
         v.license_plate,
         v.model,
-        -- Only a manager-entered rate travels with the vehicle; a preset or a
-        -- fill-to-fill figure is already what the model table would give.
+        -- The vehicle's own rate, when it has one: entered by the manager or
+        -- measured fill-to-fill from receipts. Only a preset falls through to
+        -- the model table. Treating a calibrated rate as a preset measured a
+        -- RAV4 whose receipts say 18 L/100 km against the 7 km/L brochure
+        -- figure, docking its driver 12 points for the car, not the driving.
         CASE
-          WHEN v.rate_source = 'manual' THEN v.consumption_rate_l_per_100km::numeric
-        END AS manual_l100km,
+          WHEN v.rate_source IN ('manual', 'calibrated')
+            THEN v.consumption_rate_l_per_100km::numeric
+        END AS vehicle_l100km,
         date_trunc(${bucket}, t.recorded_at) AS period,
         COALESCE(t.odometer_m::double precision / 1000.0, t.odometer_km::double precision)
           AS odometer_km,
@@ -118,7 +122,7 @@ export function driverPeriodCte({
         driver_name,
         license_plate,
         model,
-        manual_l100km,
+        vehicle_l100km,
         period,
         recorded_at,
         latitude,

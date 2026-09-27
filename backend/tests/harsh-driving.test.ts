@@ -65,6 +65,18 @@ describe('detectHarshEvents', () => {
     expect(events).toHaveLength(0)
   })
 
+  it('does not judge a jump out of or into the static-navigation zero', () => {
+    // 0 -> 15 km/h "in a second" is the tracker releasing its speed clamp.
+    const events = detectHarshEvents([
+      sample(0, 0),
+      sample(1, 0),
+      sample(2, 15),
+      sample(3, 20),
+      sample(4, 0),
+    ])
+    expect(events).toHaveLength(0)
+  })
+
   it('reports one event for a sustained brake, not one per sample', () => {
     const events = detectHarshEvents([
       sample(0, 60),
