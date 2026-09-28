@@ -2516,6 +2516,34 @@ export interface MonitoredFleet {
 export const fetchMonitoredFleets = () =>
   api<{ generated_at: string; fleets: MonitoredFleet[] }>('/admin/fleets');
 
+export type MonitoredVehicleStatus =
+  | 'moving'
+  | 'engine_on'
+  | 'parked'
+  | 'offline'
+  | 'never_reported'
+  | 'no_tracker';
+
+export interface MonitoredVehicle {
+  id: string;
+  license_plate: string;
+  vehicle: string | null;
+  company: string;
+  driver_name: string | null;
+  imei: string | null;
+  device_model: string | null;
+  status: MonitoredVehicleStatus;
+  speed_kph: number | null;
+  last_report_at: string | null;
+  lat: number | null;
+  lng: number | null;
+  tank_liters: number | null;
+  tank_capacity_liters: number | null;
+}
+
+export const fetchMonitoredVehicles = () =>
+  api<{ generated_at: string; vehicles: MonitoredVehicle[] }>('/admin/vehicles');
+
 // ---------------------------------------------------------------------------
 // Driver efficiency score
 // ---------------------------------------------------------------------------

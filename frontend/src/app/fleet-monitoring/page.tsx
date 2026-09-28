@@ -3,8 +3,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Activity, Building2, RefreshCw, ShieldAlert } from 'lucide-react';
-import { ApiError, MonitoredFleet, fetchMonitoredFleets, getToken } from '@/lib/api';
+import { Activity, Building2, Car, RefreshCw, ShieldAlert } from 'lucide-react';
+import {
+  ApiError,
+  MonitoredFleet,
+  MonitoredVehicle,
+  MonitoredVehicleStatus,
+  fetchMonitoredFleets,
+  fetchMonitoredVehicles,
+  getToken,
+} from '@/lib/api';
 import { StatusChip } from '@/components/ui/chrome';
 
 /**
@@ -52,9 +60,19 @@ const loginTone = (iso: string | null): 'good' | 'warn' | 'bad' | 'neutral' => {
   return 'bad';
 };
 
+const STATUS: Record<MonitoredVehicleStatus, { label: string; tone: 'good' | 'warn' | 'bad' | 'neutral' }> = {
+  moving: { label: 'Moving', tone: 'good' },
+  engine_on: { label: 'Engine on', tone: 'warn' },
+  parked: { label: 'Parked', tone: 'neutral' },
+  offline: { label: 'Offline', tone: 'bad' },
+  never_reported: { label: 'Never reported', tone: 'bad' },
+  no_tracker: { label: 'No tracker', tone: 'neutral' },
+};
+
 export default function FleetMonitoringPage() {
   const router = useRouter();
   const [fleets, setFleets] = useState<MonitoredFleet[] | null>(null);
+  const [vehicles, setVehicles] = useState<MonitoredVehicle[] | null>(null);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [error, setError] = useState<{ status?: number; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,8 +80,9 @@ export default function FleetMonitoringPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const d = await fetchMonitoredFleets();
+      const [d, v] = await Promise.all([fetchMonitoredFleets(), fetchMonitoredVehicles()]);
       setFleets(d.fleets);
+      setVehicles(v.vehicles);
       setGeneratedAt(d.generated_at);
       setError(null);
     } catch (err) {
@@ -87,6 +106,7 @@ export default function FleetMonitoringPage() {
   }, [load, router]);
 
   const online = fleets?.filter((f) => onlineTone(f.tracker_last_online_at) === 'good').length ?? 0;
+  const running = vehicles?.filter((v) => v.status === 'moving' || v.status === 'engine_on').length ?? 0;
   const activeWeek = fleets?.filter((f) => (ageMinutes(f.last_login_at) ?? Infinity) <= 7 * 24 * 60).length ?? 0;
 
   return (
@@ -97,7 +117,8 @@ export default function FleetMonitoringPage() {
             <p className="text-xs uppercase tracking-wider text-ink-dim">FuelSense · developer</p>
             <h1 className="mt-1 text-2xl font-bold">Fleet monitoring</h1>
             <p className="mt-1 text-sm text-ink-dim">
-              Every company, when they last signed in, and when their trackers last reported.
+              Every vehicle and what it is doing now, every company, when they last signed in, and
+              when their trackers last reported.
               {generatedAt && ` Updated ${fmt(generatedAt)}.`}
             </p>
           </div>
@@ -128,7 +149,14 @@ export default function FleetMonitoringPage() {
         ) : (
           <>
             {fleets && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+                <div className="rounded-lg border border-edge bg-panel p-4">
+                  <p className="text-xs uppercase tracking-wider text-ink-dim">Running now</p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums">
+                    {running}
+                    <span className="text-sm font-normal text-ink-dim"> / {vehicles?.length ?? 0} vehicles</span>
+                  </p>
+                </div>
                 <div className="rounded-lg border border-edge bg-panel p-4">
                   <p className="text-xs uppercase tracking-wider text-ink-dim">Companies</p>
                   <p className="mt-1 text-2xl font-bold tabular-nums">{fleets.length}</p>
@@ -146,6 +174,82 @@ export default function FleetMonitoringPage() {
                 </div>
               </div>
             )}
+
+            <div className="rounded-lg border border-edge bg-panel">
+              <div className="flex items-center gap-2 border-b border-edge px-5 py-4">
+                <Car className="h-4 w-4 text-accent-y" />
+                <h2 className="text-base font-semibold">Vehicles</h2>
+              </div>
+              {!vehicles ? (
+                <p className="p-6 text-sm text-ink-dim">Loading…</p>
+              ) : vehicles.length === 0 ? (
+                <p className="p-6 text-sm text-ink-dim">No vehicles yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1100px] text-left text-sm">
+                    <thead className="bg-canvas text-xs uppercase tracking-wider text-ink-dim whitespace-nowrap">
+                      <tr>
+                        <th className="px-3 py-3">Vehicle</th>
+                        <th className="px-3 py-3">Company</th>
+                        <th className="px-3 py-3">Driver</th>
+                        <th className="px-3 py-3">Now</th>
+                        <th className="px-3 py-3">Last report</th>
+                        <th className="px-3 py-3">Tracker</th>
+                        <th className="px-3 py-3">Tank (modelled)</th>
+                        <th className="px-3 py-3">Where</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-divider text-ink-mid">
+                      {vehicles.map((v) => (
+                        <tr key={v.id} className="hover:bg-panel-hover">
+                          <td className="px-3 py-3">
+                            <span className="block font-medium text-ink">{v.license_plate}</span>
+                            <span className="text-xs text-ink-dim">{v.vehicle ?? '—'}</span>
+                          </td>
+                          <td className="px-3 py-3">{v.company}</td>
+                          <td className="px-3 py-3">{v.driver_name ?? '—'}</td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            <StatusChip tone={STATUS[v.status].tone} dot>
+                              {STATUS[v.status].label}
+                            </StatusChip>
+                            {v.status === 'moving' && v.speed_kph != null && (
+                              <span className="ml-2 font-mono text-xs">{Math.round(v.speed_kph)} km/h</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            {agoLabel(v.last_report_at)}
+                            <span className="ml-2 text-xs text-ink-dim">{fmt(v.last_report_at)}</span>
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            <span className="block">{v.device_model ?? '—'}</span>
+                            <span className="font-mono text-xs text-ink-dim">{v.imei ?? ''}</span>
+                          </td>
+                          <td className="px-3 py-3 font-mono whitespace-nowrap">
+                            {v.tank_liters != null
+                              ? `${v.tank_liters} L${v.tank_capacity_liters ? ` / ${v.tank_capacity_liters}` : ''}`
+                              : '—'}
+                          </td>
+                          <td className="px-3 py-3">
+                            {v.lat != null && v.lng != null ? (
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${v.lat},${v.lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-brand hover:underline"
+                              >
+                                Map
+                              </a>
+                            ) : (
+                              <span className="text-xs text-ink-dim">no fix</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
 
             <div className="rounded-lg border border-edge bg-panel">
               <div className="flex items-center gap-2 border-b border-edge px-5 py-4">
@@ -233,7 +337,9 @@ export default function FleetMonitoringPage() {
               )}
             </div>
             <p className="text-xs text-ink-dim">
-              Last login is the latest sign-in by the account holder or any team member. Tracker last
+              A vehicle is running when its tracker reported in the last 15 minutes with the engine on.
+              A parked tracker only reports about hourly, so a parked vehicle reads offline after 70
+              minutes of silence. Last login is the latest sign-in by the account holder or any team member. Tracker last
               online is the newest of the devices&apos; last-seen time and the newest telemetry row.
               Refreshes every minute.
             </p>

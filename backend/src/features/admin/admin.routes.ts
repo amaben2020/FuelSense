@@ -126,4 +126,92 @@ router.get('/fleets', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Every vehicle on the platform with its tracker's latest report, for seeing
+ * at a glance what is running right now. One LATERAL per vehicle on
+ * (vehicle_id, recorded_at), so the cost is one index probe per vehicle.
+ */
+const RUNNING_SILENCE_MIN = 15;
+const PARKED_SILENCE_MIN = 70;
+
+router.get('/vehicles', async (req: Request, res: Response) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        v.id,
+        v.license_plate,
+        v.make, v.model, v.year,
+        COALESCE(c.company_name, c.name) AS company,
+        COALESCE(dr.full_name, v.driver_name) AS driver_name,
+        d.imei, d.device_model, d.last_seen_at,
+        t.recorded_at, t.ignition_on, t.speed_kph,
+        fix.latitude::double precision AS lat,
+        fix.longitude::double precision AS lng,
+        ROUND(vt.level_ml / 1000.0, 1)::double precision AS tank_liters,
+        vt.capacity_liters::double precision AS tank_capacity_liters
+      FROM vehicles v
+      JOIN customers c ON c.id = v.customer_id
+      LEFT JOIN drivers dr ON dr.id = v.driver_id
+      LEFT JOIN LATERAL (
+        SELECT imei, device_model, last_seen_at FROM devices
+        WHERE vehicle_id = v.id ORDER BY is_active DESC, last_seen_at DESC NULLS LAST LIMIT 1
+      ) d ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT recorded_at, ignition_on, speed_kph FROM telemetry
+        WHERE vehicle_id = v.id AND fuel_source IS DISTINCT FROM 'calibration'
+          AND fuel_source IS DISTINCT FROM 'receipt' AND fuel_source IS DISTINCT FROM 'odometer_gap'
+        ORDER BY recorded_at DESC LIMIT 1
+      ) t ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT latitude, longitude FROM telemetry
+        WHERE vehicle_id = v.id AND latitude IS NOT NULL AND longitude IS NOT NULL
+          AND (latitude::numeric != 0 OR longitude::numeric != 0)
+        ORDER BY recorded_at DESC LIMIT 1
+      ) fix ON TRUE
+      LEFT JOIN virtual_tanks vt ON vt.vehicle_id = v.id
+      ORDER BY t.recorded_at DESC NULLS LAST, v.license_plate
+    `);
+
+    const now = Date.now();
+    const vehicles = rows.rows.map((raw) => {
+      const r = raw as Record<string, unknown>;
+      const reported = r.recorded_at ? new Date(String(r.recorded_at)) : null;
+      const seen = r.last_seen_at ? new Date(String(r.last_seen_at)) : null;
+      const last = [reported, seen].filter((x): x is Date => x != null).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+      const ageMin = last ? (now - last.getTime()) / 60_000 : null;
+      const speed = r.speed_kph != null ? Number(r.speed_kph) : null;
+      // The FMC150/130 reports every few seconds with the engine on but only
+      // about hourly when parked, so silence means different things: 15
+      // minutes quiet mid-run is lost contact, while a parked vehicle is only
+      // offline once it misses its hourly heartbeat.
+      const status =
+        !r.imei ? 'no_tracker'
+        : ageMin == null ? 'never_reported'
+        : r.ignition_on
+          ? ageMin > RUNNING_SILENCE_MIN ? 'offline' : (speed ?? 0) >= 3 ? 'moving' : 'engine_on'
+          : ageMin > PARKED_SILENCE_MIN ? 'offline' : 'parked';
+      return {
+        id: r.id,
+        license_plate: r.license_plate,
+        vehicle: [r.year, r.make, r.model].filter(Boolean).join(' ') || null,
+        company: r.company,
+        driver_name: r.driver_name ?? null,
+        imei: r.imei ?? null,
+        device_model: r.device_model ?? null,
+        status,
+        speed_kph: speed,
+        last_report_at: last ? last.toISOString() : null,
+        lat: r.lat != null ? Number(r.lat) : null,
+        lng: r.lng != null ? Number(r.lng) : null,
+        tank_liters: r.tank_liters != null ? Number(r.tank_liters) : null,
+        tank_capacity_liters: r.tank_capacity_liters != null ? Number(r.tank_capacity_liters) : null,
+      };
+    });
+
+    res.json({ generated_at: new Date().toISOString(), vehicles });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
 export default router;
