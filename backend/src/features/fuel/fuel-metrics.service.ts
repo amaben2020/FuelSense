@@ -12,7 +12,9 @@
  * Telemetry rows that re-anchor the fuel model rather than measure it.
  *
  * `calibration` is a manager saying "the tank holds this much now";
- * `receipt` is a verified fill being credited. Both write a level step into the
+ * `receipt` is a verified fill being credited; `odometer_gap` is fuel booked
+ * for distance the tracker never saw, found when the manager re-reads the
+ * dashboard odometer. Both write a level step into the
  * series so the dashboard curve moves at the moment it happens, and neither is
  * fuel the engine burned.
  *
@@ -25,7 +27,7 @@
  * without pulling the tank engine (and its mailer and alert dependencies) into
  * a query builder.
  */
-export const FUEL_MARKER_SOURCES = ['calibration', 'receipt'] as const;
+export const FUEL_MARKER_SOURCES = ['calibration', 'receipt', 'odometer_gap'] as const;
 
 export type FuelMarkerSource = (typeof FUEL_MARKER_SOURCES)[number];
 

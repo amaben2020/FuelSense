@@ -56,6 +56,11 @@ function ChangeRow({ change }: { change: OdometerChange }) {
             </span>
           </>
         )}
+        {change.unrecorded_km != null && change.unrecorded_fuel_liters != null && (
+          <span className="ml-1 text-ink-dim">
+            · {missedDistanceText(change.unrecorded_km, change.unrecorded_fuel_liters)}
+          </span>
+        )}
       </span>
       <span className="text-ink-dim">
         {formatDateTime(change.changed_at)} · {who}
@@ -63,6 +68,10 @@ function ChangeRow({ change }: { change: OdometerChange }) {
     </li>
   );
 }
+
+/** The distance the tracker missed and the fuel taken out of the tank for it. */
+const missedDistanceText = (km: number, liters: number): string =>
+  `tracker missed ${Math.round(km * KM_TO_MILES).toLocaleString()} mi; ${liters.toFixed(1)} L taken from the tank`;
 
 /** What the vehicle currently reports as its total, in km, or null if it has
  *  never been anchored — in which case all we have is distance since the
@@ -96,6 +105,7 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   // Histories are fetched per vehicle on demand rather than for the whole
   // fleet up front — with fifty vehicles that would be fifty requests to render
@@ -164,7 +174,12 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await setVehicleOdometer(v.id, Math.round(milesToKm(miles)));
+      const result = await setVehicleOdometer(v.id, Math.round(milesToKm(miles)));
+      setSavedNote(
+        result.unrecorded_km != null && result.unrecorded_fuel_liters != null
+          ? `Reading saved — ${missedDistanceText(result.unrecorded_km, result.unrecorded_fuel_liters)}.`
+          : null
+      );
       setEditing(null);
       setValue('');
       setSaved(v.id);
@@ -189,7 +204,8 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
       <p className="mt-1 text-xs text-ink-dim">
         The tracker only counts distance since it was fitted, so true mileage has to come from the
         dashboard once. Anchoring a vehicle sets every mileage figure shown for it — including the
-        intervals its service schedules are measured against.
+        intervals its service schedules are measured against. Re-read it after the tracker has been
+        offline: any distance it missed is charged to the tank at the vehicle&apos;s mpg.
       </p>
 
       {unanchoredCount > 0 && (
@@ -353,7 +369,7 @@ export function OdometerSettingsPanel({ fleet, onChanged }: Props) {
               )}
 
               {saved === v.id && !isEditing && (
-                <p className="mt-1.5 text-[11px] text-good">Reading saved.</p>
+                <p className="mt-1.5 text-[11px] text-good">{savedNote ?? 'Reading saved.'}</p>
               )}
 
               {historyFor === v.id && (

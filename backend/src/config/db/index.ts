@@ -736,6 +736,9 @@ export const initDatabase = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS idx_odometer_audit_vehicle_changed
       ON odometer_audit (vehicle_id, changed_at DESC)
   `);
+  await ensureColumn('odometer_audit', 'gap_km', 'INTEGER');
+  await ensureColumn('odometer_audit', 'gap_fuel_liters', 'DECIMAL(8,2)');
+  await ensureColumn('odometer_audit', 'gap_rate_l_per_100km', 'DECIMAL(6,2)');
 
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_device_events_customer_occurred

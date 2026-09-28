@@ -551,6 +551,11 @@ export const odometerAudit = pgTable('odometer_audit', {
   // The tracker's own counter at the moment of the change. Without it the pair
   // of baselines cannot be turned back into the totals they produced.
   deviceKmAtChange: integer('device_km_at_change'),
+  // Distance the new reading showed the tracker had missed, and the fuel booked
+  // out of the tank for it at the vehicle's rate. Null when nothing was booked.
+  gapKm: integer('gap_km'),
+  gapFuelLiters: numeric('gap_fuel_liters', { precision: 8, scale: 2 }),
+  gapRateL100km: numeric('gap_rate_l_per_100km', { precision: 6, scale: 2 }),
   /** The account that made the change. One login per company today, so this
    *  identifies the account rather than an individual — recorded as the email
    *  and name at the time, not a foreign key, so it survives the account being

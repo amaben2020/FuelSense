@@ -1636,7 +1636,12 @@ export const PRICE_PER_TRACKER_NGN = 120_000;
 export async function setVehicleOdometer(
   vehicleId: string,
   odometerKm: number
-): Promise<{ success: boolean; total_odometer_km: number }> {
+): Promise<{
+  success: boolean;
+  total_odometer_km: number;
+  unrecorded_km: number | null;
+  unrecorded_fuel_liters: number | null;
+}> {
   return api(`/vehicles/${vehicleId}/odometer`, {
     method: 'POST',
     body: JSON.stringify({ odometerKm }),
@@ -1650,6 +1655,10 @@ export interface OdometerChange {
   previous_baseline_km: number | null;
   new_baseline_km: number;
   device_km_at_change: number | null;
+  /** Distance the new reading showed the tracker had missed, and the fuel
+   *  booked out of the tank for it. Null when nothing was booked. */
+  unrecorded_km: number | null;
+  unrecorded_fuel_liters: number | null;
   changed_by_email: string | null;
   changed_by_name: string | null;
   changed_at: string;

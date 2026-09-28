@@ -17,7 +17,7 @@ import {
   sql,
 } from '../../shared/db-helpers';
 import { withCache, invalidate, cacheKey } from '../../config/redis';
-import { getVirtualTank, calibrateTank } from '../fuel/virtual-tank.service';
+import { getVirtualTank, calibrateTank, debitUnrecordedDistance } from '../fuel/virtual-tank.service';
 import { CATALOGUE_MIN_YEAR, VEHICLE_CATALOGUE, resolveVehicleSpec } from './vehicle-catalogue.service';
 import { epaCityMpgRanges } from './vehicle-epa-economy.service';
 import { engageImmobilizer, getImmobilizerStatus, lockDoors, releaseImmobilizer } from './immobilizer.service';
@@ -265,6 +265,11 @@ router.post('/:id/economy', async (req: Request, res: Response) => {
   }
 });
 
+/** Below this, a difference is rounding between the dash and the device. */
+const MIN_ODOMETER_GAP_KM = 2;
+/** Above this, a new reading is refused rather than booked as missed driving. */
+const MAX_ODOMETER_GAP_KM = 1500;
+
 // Anchor the vehicle's true mileage to the dashboard reading. The tracker only
 // counts distance since it was fitted, so we store the manager's reading plus
 // the device's counter at that instant and report the sum from then on.
@@ -301,10 +306,59 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
     // Read before writing: the value being replaced is the whole point of the
     // audit row, and once the update lands it is gone from the vehicles table.
     const [before] = await db
-      .select({ baseline_km: vehicles.odometerBaselineKm })
+      .select({
+        baseline_km: vehicles.odometerBaselineKm,
+        baseline_device_km: vehicles.odometerBaselineDeviceKm,
+        rate_l100km: vehicles.consumptionRateL100km,
+      })
       .from(vehicles)
       .where(eq(vehicles.id, vehicleId))
       .limit(1);
+
+    // Distance the tracker missed. Only answerable once there is an earlier
+    // dashboard reading to measure from: the first anchor has nothing to
+    // compare against, and guessing a gap there would invent fuel.
+    let gapKm: number | null = null;
+    if (before?.baseline_km != null) {
+      let fromDeviceKm = before.baseline_device_km;
+      if (fromDeviceKm == null) {
+        const [first] = await db
+          .select({ odometer_km: telemetry.odometerKm })
+          .from(telemetry)
+          .where(and(eq(telemetry.vehicleId, vehicleId), sql`odometer_km IS NOT NULL`))
+          .orderBy(telemetry.recordedAt)
+          .limit(1);
+        fromDeviceKm = first?.odometer_km ?? deviceKm;
+      }
+      // A dashboard odometer never runs backwards, so the highest reading ever
+      // entered — carried forward by what the tracker has counted since — is
+      // the floor. Measuring from the latest reading alone meant a mistyped
+      // low figure, once corrected, was booked as distance nobody drove.
+      const [highest] = await db
+        .select({
+          km: sql<number | null>`MAX(${odometerAudit.newBaselineKm} + GREATEST(0, ${deviceKm} - COALESCE(${odometerAudit.deviceKmAtChange}, ${deviceKm})))`,
+        })
+        .from(odometerAudit)
+        .where(eq(odometerAudit.vehicleId, vehicleId));
+      const ourTotalKm = Math.max(
+        before.baseline_km + Math.max(0, deviceKm - fromDeviceKm),
+        highest?.km != null ? Number(highest.km) : 0
+      );
+      gapKm = Math.round(reading) - ourTotalKm;
+      // A jump this size is a typo or a miles/km mix-up far more often than a
+      // real outage, and booking it would drain the tank on a wrong figure.
+      if (gapKm > MAX_ODOMETER_GAP_KM) {
+        res.status(400).json({
+          error: `That reading is ${gapKm.toLocaleString('en-NG')} km ahead of the ${ourTotalKm.toLocaleString('en-NG')} km we have. Check the figure and that it is in the right unit.`,
+        });
+        return;
+      }
+    }
+    const rate = before?.rate_l100km != null ? Number(before.rate_l100km) : null;
+    const booked =
+      gapKm != null && gapKm >= MIN_ODOMETER_GAP_KM && rate != null && rate > 0
+        ? { km: gapKm, liters: Math.round(gapKm * rate) / 100, rate }
+        : null;
 
     const [row] = await db
       .update(vehicles)
@@ -330,6 +384,9 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
         previousBaselineKm: before?.baseline_km ?? null,
         newBaselineKm: Math.round(reading),
         deviceKmAtChange: deviceKm,
+        gapKm: booked?.km ?? null,
+        gapFuelLiters: booked ? booked.liters.toFixed(2) : null,
+        gapRateL100km: booked ? booked.rate.toFixed(2) : null,
         changedByEmail: req.user.email ?? null,
         changedByName: req.user.name ?? null,
       });
@@ -337,9 +394,17 @@ router.post('/:id/odometer', async (req: Request, res: Response) => {
       console.error(`[odometer_audit] failed to record change for ${vehicleId}:`, err);
     }
 
+    if (booked) {
+      await debitUnrecordedDistance(vehicleId, req.user.customerId, booked.liters).catch((err) =>
+        console.error(`[virtual_tank] odometer gap debit failed for ${vehicleId}:`, err)
+      );
+    }
+
     await invalidate(req.user.customerId, 'fleet', 'summary');
     res.json({
       success: true,
+      unrecorded_km: booked?.km ?? null,
+      unrecorded_fuel_liters: booked?.liters ?? null,
       total_odometer_km: row.baseline_km,
       baseline_km: row.baseline_km,
       device_km_at_baseline: row.baseline_device_km,
@@ -370,6 +435,8 @@ router.get('/:id/odometer/history', async (req: Request, res: Response) => {
         previous_baseline_km: odometerAudit.previousBaselineKm,
         new_baseline_km: odometerAudit.newBaselineKm,
         device_km_at_change: odometerAudit.deviceKmAtChange,
+        unrecorded_km: odometerAudit.gapKm,
+        unrecorded_fuel_liters: sql<number | null>`${odometerAudit.gapFuelLiters}::double precision`,
         changed_by_email: odometerAudit.changedByEmail,
         changed_by_name: odometerAudit.changedByName,
         changed_at: odometerAudit.changedAt,

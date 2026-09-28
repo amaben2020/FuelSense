@@ -1059,6 +1059,52 @@ export async function creditRefuel(
   return { state: row ? rowToState(row) : null, discrepancyLiters };
 }
 
+/**
+ * Take fuel out of the tank for distance the tracker never recorded.
+ *
+ * The model burns only for distance the device counts, so a stretch driven
+ * with the tracker unplugged or offline leaves the tank reading high. When the
+ * manager re-reads the dashboard odometer, the kilometres it is ahead of ours
+ * are that stretch; the caller prices them at the vehicle's rate and this
+ * removes the litres, re-anchoring the model so the next device frame keeps
+ * the lower level rather than recomputing the old one.
+ *
+ * Confidence and the calibration time are left alone: this is arithmetic on
+ * the vehicle's rate, not a new measurement of what the tank holds.
+ */
+export async function debitUnrecordedDistance(
+  vehicleId: string,
+  customerId: string,
+  liters: number
+): Promise<VirtualTankState | null> {
+  if (!(liters > 0)) return null;
+  const state = await getVirtualTank(vehicleId);
+  if (!state) return null;
+
+  const levelMl = Math.max(0, state.levelMl - Math.round(liters * 1000));
+
+  const [row] = await db
+    .update(virtualTanks)
+    .set({
+      levelMl,
+      anchorLevelMl: levelMl,
+      anchorAccumulatorMl: accumulatorTotalMl(
+        state.lastFuelUsedMl ?? 0,
+        state.accumulatorOffsetMl
+      ),
+      anchorModelledMl: sql`modelled_burn_ml`,
+      anchoredAt: sql`NOW()`,
+      anchorSource: 'odometer_gap',
+      updatedAt: sql`NOW()`,
+    })
+    .where(and(eq(virtualTanks.vehicleId, vehicleId), eq(virtualTanks.customerId, customerId)))
+    .returning();
+
+  await insertFuelLevelMarker(vehicleId, customerId, levelMl / 1000, 'odometer_gap');
+
+  return row ? rowToState(row) : null;
+}
+
 async function recordDiscrepancy(
   vehicleId: string,
   customerId: string,
