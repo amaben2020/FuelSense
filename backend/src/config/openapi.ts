@@ -881,7 +881,7 @@ export const openApiSpec = {
         tags: ['Telemetry'],
         summary: 'Log a purchase from a receipt',
         description:
-          'Receipts are the authority on actual spend and on price per litre. A fill logged with `filled_to_full` pins the virtual tank at capacity, and two such fills in a row measure the vehicle\'s real consumption from the odometer distance between them.',
+          'Receipts are the authority on actual spend and on price per litre. The litres are added to whatever the virtual tank already holds.',
         requestBody: {
           required: true,
           content: {
@@ -901,12 +901,6 @@ export const openApiSpec = {
                     maximum: 2000000,
                     description:
                       'Dash reading at the pump, in km. Omit and the tracker\'s own odometer at `purchased_at` is used, which is the more reliable source.',
-                  },
-                  filled_to_full: {
-                    type: 'boolean',
-                    default: false,
-                    description:
-                      'The pump clicked off with the tank full. Pins the tank level at capacity; only full-to-full intervals teach the consumption rate.',
                   },
                 },
               },

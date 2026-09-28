@@ -172,8 +172,8 @@ export function FuelInputsDrillDown({
               <Section
                 n={2}
                 icon={Gauge}
-                title="Tank anchors"
-                body="A receipt marked “filled to full” sets the tank to capacity; a gauge reading sets it to within an eighth. Between anchors the level is the model's arithmetic, and it drifts by the gap between the rate above and the truth."
+                title="Receipts"
+                body="Every receipt adds its litres to what the tank already holds. Between receipts the level is the model's arithmetic, and it drifts by the gap between the rate above and the truth."
               />
 
               <Section

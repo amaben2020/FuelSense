@@ -12,6 +12,8 @@ import {
   milesToKm,
 } from '@/lib/api';
 import { resolvePendingReceipt } from '@/lib/api';
+import type { ParseReceiptResponse } from '@/lib/driver-api';
+import { compressReceiptImage } from '@/lib/receipt-image';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
@@ -132,7 +134,7 @@ export function ReceiptsPanel({
   const [purchasedAtLocal, setPurchasedAtLocal] = useState(() => toDatetimeLocalValue());
   const [odometer, setOdometer] = useState('');
   const [odometerUnit, setOdometerUnit] = useState<'mi' | 'km'>('mi');
-  const [filledToFull, setFilledToFull] = useState(true);
+  const [scanning, setScanning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   /**
@@ -182,6 +184,30 @@ export function ReceiptsPanel({
 
   const theftCount = purchases.filter((p) => p.status === 'flagged_theft').length;
 
+  // For a driver without a phone: the manager photographs the slip and the
+  // same OCR the driver app uses fills the form.
+  const scanReceipt = async (file: File) => {
+    setScanning(true);
+    setMessage(null);
+    try {
+      const image = await compressReceiptImage(file);
+      const { fields } = await api<ParseReceiptResponse>('/telemetry/fuel-purchases/receipt/scan', {
+        method: 'POST',
+        body: JSON.stringify({ image_data_url: image }),
+      });
+      if (fields.merchant_name) setMerchant(fields.merchant_name);
+      if (fields.declared_liters != null) setDeclared(String(fields.declared_liters));
+      if (fields.price_per_liter != null) setPricePerLiter(String(fields.price_per_liter));
+      if (fields.total_amount != null) setTotalPaid(String(fields.total_amount));
+      if (fields.transaction_date) setPurchasedAtLocal(toDatetimeLocalValue(fields.transaction_date));
+      setMessage('Receipt read — check the figures, then save.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Scan failed, enter the details by hand');
+    } finally {
+      setScanning(false);
+    }
+  };
+
   const submitReceipt = async () => {
     // Prices move week to week and there is no defensible default, so a
     // receipt without one is refused here rather than stored with a guess.
@@ -208,7 +234,6 @@ export function ReceiptsPanel({
           odometer_km: odometer
             ? Math.round(odometerUnit === 'mi' ? milesToKm(Number(odometer)) : Number(odometer))
             : undefined,
-          filled_to_full: filledToFull,
           cost_per_liter_ngn: pricePerLiter ? Number(pricePerLiter) : undefined,
           total_amount_ngn: totalPaid ? Number(totalPaid) : undefined,
         }),
@@ -306,17 +331,33 @@ export function ReceiptsPanel({
               onClick={() => setShowForm((v) => !v)}
               className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-y-ink"
             >
-              Manual entry
+              Add receipt
             </button>
           </div>
         </div>
 
         {showForm && (
           <div className="border-b border-edge bg-canvas px-6 py-4">
-            <p className="mb-3 text-xs text-ink-dim">
-              For a fill the driver did not log at the pump — a cash purchase, a missing
-              receipt, or backfilled history. It is checked against the tracker the same way.
-            </p>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-ink-dim">
+                Log a fill on the driver&apos;s behalf. The litres are added to what the tank
+                already holds.
+              </p>
+              <label className="cursor-pointer rounded-lg border border-edge bg-panel px-3 py-2 text-xs font-medium text-ink hover:border-accent/50">
+                {scanning ? 'Reading receipt…' : 'Scan receipt photo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={scanning}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) void scanReceipt(file);
+                  }}
+                />
+              </label>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <label className="text-xs text-ink-dim">
                 Vehicle
@@ -328,6 +369,7 @@ export function ReceiptsPanel({
                   {fleet.map((v) => (
                     <option key={v.id} value={v.id}>
                       {v.license_plate}
+                      {v.driver_name ? ` — ${v.driver_name}` : ''}
                     </option>
                   ))}
                 </select>
@@ -409,33 +451,14 @@ export function ReceiptsPanel({
                   </select>
                 </div>
               </label>
-              <label className="flex items-center gap-2 self-end pb-2 text-xs text-ink-mid">
-                <input
-                  type="checkbox"
-                  checked={filledToFull}
-                  onChange={(e) => setFilledToFull(e.target.checked)}
-                  className="h-4 w-4 rounded border-edge"
-                />
-                Filled to full
-              </label>
             </div>
-            {/* The two inputs calibration actually needs, said up front: a
-                full tank pins the gauge, and two full tanks with odometer
-                readings measure the vehicle's real rate. */}
-            <p className="mt-2 text-[11px] text-ink-dim">
-              {filledToFull
-                ? odometer
-                  ? 'This pins the gauge to a full tank. The next full fill with an odometer reading measures this vehicle\u2019s real L/100 km.'
-                  : 'This pins the gauge to a full tank. Add the odometer reading and the next full fill will measure the real L/100 km.'
-                : 'A partial fill credits the litres but cannot calibrate the gauge or the rate — tick "Filled to full" when the pump clicked off.'}
-            </p>
             <button
               type="button"
               disabled={submitting}
               onClick={submitReceipt}
               className="mt-3 rounded-lg bg-good px-4 py-2 text-xs font-semibold text-accent-y-ink"
             >
-              {submitting ? 'Saving…' : 'Save receipt — check against tracker'}
+              {submitting ? 'Saving…' : 'Save receipt'}
             </button>
           </div>
         )}

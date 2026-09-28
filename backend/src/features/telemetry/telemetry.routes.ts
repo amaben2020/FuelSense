@@ -34,8 +34,9 @@ import {
 } from './activity-thresholds.service';
 import { parseReportWindow, windowEnd, windowStart } from './telemetry-deltas.repository';
 import { findObdRefuelMatch, buildReceiptTimeline, assessReceiptEvent } from '../receipts/receipt-reconciliation.service';
-import { calibrateTank, creditRefuel } from '../fuel/virtual-tank.service';
+import { creditRefuel } from '../fuel/virtual-tank.service';
 import { odometerAtPurchase } from './odometer.service';
+import { scanReceiptImage } from '../receipts/receipt-ocr.service';
 import { reconcileFuelPurchase, consumptionTrend } from '../fuel/fuel-calibration.service';
 import { lookupPlace, cachedPlaceNames, placeKeyFor } from '../places/place-lookup.service';
 import {
@@ -1523,6 +1524,28 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Read a receipt photo into form fields for a manager logging a fill on a
+ * driver's behalf — the same scan the driver app uses, for drivers without a
+ * phone.
+ */
+router.post('/fuel-purchases/receipt/scan', async (req: Request, res: Response) => {
+  const { image_data_url: imageDataUrl } = (req.body ?? {}) as { image_data_url?: string };
+  if (!imageDataUrl) {
+    res.status(400).json({ error: 'image_data_url is required' });
+    return;
+  }
+  try {
+    res.json(await scanReceiptImage(String(imageDataUrl)));
+  } catch (error) {
+    const err = error as Error & { status?: number; name?: string };
+    res.status(err.status || 500).json({
+      error: err.message || 'Receipt OCR failed',
+      code: err.name || 'ocr_failed',
+    });
+  }
+});
+
 router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
   const {
     vehicle_id: vehicleId,
@@ -1532,7 +1555,6 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     purchased_at: purchasedAt,
     odometer_km: odometerKm,
     odometer_photo_url: odometerPhotoUrl,
-    filled_to_full: filledToFullRaw,
     cost_per_liter_ngn: costPerLiterRaw,
     total_amount_ngn: totalAmountRaw,
   } = req.body as {
@@ -1547,11 +1569,7 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
      *  manager has in front of them. */
     cost_per_liter_ngn?: number;
     total_amount_ngn?: number;
-    /** The pump clicked off with the tank full. This is the only fact that
-     *  pins the level exactly, and two of them in a row teach the rate. */
-    filled_to_full?: boolean;
   };
-  const filledToFull = filledToFullRaw === true;
 
   if (!vehicleId || !litersDeclared) {
     res.status(400).json({ error: 'vehicle_id and liters_declared are required' });
@@ -1618,7 +1636,9 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     const diff =
       litersActual != null ? Math.max(0, Math.round((declared - litersActual) * 10) / 10) : null;
 
-    let status = 'pending_receipt';
+    // Entered by the manager, so it stands as their own verification unless a
+    // fuel sensor says otherwise.
+    let status = 'manually_verified';
     if (litersActual != null && diff != null) {
       if (diff >= 10) status = 'flagged_theft';
       else if (diff <= 2) status = 'verified';
@@ -1648,7 +1668,6 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
             ? Math.round(Number(odometerKm))
             : await odometerAtPurchase(vehicleId, customerId, when),
         odometerPhotoUrl: odometerPhotoUrl ?? null,
-        filledToFull,
         status,
         source: 'receipt_upload',
       })
@@ -1670,15 +1689,6 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
     await creditRefuel(vehicleId, customerId, litersActual ?? declared, {
       pricePerLiter: valuationPrice,
     }).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
-
-    // A fill to full pins the level at capacity, the same as it does from the
-    // driver app. Without this a manager-logged full tank only credited the
-    // litres bought, so whatever the model had drifted by survived the fill.
-    if (filledToFull) {
-      await calibrateTank(vehicleId, customerId, null, 'receipt_full').catch((err) =>
-        console.error('[virtual_tank] full-fill calibration failed:', err)
-      );
-    }
 
     // Fill-to-fill reconciliation: compares this odometer reading against the
     // previous fill and against GPS, then refreshes the vehicle's rate.
@@ -1708,7 +1718,7 @@ router.post('/fuel-purchases/receipt', async (req: Request, res: Response) => {
       message:
         litersActual != null
           ? `OBD recorded ${litersActual.toFixed(1)}L at ${obdMatch.obdRefuelDetectedAt?.toLocaleTimeString('en-NG', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'Africa/Lagos' }) ?? 'refuel time'}.`
-          : 'Receipt saved. OBD timestamps will attach when a refuel event is detected nearby.',
+          : 'Receipt saved.',
     });
   } catch (error) {
     logAndRespond(res, req.path, error);
