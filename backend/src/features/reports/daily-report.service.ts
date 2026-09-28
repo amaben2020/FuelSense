@@ -17,8 +17,10 @@ import { latestReceiptPrice } from '../fuel/fuel-price.service';
 import {
   baselineEfficiencyKmL,
   IDLE_BURN_LITERS_PER_HOUR,
+  isAllInRate,
   round1,
-  speedBucketMultiplier,
+  tripFuelLiters,
+  vehicleHighwayFactor,
 } from '../fuel/fuel-metrics.service';
 
 export interface ReportTrip {
@@ -115,7 +117,7 @@ export async function buildDailyReport(
 
   const vehicles = (
     await db.execute(sql`
-      SELECT v.id, v.license_plate, v.model,
+      SELECT v.id, v.license_plate, v.make, v.model, v.year, v.rate_source,
              v.consumption_rate_l_per_100km::double precision AS rate_l100km,
              v.idle_burn_rate_l_per_hour::double precision AS idle_lph,
              COALESCE(d.full_name, v.driver_name, 'Unassigned') AS driver_name
@@ -126,7 +128,10 @@ export async function buildDailyReport(
   ).rows as Array<{
     id: string;
     license_plate: string;
+    make: string | null;
     model: string | null;
+    year: number | null;
+    rate_source: string | null;
     rate_l100km: number | null;
     idle_lph: number | null;
     driver_name: string;
@@ -180,10 +185,20 @@ export async function buildDailyReport(
       lat != null && lng != null ? (names.get(placeKeyFor(lat, lng)) ?? null) : null;
 
     const trips: ReportTrip[] = segments.map((t) => {
-      const fuel = round1(
-        (t.distance_km / efficiencyKmL) * speedBucketMultiplier(t.avg_speed_kph) +
-          (t.idle_minutes / 60) * idleLph
-      );
+      const fuel = tripFuelLiters({
+        distanceKm: t.distance_km,
+        idleMinutes: t.idle_minutes,
+        avgSpeedKph: t.avg_speed_kph,
+        consumptionL100km: 100 / efficiencyKmL,
+        idleBurnLph: idleLph,
+        highwayFactor: vehicleHighwayFactor({
+          make: vehicle.make,
+          model: vehicle.model,
+          year: vehicle.year,
+          rateSource: vehicle.rate_source,
+        }),
+        allIn: isAllInRate(vehicle.rate_source),
+      });
       const first = t.stops[0];
       const last = t.stops[t.stops.length - 1];
 

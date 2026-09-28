@@ -6,8 +6,7 @@ const RATE = { consumptionL100km: 15.68, idleBurnLph: 1.2 };
 
 describe('modelHopBurnMl', () => {
   it('charges distance at the vehicle consumption rate', () => {
-    // 40 km in an hour averages 40 km/h, which sits in the baseline band, so
-    // the multiplier is 1 and this is the bare rate: 40 km at 15.68 L/100km.
+    // No highway rating given, so no speed adjustment: 40 km at 15.68 L/100km.
     const ml = modelHopBurnMl({
       distanceKm: 40,
       seconds: 3600,
@@ -41,8 +40,7 @@ describe('modelHopBurnMl', () => {
   it('does not bill a moving hop for both its distance and its seconds', () => {
     // A hop that covered ground is charged for the distance only — charging the
     // idle rate as well would double-count the same fuel. An hour to cover 1 km
-    // averages 1 km/h, which is stop-start, so the distance is charged at ×1.3
-    // rather than at the bare rate. 1 km × 15.68 × 1.3 / 100 = 0.204 L.
+    // is city driving, so it is the bare rate: 1 km × 15.68 / 100 = 0.157 L.
     const moving = modelHopBurnMl({
       distanceKm: 1,
       seconds: 3600,
@@ -50,32 +48,40 @@ describe('modelHopBurnMl', () => {
       speedKph: 30,
       ...RATE,
     });
-    expect(moving).toBe(204);
+    expect(moving).toBe(157);
 
     // An hour of idling at 1.2 L/h would be 1.2 L, and the capped ten minutes
     // still 0.2 L — either would dwarf the distance charge if both applied.
     expect(moving).toBeLessThan(1200);
   });
 
-  describe('speed banding', () => {
-    // Real economy follows a U-curve: worst crawling, worst again at speed,
-    // best on a mid-range cruise. A flat rate charged the same for all three.
-    const hop = (distanceKm: number, seconds: number) =>
-      modelHopBurnMl({ distanceKm, seconds, ignitionOn: true, speedKph: null, ...RATE });
+  describe('city to highway', () => {
+    /** A 2013 RAV4: 23 mpg city, 30 highway. */
+    const HIGHWAY = 23 / 30;
+    const hop = (distanceKm: number, seconds: number, highwayFactor: number | null = HIGHWAY) =>
+      modelHopBurnMl({ distanceKm, seconds, ignitionOn: true, speedKph: null, ...RATE, highwayFactor });
 
-    it('charges stop-start traffic more per km than a steady cruise', () => {
-      const crawl = hop(5, (5 / 10) * 3600); // 10 km/h
-      const cruise = hop(5, (5 / 40) * 3600); // 40 km/h
-      expect(crawl).toBeGreaterThan(cruise);
-      expect(crawl / cruise).toBeCloseTo(1.3, 2);
+    it('charges the city rate up to city-cycle speed, stop-start included', () => {
+      expect(hop(10, (10 / 12) * 3600)).toBe(1568); // 12 km/h
+      expect(hop(10, (10 / 36) * 3600)).toBe(1568); // 36 km/h
     });
 
-    it('charges motorway speed more per km than a mid-range cruise', () => {
-      const cruise = hop(50, (50 / 40) * 3600); // 40 km/h
-      const highway = hop(50, (50 / 80) * 3600); // 80 km/h
-      const fast = hop(50, (50 / 120) * 3600); // 120 km/h
-      expect(highway).toBeGreaterThan(cruise);
-      expect(fast).toBeGreaterThan(highway);
+    it('charges the vehicle highway rate from highway-cycle speed', () => {
+      // 50 km × 15.68 × 0.77 / 100
+      expect(hop(50, (50 / 80) * 3600)).toBe(6037);
+      expect(hop(50, (50 / 120) * 3600)).toBe(6037);
+    });
+
+    it('slides between the two in between', () => {
+      const city = hop(50, (50 / 36) * 3600);
+      const mid = hop(50, (50 / 58) * 3600);
+      const highway = hop(50, (50 / 80) * 3600);
+      expect(mid).toBeLessThan(city);
+      expect(mid).toBeGreaterThan(highway);
+    });
+
+    it('never adjusts a vehicle with no highway rating', () => {
+      expect(hop(50, (50 / 90) * 3600, null)).toBe(7840);
     });
 
     it('uses the hop average, not the closing instantaneous speed', () => {
@@ -87,9 +93,9 @@ describe('modelHopBurnMl', () => {
         ignitionOn: true,
         speedKph: 90, // instantaneous at the closing fix
         ...RATE,
+        highwayFactor: HIGHWAY,
       });
-      // 0.2 km × 15.68 × 1.3 / 100 = 0.0408 L
-      expect(ml).toBe(41);
+      expect(ml).toBe(31); // 0.2 km × 15.68 / 100
     });
 
     it('applies no adjustment when the speed cannot be established', () => {
@@ -101,6 +107,7 @@ describe('modelHopBurnMl', () => {
         ignitionOn: true,
         speedKph: null,
         ...RATE,
+        highwayFactor: HIGHWAY,
       });
       expect(ml).toBe(1568);
     });
@@ -158,19 +165,15 @@ describe('modelHopBurnMl', () => {
 });
 
 describe('an all-in rate measured from full-to-full receipts', () => {
-  it('is charged flat: no traffic multiplier, no idle on top', () => {
+  it('is charged flat: no speed adjustment, no idle on top', () => {
     const { modelHopBurnMl } = require('../src/features/fuel/virtual-tank.service');
-    // 1 km in 5 minutes of crawling at 12 km/h — the stop-start bucket.
-    const specRate = modelHopBurnMl({
-      distanceKm: 1, seconds: 300, ignitionOn: true, speedKph: 12,
-      consumptionL100km: 17.5, idleBurnLph: 1.2,
-    });
-    const allIn = modelHopBurnMl({
-      distanceKm: 1, seconds: 300, ignitionOn: true, speedKph: 12,
-      consumptionL100km: 17.5, idleBurnLph: 1.2, allIn: true,
-    });
-    expect(allIn).toBe(175);
-    expect(specRate).toBeGreaterThan(allIn);
+    // 50 km at 80 km/h on a vehicle with a highway rating.
+    const hop = { distanceKm: 50, seconds: (50 / 80) * 3600, ignitionOn: true, speedKph: 80,
+      consumptionL100km: 17.5, idleBurnLph: 1.2, highwayFactor: 0.77 };
+    const specRate = modelHopBurnMl(hop);
+    const allIn = modelHopBurnMl({ ...hop, allIn: true });
+    expect(allIn).toBe(8750);
+    expect(specRate).toBeLessThan(allIn);
   });
 
   it('charges nothing for idling on an all-in rate — the receipts already did', () => {

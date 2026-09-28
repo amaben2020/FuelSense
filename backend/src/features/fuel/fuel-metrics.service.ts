@@ -1,3 +1,5 @@
+import { epaHighwayFactor } from '../vehicles/vehicle-epa-economy.service';
+
 /**
  * km/L baselines for Nigerian city conditions — NOT manufacturer combined-cycle
  * figures, which are measured on smooth roads at steady speeds with the AC off
@@ -84,26 +86,91 @@ export function presetForVehicleType(type: string | null | undefined): VehicleTy
 /** Fill-ups needed before a vehicle's measured rate replaces its class preset. */
 export const CALIBRATION_MIN_PURCHASES = Number(process.env.CALIBRATION_MIN_PURCHASES || 2);
 
-/** Real-world economy follows a U-curve: stop-start crawling and motorway speeds
- *  both burn more than a mid-range cruise. Applied as a multiplier on top of the
- *  vehicle's base rate rather than baked into it, so the base stays comparable. */
-export const SPEED_BUCKETS: Array<{ maxKph: number; multiplier: number; label: string }> = [
-  { maxKph: 20, multiplier: 1.3, label: 'Stop-start' },
-  { maxKph: 60, multiplier: 1.0, label: 'Urban / baseline' },
-  { maxKph: 100, multiplier: 1.1, label: 'Highway' },
-  { maxKph: Infinity, multiplier: 1.25, label: 'High speed' },
-];
+/**
+ * Average trip speeds the two reference rates stand for. The EPA city cycle
+ * averages ~34 km/h with frequent stops and its highway cycle ~78 km/h; Wialon's
+ * sensorless "math consumption" model — the one most Teltonika fleets run —
+ * pins its urban rate at 36 km/h and its suburban rate at 80 km/h. Below the
+ * first a trip burns at the city rate (stop-start is already inside it, and
+ * standing still with the engine on is charged separately as idle); above the
+ * second at the highway rate; in between the rate slides linearly.
+ */
+export const URBAN_CYCLE_KPH = 36;
+export const HIGHWAY_CYCLE_KPH = 80;
 
-export function speedBucketMultiplier(avgSpeedKph: number | null | undefined): number {
-  // No usable average (very short or stationary segment) — don't invent an
-  // adjustment; the baseline is the honest answer.
-  if (avgSpeedKph == null || !Number.isFinite(avgSpeedKph) || avgSpeedKph <= 0) return 1;
-  return SPEED_BUCKETS.find((b) => avgSpeedKph < b.maxKph)?.multiplier ?? 1;
+/**
+ * Multiplier on a vehicle's city rate for a trip at this average speed.
+ *
+ * `highwayFactor` is the vehicle's highway burn over its city burn (EPA city
+ * mpg ÷ highway mpg, ~0.77 for a 2013 RAV4). Null when the vehicle has no
+ * highway rating — a model the EPA never rated, or a rate the manager read off
+ * the trip computer, which already averages this vehicle's own mix — and then
+ * no adjustment is invented.
+ */
+export function speedAdjustment(
+  avgSpeedKph: number | null | undefined,
+  highwayFactor: number | null | undefined
+): number {
+  if (highwayFactor == null || !(highwayFactor > 0)) return 1;
+  if (avgSpeedKph == null || !Number.isFinite(avgSpeedKph) || avgSpeedKph <= URBAN_CYCLE_KPH) return 1;
+  if (avgSpeedKph >= HIGHWAY_CYCLE_KPH) return round2(highwayFactor);
+  const share = (avgSpeedKph - URBAN_CYCLE_KPH) / (HIGHWAY_CYCLE_KPH - URBAN_CYCLE_KPH);
+  return round2(1 + (highwayFactor - 1) * share);
 }
 
-export function speedBucketLabel(avgSpeedKph: number | null | undefined): string | null {
-  if (avgSpeedKph == null || avgSpeedKph <= 0) return null;
-  return SPEED_BUCKETS.find((b) => avgSpeedKph < b.maxKph)?.label ?? null;
+/** Which reference rate a trip's average speed puts it on, for display. */
+export function speedAdjustmentLabel(
+  avgSpeedKph: number | null | undefined,
+  highwayFactor: number | null | undefined
+): string | null {
+  if (highwayFactor == null || avgSpeedKph == null || avgSpeedKph <= 0) return null;
+  if (avgSpeedKph <= URBAN_CYCLE_KPH) return 'City';
+  if (avgSpeedKph >= HIGHWAY_CYCLE_KPH) return 'Highway';
+  return 'City–highway';
+}
+
+/**
+ * Whether a vehicle's stored rate already contains its idling and its mix of
+ * city and highway driving. A rate measured full-to-full from receipts does,
+ * and so does a long-term average read off the vehicle's own trip computer;
+ * charging speed and idle on top of either bills the same fuel twice. A
+ * catalogue or class figure is a city driving rate and gets both.
+ */
+export function isAllInRate(rateSource: string | null | undefined): boolean {
+  return rateSource === 'calibrated' || rateSource === 'manual';
+}
+
+/** The highway adjustment for a vehicle, or null when none applies. */
+export function vehicleHighwayFactor(vehicle: {
+  make: string | null | undefined;
+  model: string | null | undefined;
+  year: number | null | undefined;
+  rateSource: string | null | undefined;
+}): number | null {
+  if (isAllInRate(vehicle.rateSource)) return null;
+  return epaHighwayFactor(vehicle.make, vehicle.model, vehicle.year);
+}
+
+/**
+ * Litres for one trip: distance at the vehicle's rate for the speed it was
+ * driven at, plus idle burn for engine-on time standing still. An all-in rate
+ * is distance times rate and nothing else.
+ */
+export function tripFuelLiters(params: {
+  distanceKm: number;
+  idleMinutes: number;
+  avgSpeedKph: number | null | undefined;
+  consumptionL100km: number;
+  idleBurnLph: number;
+  highwayFactor: number | null;
+  allIn: boolean;
+}): number {
+  const driving = (params.distanceKm * params.consumptionL100km) / 100;
+  if (params.allIn) return round1(driving);
+  return round1(
+    driving * speedAdjustment(params.avgSpeedKph, params.highwayFactor) +
+      (params.idleMinutes / 60) * params.idleBurnLph
+  );
 }
 
 export const CO2_KG_PER_LITER = 2.31;

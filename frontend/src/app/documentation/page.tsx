@@ -25,7 +25,7 @@ interface DocPayload {
       consumption_l_per_100km: number;
       idle_burn_l_per_hour: number;
     }>;
-    speed_buckets: Array<{ label: string; up_to_kph: number | null; multiplier: number }>;
+    speed_model: { city_up_to_kph: number; highway_from_kph: number };
     calibration_min_purchases: number;
   };
   limitations: string[];
@@ -237,18 +237,14 @@ export default function DocumentationPage() {
               </div>
 
               <p className="mt-4 text-sm text-ink-mid">
-                Estimates also adjust for how the vehicle was driven — fuel economy is worse
-                in stop-start traffic and at sustained high speed than at a steady cruise:
+                Each vehicle starts from its EPA city rating. A trip averaging up to{' '}
+                {doc.fuel.speed_model.city_up_to_kph} km/h burns at that city rate; from{' '}
+                {doc.fuel.speed_model.highway_from_kph} km/h it burns at the vehicle&apos;s EPA
+                highway rating, and in between it slides from one to the other. Time standing
+                still with the engine on is charged separately as idle. A figure read off the
+                vehicle&apos;s own trip computer already averages all of that, so it is used as it
+                is.
               </p>
-              <ul className="mt-2 space-y-1 text-sm text-ink-dim">
-                {doc.fuel.speed_buckets.map((b) => (
-                  <li key={b.label}>
-                    <span className="text-ink-mid">{b.label}</span>
-                    {b.up_to_kph ? ` (under ${b.up_to_kph} km/h)` : ' (fastest)'} — ×
-                    {b.multiplier}
-                  </li>
-                ))}
-              </ul>
             </section>
 
             <section className="mt-10 mb-16">

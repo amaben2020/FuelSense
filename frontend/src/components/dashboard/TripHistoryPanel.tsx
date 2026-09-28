@@ -528,8 +528,8 @@ export function TripHistoryPanel({
             <h2 className="font-semibold text-ink">Trip history</h2>
             <p className="mt-1 text-xs text-ink-dim">
               A trip ends after {TRIP_BREAK_MINUTES}+ minutes with the ignition off. Fuel figures
-              are estimates — driving (distance ÷ the vehicle&apos;s mpg, adjusted for stop-start or
-              highway speeds) + idle burn. Hover a fuel figure to see its working.
+              are estimates — distance at the vehicle&apos;s city mpg, easing to its highway mpg on
+              faster trips, plus idle burn. Hover a fuel figure to see its working.
               {data?.source === 'historical'
                 ? ' Nothing in this window, so the most recent journeys are shown.'
                 : ''}

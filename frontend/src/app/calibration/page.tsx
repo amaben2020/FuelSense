@@ -12,7 +12,7 @@ interface FuelConfig {
     consumption_l_per_100km: number;
     idle_burn_l_per_hour: number;
   }>;
-  speed_buckets: Array<{ label: string; up_to_kph: number | null; multiplier: number }>;
+  speed_model: { city_up_to_kph: number; highway_from_kph: number };
   calibration_min_purchases: number;
 }
 

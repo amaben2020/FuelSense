@@ -4,7 +4,8 @@ import { FEATURES, resolveFeatureFlags, setFeatureFlag } from './feature-flags.s
 import {
   VEHICLE_TYPE_PRESETS,
   CALIBRATION_MIN_PURCHASES,
-  SPEED_BUCKETS,
+  URBAN_CYCLE_KPH,
+  HIGHWAY_CYCLE_KPH,
   presetForVehicleType,
 } from '../fuel/fuel-metrics.service';
 import { ALERT_CATALOGUE } from '../alerts/alert-catalogue.service';
@@ -70,11 +71,7 @@ router.get('/fuel-config', async (_req: Request, res: Response) => {
       consumption_l_per_100km: p.consumptionL100km,
       idle_burn_l_per_hour: p.idleBurnLph,
     })),
-    speed_buckets: SPEED_BUCKETS.map((b) => ({
-      label: b.label,
-      up_to_kph: b.maxKph === Infinity ? null : b.maxKph,
-      multiplier: b.multiplier,
-    })),
+    speed_model: { city_up_to_kph: URBAN_CYCLE_KPH, highway_from_kph: HIGHWAY_CYCLE_KPH },
     calibration_min_purchases: CALIBRATION_MIN_PURCHASES,
   });
 });
@@ -142,11 +139,7 @@ router.get('/documentation', async (req: Request, res: Response) => {
           consumption_l_per_100km: p.consumptionL100km,
           idle_burn_l_per_hour: p.idleBurnLph,
         })),
-        speed_buckets: SPEED_BUCKETS.map((b) => ({
-          label: b.label,
-          up_to_kph: b.maxKph === Infinity ? null : b.maxKph,
-          multiplier: b.multiplier,
-        })),
+        speed_model: { city_up_to_kph: URBAN_CYCLE_KPH, highway_from_kph: HIGHWAY_CYCLE_KPH },
         calibration_min_purchases: CALIBRATION_MIN_PURCHASES,
       },
       limitations: [

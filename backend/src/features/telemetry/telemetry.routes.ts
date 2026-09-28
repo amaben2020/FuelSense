@@ -20,8 +20,11 @@ import {
   DEFAULT_FUEL_PRICE_NGN_LITER,
   IDLE_BURN_LITERS_PER_HOUR,
   HARSH_EVENT_ESTIMATED_LITERS,
-  speedBucketMultiplier,
-  speedBucketLabel,
+  speedAdjustment,
+  speedAdjustmentLabel,
+  tripFuelLiters,
+  isAllInRate,
+  vehicleHighwayFactor,
   kmLToMpg,
 } from '../fuel/fuel-metrics.service';
 import {
@@ -303,7 +306,10 @@ router.get('/trips', async (req: Request, res: Response) => {
       const tripColumns = sql`
         t.vehicle_id,
         v.license_plate,
+        v.make,
         v.model,
+        v.year,
+        v.rate_source,
         v.consumption_rate_l_per_100km::double precision AS rate_l100km,
         v.idle_burn_rate_l_per_hour::double precision AS idle_lph,
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
@@ -422,6 +428,8 @@ router.get('/trips', async (req: Request, res: Response) => {
           {
             license_plate: string;
             model: string | null;
+            highway_factor: number | null;
+            all_in: boolean;
             rate_l100km: number | null;
             idle_lph: number | null;
             driver_name: string | null;
@@ -434,6 +442,13 @@ router.get('/trips', async (req: Request, res: Response) => {
             byVehicle.set(vid, {
               license_plate: String(row.license_plate),
               model: row.model != null ? String(row.model) : null,
+              highway_factor: vehicleHighwayFactor({
+                make: row.make as string | null,
+                model: row.model as string | null,
+                year: row.year != null ? Number(row.year) : null,
+                rateSource: row.rate_source as string | null,
+              }),
+              all_in: isAllInRate(row.rate_source as string | null),
               rate_l100km: Number(row.rate_l100km) > 0 ? Number(row.rate_l100km) : null,
               idle_lph: Number(row.idle_lph) > 0 ? Number(row.idle_lph) : null,
               driver_name: row.driver_name != null ? String(row.driver_name) : null,
@@ -458,26 +473,32 @@ router.get('/trips', async (req: Request, res: Response) => {
           const efficiencyKmL = v.rate_l100km != null ? 100 / v.rate_l100km : baselineEfficiencyKmL(v.model ?? '');
           const idleLph = v.idle_lph ?? IDLE_BURN_LITERS_PER_HOUR;
           const trips = segmentTrips(v.points, nowMs).map((trip) => {
-            // Economy follows a U-curve, so the same distance burns more in
-            // stop-start traffic than at a steady cruise. Applied only to the
-            // driving portion — idle burn is time-based and unaffected by it.
-            const multiplier = speedBucketMultiplier(trip.avg_speed_kph);
-            const fuel = round1(
-              (trip.distance_km / efficiencyKmL) * multiplier +
-                (trip.idle_minutes / 60) * idleLph
-            );
+            // City rate up to city-cycle speeds, sliding to the vehicle's
+            // highway rate at highway speeds; idle burn on top. An all-in rate
+            // is distance times rate — see fuel-metrics.
+            const multiplier = v.all_in ? 1 : speedAdjustment(trip.avg_speed_kph, v.highway_factor);
+            const fuel = tripFuelLiters({
+              distanceKm: trip.distance_km,
+              idleMinutes: trip.idle_minutes,
+              avgSpeedKph: trip.avg_speed_kph,
+              consumptionL100km: 100 / efficiencyKmL,
+              idleBurnLph: idleLph,
+              highwayFactor: v.highway_factor,
+              allIn: v.all_in,
+            });
             return {
               ...trip,
               estimated_fuel_liters: fuel,
               // The inputs behind the litres, so the table can show its working.
               economy_mpg_us: kmLToMpg(efficiencyKmL),
-              idle_burn_l_per_hour: idleLph,
+              idle_burn_l_per_hour: v.all_in ? null : idleLph,
+              rate_all_in: v.all_in,
               // null until a real receipt establishes a price — see
               // fuel/fuel-price.service.ts. Litres are measured; money is not, and an
               // assumed rate must not be shown as though it were.
               estimated_cost_ngn:
                 pricePerLiter != null ? Math.round(fuel * pricePerLiter) : null,
-              speed_bucket: speedBucketLabel(trip.avg_speed_kph),
+              speed_bucket: v.all_in ? null : speedAdjustmentLabel(trip.avg_speed_kph, v.highway_factor),
               speed_bucket_multiplier: multiplier,
               // Filled below for the one trip that began without a GPS lock.
               blind_origin: undefined as

@@ -6,7 +6,7 @@ import {
   tankLitersFor,
   yearInRange,
 } from '../src/features/vehicles/vehicle-catalogue.service'
-import { epaCityMpg, mpgUsToL100km } from '../src/features/vehicles/vehicle-epa-economy.service'
+import { epaCityMpg, epaHighwayFactor, mpgUsToL100km } from '../src/features/vehicles/vehicle-epa-economy.service'
 
 const fallback = { type: 'sedan' as const, consumptionL100km: 10, idleBurnLph: 1 }
 
@@ -106,5 +106,25 @@ describe('EPA city economy', () => {
   it('does not borrow a US twin outside the years it is the same car', () => {
     expect(epaCityMpg('Nissan', 'X-Trail', 2012)).toBeNull()
     expect(epaCityMpg('Nissan', 'X-Trail', 2016)).toBe(26)
+  })
+})
+
+describe('trip fuel', () => {
+  const { tripFuelLiters, speedAdjustment } = require('../src/features/fuel/fuel-metrics.service')
+
+  it('prices Sunday 27 Sept for the reference RAV4 at 23 mpg city', () => {
+    const rate = mpgUsToL100km(23)
+    const highway = epaHighwayFactor('Toyota', 'RAV4', 2013)
+    expect(highway).toBeCloseTo(23 / 30)
+    const trip = (distanceKm: number, idleMinutes: number, avgSpeedKph: number) =>
+      tripFuelLiters({ distanceKm, idleMinutes, avgSpeedKph, consumptionL100km: rate, idleBurnLph: 0.85, highwayFactor: highway, allIn: false })
+    // 28.4 km at 19 km/h and 86.4 km at 27 km/h are both city driving.
+    expect(trip(28.4, 15, 19)).toBe(3.1)
+    expect(trip(86.4, 17, 27)).toBe(9.1)
+  })
+
+  it('does not adjust an all-in rate', () => {
+    expect(speedAdjustment(90, null)).toBe(1)
+    expect(tripFuelLiters({ distanceKm: 100, idleMinutes: 60, avgSpeedKph: 90, consumptionL100km: 10, idleBurnLph: 1, highwayFactor: 0.77, allIn: true })).toBe(10)
   })
 })

@@ -1424,7 +1424,7 @@ export interface ServerTrip {
   estimated_fuel_liters: number;
   /** The vehicle's economy the litres were worked out at (US mpg). */
   economy_mpg_us?: number | null;
-  idle_burn_l_per_hour?: number;
+  idle_burn_l_per_hour?: number | null;
   /** Stop-start / highway adjustment applied to the driving litres. */
   speed_bucket?: string | null;
   speed_bucket_multiplier?: number;

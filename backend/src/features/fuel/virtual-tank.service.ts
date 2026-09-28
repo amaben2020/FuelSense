@@ -11,7 +11,7 @@
 import { db, vehicles, alerts, deviceEvents, telemetry, eq, and, sql } from '../../shared/db-helpers';
 import { virtualTanks } from '../../config/db/schema';
 import type { FuelMarkerSource } from './fuel-metrics.service';
-import { speedBucketMultiplier, round2 } from './fuel-metrics.service';
+import { isAllInRate, round2, speedAdjustment, vehicleHighwayFactor } from './fuel-metrics.service';
 import { alertEmail, sendMail } from '../../shared/mailer';
 import { resolveAlertRecipient } from '../alerts/alert-mail.service';
 
@@ -204,14 +204,11 @@ interface FuelGpsReading {
  * the manager's dashboard figure when they have entered one, otherwise the
  * class preset.
  *
- * **Each hop is charged at the rate for the speed it was driven at.** A flat
- * rate said a kilometre crawling through Lagos traffic cost exactly what a
- * kilometre of steady 60 km/h cruising cost, which no vehicle has ever managed:
- * real economy follows a U-curve, worst in stop-start and again at motorway
- * speed, best in the middle. The multipliers live in `SPEED_BUCKETS` and are
- * applied on top of the base rate rather than baked into it, so the vehicle's
- * stored rate stays comparable across vehicles and a calibration measured over
- * mixed driving is still meaningful.
+ * **Each hop is charged at the rate for the speed it was driven at.** The
+ * stored rate is a city rate; a hop averaging highway speed burns at the
+ * vehicle's EPA highway rate instead, sliding between the two — see
+ * `speedAdjustment`. Applied on top of the stored rate rather than baked into
+ * it, so the stored rate stays comparable across vehicles.
  *
  * The speed used is the hop's own average — distance over elapsed time — not
  * the instantaneous `speedKph` on the closing reading, which is a snapshot of
@@ -229,6 +226,8 @@ export function modelHopBurnMl(params: {
   speedKph: number | null;
   consumptionL100km: number;
   idleBurnLph: number;
+  /** Highway burn over city burn for this vehicle; null for no adjustment. */
+  highwayFactor?: number | null;
   /**
    * The rate is an all-in figure measured from full-to-full receipts: the
    * vehicle's own idling and stop-start are already inside it, so the speed
@@ -238,21 +237,21 @@ export function modelHopBurnMl(params: {
    */
   allIn?: boolean;
 }): number {
-  const { distanceKm, seconds, ignitionOn, speedKph, consumptionL100km, idleBurnLph, allIn } = params;
+  const { distanceKm, seconds, ignitionOn, speedKph, consumptionL100km, idleBurnLph, allIn, highwayFactor } = params;
 
   if (allIn) {
     return Math.max(0, Math.round(((distanceKm * consumptionL100km) / 100) * 1000));
   }
 
   // Average speed over the hop. Falls back to the reported instantaneous speed
-  // when the elapsed time is unusable, and `speedBucketMultiplier` returns 1
-  // for a null — an unknown speed earns no adjustment rather than a guess.
+  // when the elapsed time is unusable, and `speedAdjustment` returns 1 for a
+  // null — an unknown speed earns no adjustment rather than a guess.
   const avgSpeedKph =
     distanceKm > 0 && seconds > 0 ? (distanceKm / seconds) * 3600 : speedKph;
 
   const driving =
     distanceKm > 0
-      ? (distanceKm * consumptionL100km * speedBucketMultiplier(avgSpeedKph)) / 100
+      ? (distanceKm * consumptionL100km * speedAdjustment(avgSpeedKph, highwayFactor ?? null)) / 100
       : 0;
 
   // Idle only counts when the engine is running and the vehicle is not moving.
@@ -341,12 +340,20 @@ const FALLBACK_IDLE_BURN_LPH = 1.2;
  */
 async function vehicleBurnRates(
   vehicleId: string
-): Promise<{ consumptionL100km: number; idleBurnLph: number; allIn: boolean }> {
+): Promise<{
+  consumptionL100km: number;
+  idleBurnLph: number;
+  allIn: boolean;
+  highwayFactor: number | null;
+}> {
   const [row] = await db
     .select({
       consumption: vehicles.consumptionRateL100km,
       idle: vehicles.idleBurnRateLph,
       source: vehicles.rateSource,
+      make: vehicles.make,
+      model: vehicles.model,
+      year: vehicles.year,
     })
     .from(vehicles)
     .where(eq(vehicles.id, vehicleId))
@@ -359,9 +366,13 @@ async function vehicleBurnRates(
     consumptionL100km:
       Number.isFinite(consumption) && consumption > 0 ? consumption : FALLBACK_CONSUMPTION_L100KM,
     idleBurnLph: Number.isFinite(idle) && idle > 0 ? idle : FALLBACK_IDLE_BURN_LPH,
-    // A rate measured full-to-full from receipts already has this vehicle's
-    // idling and traffic in it; a spec or preset figure is driving only.
-    allIn: row?.source === 'calibrated',
+    // A rate measured full-to-full from receipts, or read off the trip
+    // computer, already has this vehicle's idling and traffic in it; a spec or
+    // preset figure is city driving only.
+    allIn: isAllInRate(row?.source),
+    highwayFactor: row
+      ? vehicleHighwayFactor({ make: row.make, model: row.model, year: row.year, rateSource: row.source })
+      : null,
   };
 }
 
@@ -670,6 +681,7 @@ export async function processFuelGpsReading(
     consumptionL100km: rates.consumptionL100km,
     idleBurnLph: rates.idleBurnLph,
     allIn: rates.allIn,
+    highwayFactor: rates.highwayFactor,
   });
 
   const modelledBurnMl = state.modelledBurnMl + hopBurnMl;
