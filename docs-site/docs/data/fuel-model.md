@@ -12,32 +12,108 @@ read from a sensor. It must never be labelled a measurement anywhere in the
 product. This page explains what the model can and cannot tell you.
 :::
 
+## Where the rate comes from
+
+Every vehicle has **one** rate, `vehicles.consumption_rate_l_per_100km`, and
+every screen burns at it: the tank, trip history, daily activity and the
+daily email report. They used to disagree — trip history priced a 2013 RAV4
+from a table keyed on the model name (7 km/L for every RAV4 ever made) while
+the vehicle record carried 18 L/100 km learned from partial fills.
+
+| `rate_source` | Where the figure came from | Treated as |
+| --- | --- | --- |
+| `catalogue` | **EPA city rating** for the make, model and year — or, for a model the EPA never rated, the catalogue's own city figure | City driving rate |
+| `manual` | The manager typed the long-term average from the vehicle's trip computer | All-in |
+| `calibrated` | Measured from two fills to full | All-in |
+| `preset` | Make/model not in the catalogue — a class average | City driving rate |
+
+**The EPA city rating is the reference, not the brochure combined figure.**
+Fleets here drive in stop-start traffic with the air conditioning on; the
+city test cycle is the closest the EPA publishes to that. For each model
+year the figure is the best `city08` among petrol, non-hybrid, two-wheel-drive
+versions — the base engine, which is what fleets buy. A 2013 RAV4 is **23 mpg
+city, 30 highway** (10.23 L/100 km city). Ratings are US gallons, and so is
+every mpg the product shows.
+
+The data lives in `backend/src/features/vehicles/vehicle-epa-economy.service.ts`,
+generated from the EPA's own `vehicles.csv`. 28 catalogue models are covered.
+Models sold in the US under another name borrow its rating **only for the years
+they are the same car**: Cerato → Forte, Almera → Versa (2012–19),
+X-Trail → Rogue (2014+), Patrol → Armada (2017+), Pajero → Montero (to 2006).
+Models the EPA never rated — Hiace, Hilux, Prado, Coaster, buses, trucks — keep
+the catalogue's own city figure.
+
+At onboarding the form fills the economy field with the EPA figure the moment
+make, model and year are picked, and says where it came from. **Left as it
+is, it is saved as `catalogue`. Changed, it is saved as `manual` and wins** —
+a 2005 Corolla rated 28 mpg that the manager knows does 18 is stored at 18.
+
 ## How a litre is charged
 
 Every hop between two readings is charged exactly once:
 
 ```
-if the hop covered ground:
-    burn = distance_km × consumption_rate_l_per_100km / 100
+if the rate is all-in (manual or calibrated):
+    burn = distance_km × rate / 100            ← nothing on top
+else if the hop covered ground:
+    burn = distance_km × rate × speed_adjustment(avg_speed) / 100
 else if the engine was on:
     burn = idle_hours × idle_burn_rate_l_per_hour
 else:
     burn = 0
 ```
 
-Never both — charging distance *and* idle on the same hop double-bills a
-vehicle crawling in traffic. Rates are read from the **vehicle record** on every
+Never both distance and idle on the same hop — that double-bills a vehicle
+crawling in traffic. Rates are read from the **vehicle record** on every
 reading, so a change on the calibration screen takes effect immediately rather
 than from the next trip.
 
+### City to highway
+
+A city rate is right for city driving and wrong on the expressway: every rated
+car burns less at a steady highway speed (the 2013 RAV4 goes from 23 to 30
+mpg). So the rate slides with the hop's **average** speed — distance over
+elapsed time, never the instantaneous speed on the closing packet:
+
+| Average speed | Rate |
+| --- | --- |
+| up to 36 km/h | the city rate |
+| 36–80 km/h | slides linearly from city to highway |
+| 80 km/h and above | the highway rate = city rate × (EPA city mpg ÷ EPA highway mpg) |
+
+The two anchor speeds are where the EPA cycles and Wialon's sensorless model
+put them (see [How this compares](#how-this-compares)). **Stop-start is not
+charged extra**: the EPA city cycle already contains frequent stops, and time
+standing still with the engine on is charged separately as idle.
+
+No adjustment is ever invented. A vehicle with no EPA highway rating, a hop
+with no usable speed, and any all-in rate get the stored rate as it is.
+
+:::note Replaced 2026-09-28
+The model used to multiply the rate by ×1.3 below 20 km/h and ×1.1 from 60 to
+100 km/h. On top of an EPA city figure both were wrong — crawling was billed
+twice and highway driving was billed as *worse* than city. On Sunday 27
+September the reference RAV4 covered 114.8 km; the old model put it at
+18.1 L / ₦26,083, the new one at **12.2 L / ₦17,580**.
+:::
+
+All three consumers call the same code — `tripFuelLiters()` and
+`speedAdjustment()` in `fuel-metrics.service.ts`, `modelHopBurnMl()` in the
+tank — so a trip cannot be priced one way in trip history and another in the
+daily report. Trip history shows each trip's mpg and, on hover, its working:
+`86.4 km at 23 mpg + 17m idle × 0.85 L/h = 9.1 L`.
+
 ```mermaid
 flowchart TD
-  H["Hop between two readings"] --> M{"Distance > 0?"}
-  M -->|yes| D["distance × rate / 100"]
+  H["Hop between two readings"] --> A{"All-in rate?"}
+  A -->|yes| F["distance × rate / 100"]
+  A -->|no| M{"Distance > 0?"}
+  M -->|yes| D["distance × rate × speed adjustment / 100"]
   M -->|no| I{"Ignition on?"}
   I -->|yes| J["idle hours × idle rate"]
   I -->|no| Z["0 — engine off burns nothing"]
-  D --> B["burn_ml on the row"]
+  F --> B["burn_ml on the row"]
+  D --> B
   J --> B
   Z --> B
   B --> T["modelled_burn_ml<br/>monotonic counter"]
@@ -90,9 +166,11 @@ in place of the circular economy figure.
 
 ## Marker rows
 
-Two events change the level without being consumption: a **calibration** and a
-**receipt credit**. Both are written as `telemetry` rows carrying
-`fuel_source` in `FUEL_MARKER_SOURCES`, and every consumption query skips them.
+Three events change the level without being consumption the tracker saw: a
+**calibration**, a **receipt credit**, and an **odometer gap**. All are written
+as `telemetry` rows carrying `fuel_source` in `FUEL_MARKER_SOURCES`
+(`calibration`, `receipt`, `odometer_gap`), and every consumption query skips
+them.
 
 Without this, a calibration from 29.95 L to 20.00 L was counted as 9.95 L of
 burn — it slipped between the refuel guard (a rise of ≥5 L) and the siphon guard
@@ -107,6 +185,57 @@ A calibration made before marker rows existed landed on an ordinary row and is
 not retroactively taggable. Older calibrations still read as burn unless
 backfilled individually from `virtual_tanks.calibrated_at`.
 :::
+
+## Receipts only add litres
+
+A receipt — from the driver app or entered by a manager — is **recorded, not
+judged**. Its litres are added to whatever the tank holds, and nothing else
+happens to the level:
+
+- **No tank questions.** Neither form asks whether the tank was filled to full
+  or what the gauge read (E, ¼, ½…). Both used to pin the level to something
+  eyeballed at the pump, overriding the litres the same receipt had just
+  credited: eighths of a 60 L tank are 7.5 L apart and a gauge is not linear,
+  and the manager form had "filled to full" ticked by default, resetting the
+  tank to 60 L on every entry. The server ignores both fields even from an old
+  app build.
+- **No verdict.** Driver receipts are no longer checked against the station or
+  the modelled tank, and never raise a theft flag or a `receipt_fraud` alert.
+  The station check compared the slip against where the *phone* was at upload
+  time, so a driver who filed from home that evening was "21 km from the
+  station" and flagged for the full ₦20,000. Nothing on this hardware measures
+  fuel, so neither check could tell honest from not. A manager still approves
+  or rejects each receipt on the Receipts page.
+- **A manager can file for a driver** with no phone: Receipts → *Add receipt*,
+  with the same photo scan the driver app uses. The vehicle list names each
+  vehicle's driver, and the entry is stored as verified by the manager.
+
+## Distance the tracker missed
+
+The tank only burns for distance the tracker counts. Driven with the tracker
+unplugged or off air, a vehicle comes back with its tank reading high. The fix
+is the dashboard odometer: in **Settings → Vehicle odometers** the manager
+re-reads it, and anything it is ahead of ours is distance the tracker missed.
+
+```
+missed_km  = dashboard reading − highest reading ever entered (+ tracker km since)
+missed_L   = missed_km × rate / 100
+tank level = tank level − missed_L          ← re-anchored, odometer_gap marker
+```
+
+That fuel comes out of the tank, the model is re-anchored so the next tracker
+frame keeps the lower level, and the odometer history records it: *"tracker
+missed 62 mi; 10.2 L taken from the tank"*. It is not invented as a trip.
+
+Built so it cannot manufacture fuel:
+
+| Case | What happens |
+| --- | --- |
+| First reading ever entered | Anchors only — nothing to compare against, nothing booked |
+| Reading below ours | Re-anchors the odometer; fuel is never added back |
+| A mistyped low reading, later corrected | Measured from the **highest** reading ever entered, so the correction is not billed as driving — a dashboard odometer never runs backwards |
+| More than 1,500 km ahead | Refused as a likely typo or miles/km mix-up |
+| Under 2 km ahead | Rounding between dash and tracker; nothing booked |
 
 ## What the fuel in the tank cost
 
@@ -206,3 +335,36 @@ direction.
 Expected fuel for a period has to include an idle allowance. Comparing
 idle-inclusive modelled burn against a driving-only benchmark flags **every**
 driver who sat in traffic, which is every driver in Lagos or Abuja.
+
+## How this compares
+
+Checked on 2026-09-28 against what the rest of the industry does without a
+fuel sensor:
+
+- **Wialon** (Gurtam), the platform most Teltonika fleets run on, has a
+  sensorless *math consumption* model built from an urban rate referenced at
+  **36 km/h**, a suburban rate at **80 km/h**, and a separate idle rate in
+  L/h. FuelSense uses the same two anchor speeds and the same separate idle
+  charge, with the EPA city and highway ratings as the two rates.
+- **Geotab** does not estimate litres without engine data: every device
+  reports distance and idle time, but fuel used comes from the engine computer
+  or imported fuel-card fills.
+- **Samsara, Webfleet and Verizon Connect** do not publish how, or whether,
+  they estimate fuel without engine or sensor data.
+- **Idle burn.** The US Department of Energy, from Argonne National Laboratory
+  measurements, puts a compact 2.0 L sedan at about 0.16–0.17 US gal/h
+  (~0.6 L/h) at idle and a 4.6 L sedan at just over twice that. The reference
+  RAV4 (2.5 L, AC on) runs at 0.85 L/h — inside that range.
+
+## Sources
+
+- EPA fuel economy data, `vehicles.csv` (city08 / highway08), downloaded
+  2026-09-28 — [fueleconomy.gov](https://www.fueleconomy.gov/feg/epadata/vehicles.csv.zip)
+- Wialon, *Math consumption* —
+  [help.wialon.com](https://help.wialon.com/en/wialon-hosting/expert-articles/fuel/math-consumption)
+- Geotab, *Fuel Usage and Fill-Ups FAQ* —
+  [support.geotab.com](https://support.geotab.com/mygeotab/doc/fuel-fill-ups)
+- Argonne National Laboratory, *Idle Reduction Research* —
+  [anl.gov](https://www.anl.gov/esia/idle-reduction-research)
+- US Department of Energy, idling fuel use by vehicle —
+  [energy.gov](https://www.energy.gov/node/1017831)

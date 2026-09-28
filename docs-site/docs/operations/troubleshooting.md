@@ -54,9 +54,15 @@ GROUP BY 1 ORDER BY 1 DESC LIMIT 5;
 
 Work through in order:
 
-1. **Is the vehicle on a preset?** `rate_source = 'preset'` means nobody has
-   entered a real rate and the model is using a class guess.
-2. **Is the drop actually a calibration?** Check for a marker row.
+1. **Is the rate right?** Check `rate_source` and the year on the vehicle: a
+   `catalogue` rate is the EPA city figure for that year, so a wrong year gives
+   a wrong rate (the reference RAV4 was on file as 2022, not 2013). `preset`
+   means the make/model is not in the catalogue and a class guess is in use.
+   If the trip computer shows a different long-term average, enter it.
+2. **Was the tracker offline?** Distance it never counted burned nothing in the
+   model. Re-read the dashboard odometer in Settings → Vehicle odometers and the
+   missed distance is charged to the tank.
+3. **Is the drop actually a calibration?** Check for a marker row.
    ```sql
    SELECT recorded_at, fuel_level_liters, fuel_source
    FROM telemetry
@@ -65,9 +71,9 @@ Work through in order:
    ```
    A calibration made before marker rows existed is not retroactively taggable
    and still reads as burn.
-3. **Is the anchor stale?** The model has no feedback loop. If it has drifted,
+4. **Is the anchor stale?** The model has no feedback loop. If it has drifted,
    re-anchor.
-4. **Are you reading AVL 12?** It is a diagnostic and does not drive the tank.
+5. **Are you reading AVL 12?** It is a diagnostic and does not drive the tank.
    It under-reports the moving case by roughly 80×.
 
 ## "The naira figure is wrong"
@@ -99,7 +105,7 @@ Then on the box:
 
 ```bash
 sudo ss -tlnp | grep 5027           # is the port listening
-sudo journalctl -u fuelsense-backend -n 100 --no-pager | grep -i imei
+sudo journalctl -u fuelsense -n 100 --no-pager | grep -i imei
 ```
 
 If the port is not listening or is closed in the security group, every tracker

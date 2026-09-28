@@ -20,6 +20,30 @@ burn rate the device is about to stop using, and the anchor has to be thrown
 away again.
 :::
 
+## Fitting a new tracker
+
+The FMC130 and FMC150 speak the same protocol (Codec 8 Extended) and share the
+AVL IDs FuelSense reads, so both onboard the same way.
+
+1. **Register the IMEI first.** Add the vehicle in onboarding, or *Add vehicle*
+   on the dashboard, with the 15-digit IMEI from the device sticker and the
+   tracker model. The server **drops any IMEI it does not know**, and stores
+   nothing from it — a tracker powered on before it is registered is simply
+   ignored until it is.
+2. **Pick make, model and year.** Tank size and the EPA city mpg fill in; type
+   the trip-computer figure instead if you have it.
+3. **Enter the dashboard odometer**, in the unit the dash shows.
+4. **Point the device at FuelSense** in the Configurator: server domain
+   `tcp.fuelsense.ng`, port **5027**, protocol TCP, codec 8 Extended. A domain
+   rather than an IP means a server move never needs the Configurator opened
+   again.
+5. **Check it arrived:** the vehicle shows *Tracker last seen* within a minute
+   of the ignition going on, and `devices.last_seen_at` is set.
+
+Verified on 2026-09-28 against a throwaway database: an FMC130 registered
+through onboarding was accepted on the handshake, its records were stored and
+the tank burned from them; an unregistered IMEI was dropped.
+
 ## 1. The Teltonika Configurator
 
 Set on the device itself, with the Teltonika Configurator tool.
@@ -60,14 +84,21 @@ Overspeeding, set the same limit in FuelSense so the two agree.
 
 ### Fuel economy
 
-`Calibration → Fuel economy`, or `POST /vehicles/{id}/economy`.
+Set for you when the vehicle is added. Pick make, model and **year** and the
+economy field fills in with that model year's **EPA city rating** — a 2013 RAV4
+shows 23 mpg — and the form says where it came from. Leave it and the vehicle
+runs on that figure (`rate_source = catalogue`). See
+[Where the rate comes from](/data/fuel-model#where-the-rate-comes-from).
 
-Enter the long-term average from the vehicle's own trip computer. **The unit is
+If the vehicle's trip computer shows a different long-term average, type that
+instead: it wins, and is stored as `manual`. The same override is at
+`Calibration → Fuel economy`, or `POST /vehicles/{id}/economy`. **The unit is
 required, not assumed** — 15 mpg is 6.38 km/L on a US gallon and 5.31 on an
-imperial one, a 20% gap in the figure the whole fuel model rests on.
+imperial one, a 20% gap in the figure the whole fuel model rests on. Clearing
+the override returns the vehicle to its EPA figure.
 
-This replaces the class preset. `rate_source` then reads something other than
-`preset`, and the dashboard stops describing the figure as a guess.
+A trip-computer figure is treated as **all-in**: it already averages that
+vehicle's idling and its mix of city and highway, so nothing is added on top.
 
 ### Speed limit
 
@@ -89,9 +120,18 @@ overspeeding in the **past** — a device-side event never could.
 
 ### Odometer baseline
 
-`POST /vehicles/{id}/odometer` with the dashboard reading. The tracker only
-counts distance since it was fitted, so true mileage is this baseline plus the
-device's counter since the anchor instant.
+`Settings → Vehicle odometers`, or `POST /vehicles/{id}/odometer` with the
+dashboard reading in km. The tracker only counts distance since it was fitted,
+so true mileage is this baseline plus the device's counter since the anchor
+instant. Entered at onboarding, it is taken as the baseline and the tracker's
+own starting count does not matter — a newly fitted tracker reading 0 km is
+handled the same as one configured with the dash total.
+
+**Re-read it after the tracker has been offline.** Anything the dashboard is
+ahead of ours is distance the tracker missed; it is charged to the tank at the
+vehicle's rate and recorded in the change history. The first reading, a lower
+reading, and a jump over 1,500 km book nothing — see
+[Distance the tracker missed](/data/fuel-model#distance-the-tracker-missed).
 
 ### Tank size
 
@@ -107,52 +147,33 @@ a figure less than half or more than double the manufacturer's — those are
 typos, not variants. A long-range tank or a disconnected sub-tank still fits
 inside that band.
 
-Get this right before the first fill: **a fill to full is measured against
-this number**, and a 60 L tank recorded as 55 L makes every full fill look like
-5 L walked away.
+Get this right before the first fill: the tank cannot hold more than this, so
+a 60 L tank recorded as 55 L caps every fill 5 L short.
 
-## 3. Tank anchor — fill it to full
+## 3. Tank anchor
 
-The tank has no sensor, so it needs one exact fact to start from. **A fill to
-full is that fact.** Log the fill with "Filled to full" ticked on
-Receipts → *Add a receipt* in the dashboard, and the model pins the level at
-the tank capacity, whatever it had drifted to before.
+The tank has no sensor, so it starts from the level set on it. When the level
+is known — the vehicle has just been filled, or the gauge is read carefully by
+the manager — set it with `POST /vehicles/{id}/virtual-tank/calibrate` and a
+litre figure (omit it for a full tank). This writes a **marker row** so the
+step is never counted as consumption or mistaken for a siphon. See
+[The fuel model](/data/fuel-model).
 
-**The driver app does not ask about the tank**, on purpose. It used to offer
-"filled to full?" and, for a top-up, a gauge picker in eighths — and the pin
-that produced overrode the litres the same receipt had just credited. Eighths
-of a 60 L tank are 7.5 L apart and a car's gauge is not linear across its
-travel, so one hurried glance at a needle could erase everything the model had
-tracked since the last fill. Drivers file what they bought; what the tank now
-holds is asserted by the manager, deliberately, on the receipts page.
+From then on the level moves on its own:
 
-For a fleet-wide calibration, fill every vehicle and log each one as full,
-same day. From that moment:
+1. **Burn** comes off at the vehicle's rate for every km the tracker counts,
+   plus idle.
+2. **Receipts** add their litres — nothing more. Neither the driver app nor the
+   manager's *Add receipt* asks whether the tank was filled to full or what the
+   gauge read (E, ¼, ½…); both questions pinned the level to a guess and
+   overrode the litres just bought, and are gone. See
+   [Receipts only add litres](/data/fuel-model#receipts-only-add-litres).
+3. **Missed distance** comes off when the manager re-reads the odometer after
+   an outage.
 
-1. **Every gauge reads full, exactly.** The virtual tank is anchored at
-   capacity and burns down from there at the vehicle's rate.
-2. **The second full fill measures the real rate.** Litres bought ÷ km driven
-   between the two fills × 100 is this vehicle's L/100 km, in its own traffic
-   with its own idling. It replaces the catalogue figure automatically and
-   `rate_source` becomes `calibrated`. Only full-to-full pairs count — a
-   partial top-up in between still credits its litres but teaches nothing,
-   because the level at the two ends is not the same.
-3. **The odometer comes from the tracker**, not the driver. AVL 16 is the
-   vehicle's own total (validated against the dash to 0.03%), read in metres at
-   the purchase time. Type a dash reading only if the tracker was not fitted
-   yet.
-4. **A fill the tank could not have taken** — more litres than the modelled
-   headroom plus 8% — is recorded as a discrepancy before the level is pinned,
-   so the model's drift is measured, not silently erased.
-
-Five full-to-full intervals make the rolling average; a flagged interval
-(odometer did not advance, jumped more than 5,000 km, or disagrees with GPS
-by more than 15%) never moves it.
-
-`POST /vehicles/{id}/virtual-tank/calibrate` with a litre figure is the manual
-form of the same anchor, for when the level is known without a receipt.
-Both write a **marker row** so the step change is never counted as consumption
-or mistaken for a siphon. See [The fuel model](/data/fuel-model).
+A fill the tank could not have taken — more litres than the modelled headroom
+— is recorded as a `fuel_discrepancy` before the level is capped at full, so the
+model's drift is measured, not silently erased.
 
 ## Verifying it took
 
@@ -165,13 +186,14 @@ SELECT license_plate,
 FROM vehicles;
 ```
 
-Then check the estimate page: the **Your km/L** column should show the rate you
-entered, not a model average. After two full fills, `rate_source` reads
-`calibrated` and `real_consumption_l_per_100km` on the second purchase row is
-the measured figure:
+Then check the estimate page: the **Your km/L** column should show the rate in
+force, and trip history's **MPG** column the same figure. A 2013 RAV4 on its
+EPA rating reads 23 mpg, `rate_source = catalogue`.
+
+The odometer history shows any distance booked for a tracker outage:
 
 ```sql
-SELECT purchased_at, liters_declared, odometer_km, filled_to_full,
-       real_consumption_l_per_100km, flag_reason
-FROM fuel_purchases WHERE vehicle_id = '…' ORDER BY purchased_at DESC;
+SELECT changed_at, previous_baseline_km, new_baseline_km,
+       gap_km, gap_fuel_liters, gap_rate_l_per_100km
+FROM odometer_audit WHERE vehicle_id = '…' ORDER BY changed_at DESC;
 ```

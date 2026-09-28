@@ -92,16 +92,25 @@ Calibration steps must be excluded from both guards. A 9.95 L calibration fell
 between them and was counted as consumption, producing a driver report showing
 10.0 L against 0 km.
 
-## Receipt reconciliation
+## Receipts are not judged
 
-Receipts are matched against modelled tank rises. A mismatch is worth a
-conversation, but the comparison is **modelled level versus declared volume** —
-not sensor versus receipt — and the language reflects that:
+Receipts used to be checked two ways — was the vehicle at the station on the
+slip, and would the litres fit the modelled tank — and a failure raised a theft
+flag and a `receipt_fraud` alert. **Both checks were removed on 2026-09-28.**
 
-> "Receipt claimed 40.0 L but the tank rose 28.5 L in the refuel window"
+The station check compared the slip against where the driver's phone was at
+upload time, so a receipt filed from home that evening read "21 km from the
+station" and was flagged for the full amount. The tank check compared against a
+level modelled from distance. Nothing on this hardware measures fuel, so
+neither could tell an honest receipt from a false one, and an accusation built
+on them breaks the language rules below. Receipts now only add their litres to
+the tank; the manager approves or rejects each on the Receipts page. See
+[Receipts only add litres](/data/fuel-model#receipts-only-add-litres).
 
-There is also a station check: was the vehicle actually at a filling station at
-that time, according to the recorded track. Corroboration, not proof.
+What remains is the other half of the picture, which rests on the track rather
+than on a model: a **forecourt stop with no receipt** logged within two hours
+is raised for the manager, and cleared automatically if a receipt turns up
+late.
 
 ## Language rules
 

@@ -10,9 +10,9 @@ Both halves of FuelSense run on **one EC2 box in eu-north-1**, behind Caddy.
 
 | Piece | Where | Served by |
 | --- | --- | --- |
-| API and TCP ingest | `/home/ec2-user/backend` | systemd `fuelsense-backend`, ports 5001 and 5027 |
+| API and TCP ingest | `/home/ec2-user/backend` | systemd `fuelsense`, ports 5001 and 5027 |
 | Marketing site and dashboard | `/var/www/fuelsense` | Caddy, static files |
-| Database | same box | PostgreSQL |
+| Database | Amazon RDS `fuelsense-prod`, eu-north-1 | PostgreSQL, reachable only from the EC2 box |
 
 The frontend is a static export (`output: 'export'` in `next.config.ts`), so
 there is no Node process to keep alive for it.
@@ -21,7 +21,7 @@ there is no Node process to keep alive for it.
 flowchart LR
   U["Browser"] -->|"443"| C["Caddy"]
   C -->|"/"| S["/var/www/fuelsense<br/>static export"]
-  C -->|"api.fuelsense.ng"| A["fuelsense-backend :5001"]
+  C -->|"api.fuelsense.ng"| A["fuelsense :5001"]
   D["FMC150 trackers"] -->|"5027 TCP"| A
   A --> P[("PostgreSQL<br/>localhost")]
 ```
@@ -65,7 +65,7 @@ rsync -av --delete \
   backend/ ec2-user@$EC2_HOST:/home/ec2-user/backend/
 
 ssh ec2-user@$EC2_HOST 'cd backend && npm ci && npm run build \
-  && sudo systemctl restart fuelsense-backend'
+  && sudo systemctl restart fuelsense'
 ```
 
 ## DNS and TLS
@@ -102,7 +102,7 @@ HTTP, and a closed port looks identical to a dead device from the dashboard.
 
 ```bash
 curl -s https://api.fuelsense.ng/api/health
-sudo journalctl -u fuelsense-backend -n 50 --no-pager
+sudo journalctl -u fuelsense -n 50 --no-pager
 sudo ss -tlnp | grep -E '5001|5027'
 ```
 

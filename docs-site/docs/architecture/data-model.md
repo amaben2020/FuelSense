@@ -32,11 +32,11 @@ Beyond the obvious registration fields, four columns drive most of the product:
 | --- | --- |
 | `consumption_rate_l_per_100km` | The rate **every** modelled litre is charged at |
 | `idle_burn_rate_l_per_hour` | Charged to engine-on time that covered no ground |
-| `rate_source` | `preset` (class guess) vs a figure entered or calibrated |
+| `rate_source` | `catalogue` (EPA city rating for make/model/year), `manual` (trip-computer figure), `calibrated` (full-to-full), or `preset` (class guess) |
 | `speed_limit_kph` | Above this the vehicle is overspeeding. NULL = none declared |
 
-`rate_source` exists so the UI can distinguish "we guessed 7 km/L from the
-model name" from "the manager typed 15 mpg off the dash". Those are very
+`rate_source` exists so the UI can distinguish "the EPA rates this model year
+at 23 mpg city" from "the manager typed 15 mpg off the dash". Those are very
 different levels of confidence and were previously indistinguishable.
 
 `odometer_baseline_km` and `odometer_baseline_device_km` together anchor true
@@ -54,7 +54,7 @@ One row per decoded reading. The columns that need explaining:
   not monotonic once ordered by device timestamps, so counting every down-step
   while discarding every up-step over-reports.
 - **`fuel_source`** — provenance. Values in `FUEL_MARKER_SOURCES`
-  (`calibration`, `receipt`) mark **level markers, not consumption**. Every
+  (`calibration`, `receipt`, `odometer_gap`) mark **level markers, not consumption**. Every
   consumption query must skip them.
 
 ### Why marker rows exist

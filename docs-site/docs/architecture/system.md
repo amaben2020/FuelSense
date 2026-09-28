@@ -59,7 +59,7 @@ OpenAPI docs. It owns no state beyond the database.
 | Sweep | Does |
 | --- | --- |
 | Driving events | Finds harsh manoeuvres and overspeed stretches in stored frames |
-| Receipt sweep | Matches late-arriving evidence to receipts; flags forecourt stops with no receipt |
+| Receipt sweep | Flags forecourt stops with no receipt; clears them when a late receipt arrives. Does not judge receipts |
 | Route sweep | Compares trips against the route they were expected to take |
 | Daily report | Emails yesterday's driving per driver as a PDF |
 
