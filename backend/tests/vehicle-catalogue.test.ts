@@ -6,6 +6,7 @@ import {
   tankLitersFor,
   yearInRange,
 } from '../src/features/vehicles/vehicle-catalogue.service'
+import { epaCityMpg, mpgUsToL100km } from '../src/features/vehicles/vehicle-epa-economy.service'
 
 const fallback = { type: 'sedan' as const, consumptionL100km: 10, idleBurnLph: 1 }
 
@@ -77,5 +78,33 @@ describe('catalogue integrity', () => {
     expect(yearInRange(rav4, 2013)).toBe(true)
     expect(yearInRange(rav4, 1999)).toBe(false)
     expect(yearInRange(rav4, new Date().getFullYear() + 5)).toBe(false)
+  })
+})
+
+describe('EPA city economy', () => {
+  it.each([
+    ['Toyota', 'RAV4', 2013, 23],
+    ['Toyota', 'RAV4', 2019, 26],
+    ['Toyota', 'Corolla', 2015, 30],
+    ['Kia', 'Cerato', 2018, 29],
+  ])('%s %s %i is rated %i mpg city', (make, model, year, mpg) => {
+    expect(epaCityMpg(make, model, year)).toBe(mpg)
+  })
+
+  it('seeds a rated model year from its EPA city figure', () => {
+    const spec = resolveVehicleSpec('Toyota', 'RAV4', 2013, fallback)
+    expect(spec.cityMpgUs).toBe(23)
+    expect(spec.consumptionL100km).toBe(mpgUsToL100km(23))
+  })
+
+  it('keeps the catalogue figure for a model the EPA never rated', () => {
+    const spec = resolveVehicleSpec('Toyota', 'Hiace', 2015, fallback)
+    expect(spec.cityMpgUs).toBeNull()
+    expect(spec.consumptionL100km).toBe(catalogueSpec('Toyota', 'Hiace')!.consumptionL100km)
+  })
+
+  it('does not borrow a US twin outside the years it is the same car', () => {
+    expect(epaCityMpg('Nissan', 'X-Trail', 2012)).toBeNull()
+    expect(epaCityMpg('Nissan', 'X-Trail', 2016)).toBe(26)
   })
 })

@@ -14,6 +14,7 @@ import {
   ECONOMY_UNIT_LABELS,
   EconomyUnit,
   VehicleCatalogue,
+  catalogueCityMpgFor,
   catalogueTankFor,
   fetchVehicleCatalogue,
 } from '@/lib/api';
@@ -88,6 +89,9 @@ export interface VehicleFormData {
    *  than left to be discovered later in Calibration. */
   economyReading: string;
   economyUnit: EconomyUnit;
+  /** The EPA city figure the form pre-filled, so an untouched field is not
+   *  saved as though the manager had typed it. */
+  economySuggested: string;
 }
 
 export const emptyVehicle = (): VehicleFormData => ({
@@ -102,6 +106,7 @@ export const emptyVehicle = (): VehicleFormData => ({
   odometerUnit: 'mi',
   economyReading: '',
   economyUnit: 'mpg_us',
+  economySuggested: '',
 });
 
 /**
@@ -121,6 +126,8 @@ export function economyInput(
 ): { value: number; unit: EconomyUnit } | null {
   const value = Number(data.economyReading);
   if (!data.economyReading.trim() || !Number.isFinite(value) || value <= 0) return null;
+  // Left at the EPA figure: the vehicle is created with that rate already.
+  if (data.economyUnit === 'mpg_us' && data.economyReading === data.economySuggested) return null;
   return { value, unit: data.economyUnit };
 }
 
@@ -184,13 +191,35 @@ export function VehicleDeviceFields({
   })();
   const tankIsCatalogue = catalogueTank != null && tankNum === catalogueTank.liters;
 
+  // A pre-filled EPA figure belongs to the vehicle it was looked up for; a
+  // figure the manager typed is theirs and survives a change of model.
+  const clearSuggestedEconomy = () =>
+    data.economyReading === data.economySuggested
+      ? { economyReading: '', economySuggested: '' }
+      : { economySuggested: '' };
+  const cityMpg = selected ? catalogueCityMpgFor(selected, yearNum) : null;
+  const economyIsEpa =
+    cityMpg != null && data.economyUnit === 'mpg_us' && data.economyReading === String(cityMpg);
+
   const pickYear = (year: string) => {
     if (!selected) {
       set('year', year);
       return;
     }
     const gen = catalogueTankFor(selected, year ? Number(year) : null);
-    onChange({ ...data, year, tankCapacityLiters: gen.liters ? String(gen.liters) : data.tankCapacityLiters });
+    // The EPA city rating fills the economy field unless the manager has
+    // already typed their own figure.
+    const mpg = catalogueCityMpgFor(selected, year ? Number(year) : null);
+    const untouched = !data.economyReading || data.economyReading === data.economySuggested;
+    const suggested = mpg != null ? String(mpg) : '';
+    onChange({
+      ...data,
+      year,
+      tankCapacityLiters: gen.liters ? String(gen.liters) : data.tankCapacityLiters,
+      ...(untouched
+        ? { economyReading: suggested, economyUnit: 'mpg_us' as EconomyUnit, economySuggested: suggested }
+        : { economySuggested: suggested }),
+    });
   };
 
   // Years the chosen model was actually sold, newest first — an open-ended
@@ -242,7 +271,7 @@ export function VehicleDeviceFields({
             onChange={(e) => {
               // Changing make invalidates the model beneath it, and the year
               // range with it.
-              onChange({ ...data, make: e.target.value, model: '', year: '', tankCapacityLiters: '' });
+              onChange({ ...data, make: e.target.value, model: '', year: '', tankCapacityLiters: '', ...clearSuggestedEconomy() });
             }}
             className={inputClass}
           >
@@ -269,7 +298,7 @@ export function VehicleDeviceFields({
               required
               value={data.model}
               disabled={!data.make}
-              onChange={(e) => onChange({ ...data, model: e.target.value, year: '', tankCapacityLiters: '' })}
+              onChange={(e) => onChange({ ...data, model: e.target.value, year: '', tankCapacityLiters: '', ...clearSuggestedEconomy() })}
               className={`${inputClass} disabled:opacity-50`}
             >
               <option value="">{data.make ? 'Select a model…' : 'Pick a make first'}</option>
@@ -345,10 +374,12 @@ export function VehicleDeviceFields({
             <p className="mt-1 text-xs leading-relaxed text-ink-mid">
               Starts at{' '}
               <span className="font-mono text-ink">
-                {selected.consumption_l_per_100km} L/100 km
+                {cityMpg != null
+                  ? `${cityMpg} mpg (EPA city)`
+                  : `${selected.consumption_l_per_100km} L/100 km`}
               </span>{' '}
               and a <span className="font-mono text-ink">{catalogueTank?.liters ?? selected.tank_liters} L</span> tank.
-              Your fill-ups replace that with this vehicle&apos;s measured rate.
+              Enter the car&apos;s own dashboard figure below if it differs.
             </p>
             <p className="mt-1 text-[11px] text-ink-dim">
               Body-type illustration — not a render of this exact model.
@@ -383,7 +414,7 @@ export function VehicleDeviceFields({
         </p>
       </Field>
 
-      <Field label="Fuel economy from the dashboard (optional)">
+      <Field label="Fuel economy">
         <div className="flex gap-2">
           <input
             type="number"
@@ -411,9 +442,11 @@ export function VehicleDeviceFields({
           </select>
         </div>
         <p className="mt-1 text-xs text-ink-dim">
-          Long-term average from the trip computer. Without it we fall back to a figure for the
-          model, which ignores this vehicle&apos;s age and condition. You can change it later in
-          Calibration.
+          {economyIsEpa
+            ? `EPA city rating for the ${data.year} ${selected?.model}. If the car's trip computer shows a different long-term average, enter that instead — it wins.`
+            : cityMpg != null && data.economyReading
+              ? `Using your figure instead of the EPA city rating of ${cityMpg} mpg.`
+              : 'Long-term average from the trip computer. Left blank, we use a figure for the model. You can change it later in Calibration.'}
         </p>
       </Field>
 

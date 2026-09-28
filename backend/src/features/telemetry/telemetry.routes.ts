@@ -22,6 +22,7 @@ import {
   HARSH_EVENT_ESTIMATED_LITERS,
   speedBucketMultiplier,
   speedBucketLabel,
+  kmLToMpg,
 } from '../fuel/fuel-metrics.service';
 import {
   dailyDistanceThreshold,
@@ -303,6 +304,8 @@ router.get('/trips', async (req: Request, res: Response) => {
         t.vehicle_id,
         v.license_plate,
         v.model,
+        v.consumption_rate_l_per_100km::double precision AS rate_l100km,
+        v.idle_burn_rate_l_per_hour::double precision AS idle_lph,
         COALESCE(dr.full_name, v.driver_name) AS driver_name,
         t.latitude::double precision AS lat,
         t.longitude::double precision AS lng,
@@ -419,6 +422,8 @@ router.get('/trips', async (req: Request, res: Response) => {
           {
             license_plate: string;
             model: string | null;
+            rate_l100km: number | null;
+            idle_lph: number | null;
             driver_name: string | null;
             points: TelemetryTripPoint[];
           }
@@ -429,6 +434,8 @@ router.get('/trips', async (req: Request, res: Response) => {
             byVehicle.set(vid, {
               license_plate: String(row.license_plate),
               model: row.model != null ? String(row.model) : null,
+              rate_l100km: Number(row.rate_l100km) > 0 ? Number(row.rate_l100km) : null,
+              idle_lph: Number(row.idle_lph) > 0 ? Number(row.idle_lph) : null,
               driver_name: row.driver_name != null ? String(row.driver_name) : null,
               points: [],
             });
@@ -445,7 +452,11 @@ router.get('/trips', async (req: Request, res: Response) => {
         const nowMs = Date.now();
         return Array.from(byVehicle.entries()).map(([vehicleId, v]) => {
           const stretches = blindStretches?.get(vehicleId) ?? [];
-          const efficiencyKmL = baselineEfficiencyKmL(v.model ?? '');
+          // The vehicle's own rate — the one the tank model and the fuel
+          // estimate burn at — so a trip is never priced at a different
+          // economy from the rest of the app.
+          const efficiencyKmL = v.rate_l100km != null ? 100 / v.rate_l100km : baselineEfficiencyKmL(v.model ?? '');
+          const idleLph = v.idle_lph ?? IDLE_BURN_LITERS_PER_HOUR;
           const trips = segmentTrips(v.points, nowMs).map((trip) => {
             // Economy follows a U-curve, so the same distance burns more in
             // stop-start traffic than at a steady cruise. Applied only to the
@@ -453,11 +464,14 @@ router.get('/trips', async (req: Request, res: Response) => {
             const multiplier = speedBucketMultiplier(trip.avg_speed_kph);
             const fuel = round1(
               (trip.distance_km / efficiencyKmL) * multiplier +
-                (trip.idle_minutes / 60) * IDLE_BURN_LITERS_PER_HOUR
+                (trip.idle_minutes / 60) * idleLph
             );
             return {
               ...trip,
               estimated_fuel_liters: fuel,
+              // The inputs behind the litres, so the table can show its working.
+              economy_mpg_us: kmLToMpg(efficiencyKmL),
+              idle_burn_l_per_hour: idleLph,
               // null until a real receipt establishes a price — see
               // fuel/fuel-price.service.ts. Litres are measured; money is not, and an
               // assumed rate must not be shown as though it were.
@@ -896,34 +910,35 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
       })
     );
 
-    // A rate the manager read off the vehicle's own dashboard beats a table
-    // keyed on model name, so it becomes the benchmark when one is set.
+    // The vehicle's own rate is the benchmark — the manager's dashboard
+    // figure, or the EPA city rating it was onboarded with — never a table
+    // keyed on model name alone.
     const rateRows = await db.execute(sql`
       SELECT id, consumption_rate_l_per_100km, idle_burn_rate_l_per_hour, rate_source
       FROM vehicles WHERE customer_id = ${customerId}
     `);
-    const manualL100kmByVehicle = new Map<string, number>();
+    const rateL100kmByVehicle = new Map<string, number>();
     // The same idle rate the tank burns at, so the expectation and the tank
     // cannot disagree about what an hour of idling costs.
     const idleBurnLphByVehicle = new Map<string, number>();
     for (const row of rateRows.rows as Array<Record<string, unknown>>) {
       const idle = Number(row.idle_burn_rate_l_per_hour);
       if (Number.isFinite(idle) && idle > 0) idleBurnLphByVehicle.set(row.id as string, idle);
-      if (row.rate_source !== 'manual' || row.consumption_rate_l_per_100km == null) continue;
+      if (row.consumption_rate_l_per_100km == null) continue;
       const rate = Number(row.consumption_rate_l_per_100km);
-      if (Number.isFinite(rate) && rate > 0) manualL100kmByVehicle.set(row.id as string, rate);
+      if (Number.isFinite(rate) && rate > 0) rateL100kmByVehicle.set(row.id as string, rate);
     }
 
     const rows = result.rows.map((row) => {
       const r = row as Record<string, unknown>;
       const distanceKm = Number(r.distance_km) || 0;
       const fuelUsed = Number(r.fuel_used_liters) || 0;
-      const manualL100km = manualL100kmByVehicle.get(r.vehicle_id as string) ?? null;
+      const vehicleL100km = rateL100kmByVehicle.get(r.vehicle_id as string) ?? null;
       const expectedL100km =
-        manualL100km ?? baselineEfficiencyL100km(r.model as string | null | undefined);
+        vehicleL100km ?? baselineEfficiencyL100km(r.model as string | null | undefined);
       const expectedKmL =
-        manualL100km != null
-          ? (l100kmToKmL(manualL100km) as number)
+        vehicleL100km != null
+          ? (l100kmToKmL(vehicleL100km) as number)
           : baselineEfficiencyKmL(r.model as string | null | undefined);
 
       const tankDistance = Number(r.tank_distance_km) || Number(r.distance_since_purchase_km) || 0;
@@ -1161,6 +1176,15 @@ router.get('/daily-activity', async (req: Request, res: Response) => {
   try {
     const customerId = req.user.customerId;
     const result = await db.execute(dailyActivitySql({ customerId, days: window }));
+    const rateRows = await db.execute(sql`
+      SELECT id, consumption_rate_l_per_100km::double precision AS rate
+      FROM vehicles WHERE customer_id = ${customerId}
+    `);
+    const rateByVehicle = new Map(
+      (rateRows.rows as Array<{ id: string; rate: number | null }>)
+        .filter((v) => Number(v.rate) > 0)
+        .map((v) => [v.id, Number(v.rate)])
+    );
 
     const allRows = result.rows.map((row) => {
       const r = row as Record<string, unknown>;
@@ -1168,8 +1192,13 @@ router.get('/daily-activity', async (req: Request, res: Response) => {
       const fuelUsed = Number(r.fuel_used_liters) || 0;
       const idleHours = Number(r.idle_hours) || 0;
       const tripCount = Number(r.trip_count) || 0;
-      const expectedKmL = baselineEfficiencyKmL(r.model as string | null | undefined);
-      const expectedL100km = baselineEfficiencyL100km(r.model as string | null | undefined);
+      const vehicleL100km = rateByVehicle.get(String(r.vehicle_id)) ?? null;
+      const expectedL100km =
+        vehicleL100km ?? baselineEfficiencyL100km(r.model as string | null | undefined);
+      const expectedKmL =
+        vehicleL100km != null
+          ? (l100kmToKmL(vehicleL100km) as number)
+          : baselineEfficiencyKmL(r.model as string | null | undefined);
       const efficiencyL100km = computeL100km(fuelUsed, distanceKm);
       const band = dailyDistanceThreshold(r.model as string | null | undefined);
       const deviationPercent = efficiencyDeviationPercentL100km(

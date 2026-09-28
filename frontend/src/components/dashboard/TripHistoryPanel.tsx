@@ -89,11 +89,23 @@ function StopTimeRow({ stop }: { stop: TripStop }) {
         {formatTime(stop.arrived_at)}–{formatTime(stop.departed_at)}
       </td>
       <td className="px-6 py-1.5 font-mono">{formatMinutes(stop.duration_minutes)}</td>
-      <td className="px-6 py-1.5" colSpan={6}>
+      <td className="px-6 py-1.5" colSpan={7}>
         {label}
       </td>
     </tr>
   );
+}
+
+/** How a trip's litres were reached, in the terms the table shows. */
+function fuelWorking(trip: ServerTrip): string | undefined {
+  if (trip.economy_mpg_us == null) return undefined;
+  const multiplier = trip.speed_bucket_multiplier ?? 1;
+  const adjust = multiplier !== 1 ? ` × ${multiplier} (${trip.speed_bucket?.toLowerCase()})` : '';
+  const idle =
+    trip.idle_minutes > 0 && trip.idle_burn_l_per_hour != null
+      ? ` + ${formatMinutesShort(trip.idle_minutes)} idle × ${trip.idle_burn_l_per_hour} L/h`
+      : '';
+  return `${trip.distance_km} km at ${trip.economy_mpg_us} mpg${adjust}${idle} = ${trip.estimated_fuel_liters} L`;
 }
 
 function StatCard({
@@ -134,6 +146,7 @@ function exportCsv(flat: FlatTrip[]) {
     'avg_speed_kph',
     'max_speed_kph',
     'idle_minutes',
+    'economy_mpg_us',
     'estimated_fuel_liters',
     'estimated_cost_ngn',
   ];
@@ -148,6 +161,7 @@ function exportCsv(flat: FlatTrip[]) {
     trip.avg_speed_kph,
     trip.max_speed_kph,
     trip.idle_minutes,
+    trip.economy_mpg_us ?? '',
     trip.estimated_fuel_liters,
     trip.estimated_cost_ngn,
   ]);
@@ -514,7 +528,8 @@ export function TripHistoryPanel({
             <h2 className="font-semibold text-ink">Trip history</h2>
             <p className="mt-1 text-xs text-ink-dim">
               A trip ends after {TRIP_BREAK_MINUTES}+ minutes with the ignition off. Fuel figures
-              are estimates — driving (distance ÷ baseline) + idle burn.
+              are estimates — driving (distance ÷ the vehicle&apos;s mpg, adjusted for stop-start or
+              highway speeds) + idle burn. Hover a fuel figure to see its working.
               {data?.source === 'historical'
                 ? ' Nothing in this window, so the most recent journeys are shown.'
                 : ''}
@@ -578,6 +593,7 @@ export function TripHistoryPanel({
                   <th className="px-6 py-3">Distance</th>
                   <th className="px-6 py-3">Avg / top speed</th>
                   <th className="px-6 py-3">Idle</th>
+                  <th className="px-6 py-3">MPG</th>
                   <th className="px-6 py-3">Fuel used</th>
                   <th className="px-6 py-3">Est. cost</th>
                   <th className="px-6 py-3" />
@@ -609,7 +625,7 @@ export function TripHistoryPanel({
                         </span>
                       </td>
                       <td className="px-6 py-2 font-mono text-xs text-ink-dim">{dayKm} km</td>
-                      <td className="px-6 py-2" colSpan={2} />
+                      <td className="px-6 py-2" colSpan={3} />
                       <td className="px-6 py-2 font-mono text-xs text-ink-dim">{dayFuel} L</td>
                       <td className="px-6 py-2 font-mono text-xs text-ink-dim">
                         {dayCost != null ? formatNgn(dayCost) : '—'}
@@ -696,6 +712,15 @@ export function TripHistoryPanel({
                           {trip.idle_minutes > 0 ? formatMinutesShort(trip.idle_minutes) : '—'}
                         </td>
                         <td className="px-6 py-2.5 font-mono">
+                          {trip.economy_mpg_us != null ? trip.economy_mpg_us : '—'}
+                          {trip.speed_bucket_multiplier != null &&
+                            trip.speed_bucket_multiplier !== 1 && (
+                              <span className="ml-1 text-[11px] text-ink-dim">
+                                ×{trip.speed_bucket_multiplier} {trip.speed_bucket?.toLowerCase()}
+                              </span>
+                            )}
+                        </td>
+                        <td className="px-6 py-2.5 font-mono" title={fuelWorking(trip)}>
                           {trip.estimated_fuel_liters} L
                         </td>
                         <td className="px-6 py-2.5 font-mono">

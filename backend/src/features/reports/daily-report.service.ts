@@ -116,6 +116,8 @@ export async function buildDailyReport(
   const vehicles = (
     await db.execute(sql`
       SELECT v.id, v.license_plate, v.model,
+             v.consumption_rate_l_per_100km::double precision AS rate_l100km,
+             v.idle_burn_rate_l_per_hour::double precision AS idle_lph,
              COALESCE(d.full_name, v.driver_name, 'Unassigned') AS driver_name
       FROM vehicles v
       LEFT JOIN drivers d ON d.id = v.driver_id
@@ -125,6 +127,8 @@ export async function buildDailyReport(
     id: string;
     license_plate: string;
     model: string | null;
+    rate_l100km: number | null;
+    idle_lph: number | null;
     driver_name: string;
   }>;
 
@@ -152,7 +156,13 @@ export async function buildDailyReport(
     }));
 
     const segments = segmentTrips(tripPoints);
-    const efficiencyKmL = baselineEfficiencyKmL(vehicle.model ?? '');
+    // Same rate and idle burn as trip history, so the report and the
+    // dashboard price the same trip identically.
+    const efficiencyKmL =
+      Number(vehicle.rate_l100km) > 0
+        ? 100 / Number(vehicle.rate_l100km)
+        : baselineEfficiencyKmL(vehicle.model ?? '');
+    const idleLph = Number(vehicle.idle_lph) > 0 ? Number(vehicle.idle_lph) : IDLE_BURN_LITERS_PER_HOUR;
 
     // Name the endpoints from the place cache only. A report must not turn
     // into a bill for hundreds of geocodes every morning.
@@ -172,7 +182,7 @@ export async function buildDailyReport(
     const trips: ReportTrip[] = segments.map((t) => {
       const fuel = round1(
         (t.distance_km / efficiencyKmL) * speedBucketMultiplier(t.avg_speed_kph) +
-          (t.idle_minutes / 60) * IDLE_BURN_LITERS_PER_HOUR
+          (t.idle_minutes / 60) * idleLph
       );
       const first = t.stops[0];
       const last = t.stops[t.stops.length - 1];

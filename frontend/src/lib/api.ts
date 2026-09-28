@@ -1422,6 +1422,12 @@ export interface ServerTrip {
   idle_minutes: number;
   active: boolean;
   estimated_fuel_liters: number;
+  /** The vehicle's economy the litres were worked out at (US mpg). */
+  economy_mpg_us?: number | null;
+  idle_burn_l_per_hour?: number;
+  /** Stop-start / highway adjustment applied to the driving litres. */
+  speed_bucket?: string | null;
+  speed_bucket_multiplier?: number;
   /** null until a real receipt establishes a price per litre. */
   estimated_cost_ngn: number | null;
   path: [number, number][];
@@ -2188,6 +2194,8 @@ export interface CatalogueModel {
   tank_by_year: CatalogueTankGeneration[];
   /** Mixed city traffic, not a combined-cycle rating. */
   consumption_l_per_100km: number;
+  /** EPA city rating (US mpg) per model year; empty for models the EPA never rated. */
+  city_mpg_by_year: Array<{ year_from: number; year_to: number; mpg_us: number }>;
   idle_burn_l_per_hour: number;
   year_from: number;
   year_to: number;
@@ -2207,6 +2215,14 @@ export interface VehicleCatalogue {
 
 export function fetchVehicleCatalogue(): Promise<VehicleCatalogue> {
   return api<VehicleCatalogue>('/vehicles/catalogue');
+}
+
+/** The EPA city mpg (US) for a catalogue model in a given year, or null. */
+export function catalogueCityMpgFor(model: CatalogueModel, year: number | null): number | null {
+  if (year == null) return null;
+  return (
+    model.city_mpg_by_year.find((g) => year >= g.year_from && year <= g.year_to)?.mpg_us ?? null
+  );
 }
 
 /** The tank size for a catalogue model in a given year, with its note. */

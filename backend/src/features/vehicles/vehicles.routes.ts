@@ -18,12 +18,15 @@ import {
 } from '../../shared/db-helpers';
 import { withCache, invalidate, cacheKey } from '../../config/redis';
 import { getVirtualTank, calibrateTank } from '../fuel/virtual-tank.service';
-import { CATALOGUE_MIN_YEAR, VEHICLE_CATALOGUE } from './vehicle-catalogue.service';
+import { CATALOGUE_MIN_YEAR, VEHICLE_CATALOGUE, resolveVehicleSpec } from './vehicle-catalogue.service';
+import { epaCityMpgRanges } from './vehicle-epa-economy.service';
 import { engageImmobilizer, getImmobilizerStatus, lockDoors, releaseImmobilizer } from './immobilizer.service';
 import {
   ECONOMY_UNIT_LABELS,
-  baselineEfficiencyL100km,
+  DEFAULT_VEHICLE_TYPE,
   economyToL100km,
+  isVehicleType,
+  presetForVehicleType,
   isEconomyUnit,
   l100kmToKmL,
   kmLToMpg,
@@ -181,19 +184,31 @@ router.post('/:id/economy', async (req: Request, res: Response) => {
     }
 
     const [vehicle] = await db
-      .select({ model: vehicles.model, vehicleType: vehicles.vehicleType })
+      .select({
+        make: vehicles.make,
+        model: vehicles.model,
+        year: vehicles.year,
+        vehicleType: vehicles.vehicleType,
+      })
       .from(vehicles)
       .where(eq(vehicles.id, vehicleId))
       .limit(1);
 
-    // Clearing: fall back to the class preset and let calibration resume.
+    // Clearing: back to the reference figure for this make, model and year —
+    // the EPA city rating where there is one — or the class preset.
     if (value == null) {
-      const presetL100km = baselineEfficiencyL100km(vehicle?.model ?? '');
+      const preset = presetForVehicleType(vehicle?.vehicleType);
+      const spec = resolveVehicleSpec(vehicle?.make, vehicle?.model, vehicle?.year, {
+        type: isVehicleType(vehicle?.vehicleType) ? vehicle.vehicleType : DEFAULT_VEHICLE_TYPE,
+        consumptionL100km: preset.consumptionL100km,
+        idleBurnLph: preset.idleBurnLph,
+      });
+      const source = spec.matched ? 'catalogue' : 'preset';
       await db
         .update(vehicles)
         .set({
-          consumptionRateL100km: presetL100km.toFixed(2),
-          rateSource: 'preset',
+          consumptionRateL100km: spec.consumptionL100km.toFixed(2),
+          rateSource: source,
           updatedAt: sql`NOW()`,
         })
         .where(eq(vehicles.id, vehicleId));
@@ -201,9 +216,9 @@ router.post('/:id/economy', async (req: Request, res: Response) => {
       await invalidate(req.user.customerId, 'fleet', 'summary');
       res.json({
         success: true,
-        rate_source: 'preset',
-        consumption_l_per_100km: presetL100km,
-        km_per_liter: l100kmToKmL(presetL100km),
+        rate_source: source,
+        consumption_l_per_100km: spec.consumptionL100km,
+        km_per_liter: l100kmToKmL(spec.consumptionL100km),
       });
       return;
     }
@@ -450,6 +465,13 @@ router.get('/catalogue', async (_req: Request, res: Response) => {
           note: g.note ?? null,
         })),
         consumption_l_per_100km: spec.consumptionL100km,
+        // EPA city mpg (US) per model year; the form pre-fills the economy
+        // field from the one matching the chosen year.
+        city_mpg_by_year: epaCityMpgRanges(entry.make, spec.model).map(([from, to, mpg]) => ({
+          year_from: from,
+          year_to: to,
+          mpg_us: mpg,
+        })),
         idle_burn_l_per_hour: spec.idleBurnLph,
         year_from: spec.years[0],
         year_to: Math.min(spec.years[1], new Date().getFullYear() + 1),

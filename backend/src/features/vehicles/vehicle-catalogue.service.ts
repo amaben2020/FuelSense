@@ -20,6 +20,7 @@
 // vehicle and make the first calibration look like a regression.
 
 import { VehicleType } from '../fuel/fuel-metrics.service';
+import { epaCityMpg, mpgUsToL100km } from './vehicle-epa-economy.service';
 
 /**
  * A tank size that applies to one generation of a model.
@@ -263,6 +264,8 @@ export interface ResolvedVehicleSpec {
   type: VehicleType;
   tankLiters: number;
   consumptionL100km: number;
+  /** EPA city rating behind `consumptionL100km`, when the model year has one. */
+  cityMpgUs?: number | null;
   idleBurnLph: number;
   /** True when this came from the catalogue rather than a class fallback. */
   matched: boolean;
@@ -356,13 +359,17 @@ export function resolveVehicleSpec(
   }
 
   const tank = tankLitersFor(spec, year);
+  // The EPA city rating for this model year when there is one; the model's
+  // own city figure otherwise.
+  const cityMpg = epaCityMpg(make, spec.model, year);
   return {
     make: make!,
     model: spec.model,
     year: year ?? null,
     type: spec.type,
     tankLiters: tank.tankLiters,
-    consumptionL100km: spec.consumptionL100km,
+    consumptionL100km: cityMpg != null ? mpgUsToL100km(cityMpg) : spec.consumptionL100km,
+    cityMpgUs: cityMpg,
     idleBurnLph: spec.idleBurnLph,
     matched: true,
     note: tank.note ?? spec.note,
