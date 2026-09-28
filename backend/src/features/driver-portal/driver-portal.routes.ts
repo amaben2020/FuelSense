@@ -14,7 +14,6 @@ import {
   desc,
   sql,
 } from '../../shared/db-helpers';
-import { verifyReceipt } from '../receipts/receipt-verification.service';
 import { nearbyFuelStation } from '../places/place-lookup.service';
 
 /** How close to a forecourt a driver should be when logging a receipt. */
@@ -633,19 +632,14 @@ router.post('/receipts', async (req: Request, res: Response) => {
         ? Number(odometerKm)
         : await odometerAtPurchase(vehicleId, req.driver.customerId, when);
 
-    // No tank sensor on this hardware, so the receipt is judged on where the
-    // vehicle was and whether the volume could physically fit — see
-    // receipt-verification.ts for why the old litres comparison could not work.
-    const verification = await verifyReceipt({
-      vehicleId,
-      customerId: req.driver.customerId,
-      transactionDate: when,
-      declaredLiters: declared,
-      pricePerLiter: price,
-      receiptLatitude: receiptLatitude ?? null,
-      receiptLongitude: receiptLongitude ?? null,
-      tankCapacityLiters: vehicle.tankCapacityLiters ?? null,
-    });
+    // A driver's receipt is recorded, not judged. The checks that used to run
+    // here compared the station on the slip against where the phone was at
+    // upload time, and the litres against a tank level modelled from distance.
+    // A driver who filed from home that evening was 21 km "away from the
+    // station" and got a theft flag for the full amount; nothing on this
+    // hardware measures fuel, so neither check could tell honest from not.
+    // The manager still approves or rejects each receipt on the receipts page.
+    const status = 'matched';
 
     const [receipt] = await db.transaction(async (tx) => {
       const [insertedReceipt] = await tx
@@ -663,18 +657,13 @@ router.post('/receipts', async (req: Request, res: Response) => {
           pricePerLiter: price.toFixed(2),
           totalAmount: total.toFixed(2),
           odometerKm: odometer,
-          // Left null: nothing on this vehicle measures litres entering the
-          // tank. The verification column carries the evidence instead.
           obdLitersActual: null,
-          differenceLiters:
-            verification.overclaimedLiters != null
-              ? verification.overclaimedLiters.toFixed(2)
-              : null,
-          reconciliationStatus: verification.status,
-          verification,
+          differenceLiters: null,
+          reconciliationStatus: status,
+          verification: null,
           receiptLatitude: receiptLatitude?.toString() ?? null,
           receiptLongitude: receiptLongitude?.toString() ?? null,
-          reconciledAt: verification.status === 'pending' ? null : new Date(),
+          reconciledAt: new Date(),
         })
         .returning({ id: fuelReceipts.id });
 
@@ -689,7 +678,7 @@ router.post('/receipts', async (req: Request, res: Response) => {
           pricePerLiter: price.toFixed(2),
           totalAmount: total,
           odometerKm: odometer ?? undefined,
-          reconciliationStatus: verification.status,
+          reconciliationStatus: status,
         }),
         filledToFull,
       });
@@ -698,16 +687,10 @@ router.post('/receipts', async (req: Request, res: Response) => {
     });
 
     // Credit the virtual tank with the declared litres so the modelled level
-    // steps up. A flagged receipt still credits what could physically have
-    // gone in — the tank is a physical model, not a judgement.
-    await creditRefuel(
-      vehicleId,
-      req.driver.customerId,
-      verification.overclaimedLiters != null
-        ? Math.max(0, declared - verification.overclaimedLiters)
-        : declared,
-      { pricePerLiter: price }
-    ).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
+    // steps up.
+    await creditRefuel(vehicleId, req.driver.customerId, declared, {
+      pricePerLiter: price,
+    }).catch((err) => console.error('[virtual_tank] refuel credit failed:', err));
 
     // Reconcile this fill against the previous one and refresh the vehicle's
     // measured consumption rate.
@@ -741,36 +724,14 @@ router.post('/receipts', async (req: Request, res: Response) => {
       transactionDate: when,
       latitude: receiptLatitude?.toString() ?? null,
       longitude: receiptLongitude?.toString() ?? null,
-      reconciliationStatus: verification.status,
+      reconciliationStatus: status,
     });
-
-    if (verification.status === 'flagged_theft') {
-      await db.insert(alerts).values({
-        customerId: req.driver.customerId,
-        vehicleId,
-        alertType: 'receipt_fraud',
-        message: `Receipt problem on ${vehicle.licensePlate}: ${declared}L claimed at ${merchantName}. ${verification.summary} Est. exposure ₦${verification.estimatedLossNgn.toLocaleString('en-NG')}.`,
-        fuelDropLiters: (verification.overclaimedLiters ?? declared).toFixed(2),
-        estimatedLossNgn: verification.estimatedLossNgn,
-        latitude: receiptLatitude?.toString() ?? null,
-        longitude: receiptLongitude?.toString() ?? null,
-      });
-    }
 
     res.status(201).json({
       success: true,
       receipt_id: receipt.id,
-      reconciliation_status: verification.status,
-      obd_liters_actual: null,
-      difference_liters: verification.overclaimedLiters,
-      actual_from: 'tracker_evidence',
-      verification,
-      message:
-        verification.status === 'flagged_theft'
-          ? 'Flagged for fleet review — the tracker does not support this receipt.'
-          : verification.status === 'matched'
-            ? 'Verified against the tracker — the vehicle was at the station and the volume fits.'
-            : 'Receipt saved. Waiting on tracker data to verify it.',
+      reconciliation_status: status,
+      message: 'Receipt saved.',
     });
   } catch (error) {
     logAndRespond(res, req.path, error);
