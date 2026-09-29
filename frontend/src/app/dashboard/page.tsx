@@ -106,7 +106,6 @@ import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePa
 import { RefuelPlanningPanel } from '@/components/dashboard/RefuelPlanningPanel';
 import { ServiceRecordPanel } from '@/components/dashboard/ServiceRecordPanel';
 import { NotificationSettingsPanel } from '@/components/dashboard/NotificationSettingsPanel';
-import { AccountingLedgerPanel } from '@/components/dashboard/AccountingLedgerPanel';
 import { TheftPanel } from '@/components/dashboard/TheftPanel';
 import { CommanderDashboard } from '@/components/dashboard/CommanderDashboard';
 import {
@@ -148,22 +147,11 @@ type DashboardView =
   | 'fuel'
   | 'estimate'
   | 'receipts'
-  | 'accounting'
   | 'anomalies'
   | 'theft'
   | 'alerts'
   | 'calibration'
   | 'settings';
-
-/** No lucide glyph for the naira sign, so the rail icon is the character
- * itself, sized and weighted to sit alongside the stroke icons around it. */
-function NairaIcon({ className = '' }: { className?: string }) {
-  return (
-    <span className={`inline-flex items-center justify-center font-bold ${className}`} aria-hidden>
-      ₦
-    </span>
-  );
-}
 
 /** Sidebar entry -> feature flag key. A view with no mapping is always shown. */
 const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
@@ -178,7 +166,6 @@ const VIEW_FLAG: Partial<Record<DashboardView, string>> = {
   fuel: 'fuel_analytics',
   estimate: 'fuel_estimate',
   receipts: 'receipts',
-  accounting: 'accounting_ledger',
   anomalies: 'replay_events',
   theft: 'theft',
   alerts: 'alerts',
@@ -234,7 +221,6 @@ const VIEW_META: Record<
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
   estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
   receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
-  accounting: { icon: NairaIcon, nav: 'Accounting', title: 'Accounting' },
   anomalies: { icon: History, nav: 'Replay events', title: 'Replay events' },
   theft: { icon: Lock, nav: 'Theft', title: 'Theft & immobilizer' },
   alerts: { icon: Siren, nav: 'Alerts', title: 'Alerts' },
@@ -257,7 +243,6 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
-  { id: 'accounting', label: 'Accounting', hash: 'accounting' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'theft', label: 'Theft', hash: 'theft' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
@@ -277,7 +262,7 @@ const NAV_GROUPS: { label: string; views: DashboardView[] }[] = [
     label: 'Fleet',
     views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'records', 'certificates', 'geofences'],
   },
-  { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'accounting', 'anomalies'] },
+  { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'anomalies'] },
   { label: 'Security', views: ['theft', 'alerts'] },
   { label: 'System', views: ['calibration', 'settings'] },
 ];
@@ -737,7 +722,9 @@ export default function DashboardPage() {
   }, [period]);
 
   useEffect(() => {
-    const hash = globalThis.window?.location.hash.replace('#', '') as DashboardView;
+    const raw = globalThis.window?.location.hash.replace('#', '');
+    // Accounting was merged into Receipts; old links still land somewhere.
+    const hash = (raw === 'accounting' ? 'receipts' : raw) as DashboardView;
     if (hash && VIEWS.some((v) => v.id === hash)) {
       setActiveView(hash);
     }
@@ -1524,7 +1511,6 @@ export default function DashboardPage() {
             />
           )}
 
-          {activeView === 'accounting' && <AccountingLedgerPanel />}
 
           {activeView === 'anomalies' && (
             <FuelAnomaliesPanel

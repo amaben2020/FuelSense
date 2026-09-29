@@ -1,12 +1,11 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { AlertTriangle, Check, Clock, Droplet, Receipt, Shield, Wallet, X } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Receipt, Shield, X } from 'lucide-react';
 import {
   FleetVehicle,
   FuelPurchase,
   FuelPurchasesResponse,
-  ReceiptVerification,
   formatNgn,
   api,
   milesToKm,
@@ -17,7 +16,8 @@ import { compressReceiptImage } from '@/lib/receipt-image';
 import { ReceiptEventModal } from '@/components/dashboard/ReceiptEventModal';
 import { PurchaseCalendarView } from '@/components/dashboard/PurchaseCalendarView';
 import { ViewModeToggle } from '@/components/dashboard/ViewModeToggle';
-import { IconTile, TableSkeleton } from '@/components/ui/chrome';
+import { TableSkeleton } from '@/components/ui/chrome';
+import { ExcelIcon, SpendChart, SummaryTile, exportPurchasesToExcel } from '@/components/dashboard/PurchaseLedger';
 import { MerchantLabel } from '@/components/StationLogo';
 
 
@@ -102,10 +102,10 @@ function Pagination({
 }
 
 
-function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 }) {
+function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 | 4 }) {
   return (
     <div
-      className={`grid min-h-[7.5rem] gap-4 ${columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+      className={`grid min-h-[7.5rem] gap-4 ${columns === 4 ? 'sm:grid-cols-4' : columns === 3 ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
       aria-hidden
     >
       {Array.from({ length: columns }).map((_, index) => (
@@ -124,6 +124,12 @@ function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 }) {
 
 /** Which receipts the page shows. `days: null` is all time. */
 export type ReceiptRange = { days: number | null } | { from: string; to: string };
+
+/** The API query for a range — the same window the list and totals use. */
+export function rangeQuery(range: ReceiptRange): string {
+  if ('from' in range) return `from=${range.from}&to=${range.to}`;
+  return range.days != null ? `days=${range.days}` : '';
+}
 
 const RANGE_PRESETS: Array<{ label: string; days: number | null }> = [
   { label: 'All time', days: null },
@@ -260,7 +266,16 @@ export function ReceiptsPanel({
   );
 
   const [selectedPurchase, setSelectedPurchase] = useState<FuelPurchase | null>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  // One point per day for the spend line; daily_totals is per (day, driver).
+  const spendByDate = useMemo(() => {
+    const byDate = new Map<string, number>();
+    for (const row of summary?.daily_totals ?? []) {
+      byDate.set(row.activity_date, (byDate.get(row.activity_date) ?? 0) + row.total_cost_ngn);
+    }
+    return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [summary]);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar' | 'graph'>('list');
+  const [exporting, setExporting] = useState(false);
 
   const groupedByDate = useMemo(() => {
     const groups = new Map<string, FuelPurchase[]>();
@@ -288,7 +303,6 @@ export function ReceiptsPanel({
     return map;
   }, [summary]);
 
-  const theftCount = purchases.filter((p) => p.status === 'flagged_theft').length;
 
   // For a driver without a phone: the manager photographs the slip and the
   // same OCR the driver app uses fills the form.
@@ -361,63 +375,26 @@ export function ReceiptsPanel({
       )}
 
       {summary ? (
-          <div className="grid min-h-[7.5rem] gap-4 sm:grid-cols-3">
-            <div className="rounded-lg border border-edge bg-panel p-4">
-              <div className="flex items-center gap-2.5">
-                <IconTile icon={Wallet} tone="neutral" size={36} />
-                <p className="text-xs text-ink-dim">Grand total (receipt cost)</p>
-              </div>
-              <p className="mt-2 text-2xl font-bold text-ink">
-                {formatNgn(summary.grand_total.total_cost_ngn)}
-              </p>
-              <p className="mt-1 text-xs text-ink-dim">
-                {summary.grand_total.receipt_count} receipts logged
-              </p>
-            </div>
-            <div className="rounded-lg border border-edge bg-panel p-4">
-              <div className="flex items-center gap-2.5">
-                <IconTile icon={Droplet} tone="accent" size={36} />
-                <p className="text-xs text-ink-dim">Receipt liters (manual)</p>
-              </div>
-              <p className="mt-2 font-mono text-2xl font-bold text-brand">
-                {summary.grand_total.total_receipt_liters.toFixed(1)} L
-              </p>
-              <p className="mt-1 text-xs text-ink-dim">Driver-entered at fuel station</p>
-            </div>
-            {/* "Checked against the tracker · 0/1" read as a failure, and the
-                "0 flagged" line underneath was rendered in red — so a page
-                where nothing at all was wrong looked like an alarm. A receipt
-                is unverified far more often because the tracker has not yet
-                seen a matching tank rise than because anything is suspicious,
-                and the card now says which. */}
-            <div className="rounded-lg border border-edge bg-panel p-4">
-              <div className="flex items-center gap-2.5">
-                <IconTile icon={Shield} tone={theftCount > 0 ? 'warn' : 'good'} size={36} />
-                <p className="text-xs text-ink-dim">Corroborated by the tracker</p>
-              </div>
-              <p
-                className={`mt-2 font-mono text-2xl font-bold ${
-                  theftCount > 0 ? 'text-warn' : 'text-good'
-                }`}
-              >
-                {purchases.filter((p) => p.status === 'verified').length}/{purchases.length}
-              </p>
-              <p
-                className={`mt-1 text-xs ${theftCount > 0 ? 'text-warn' : 'text-ink-dim'}`}
-              >
-                {theftCount > 0
-                  ? `${theftCount} flagged for review on this page`
-                  : 'Nothing flagged on this page'}
-              </p>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-dim">
-                Corroborated means the modelled tank rose to match the litres
-                claimed. A recent receipt usually has not been checked yet — it
-                is not a suspicion.
-              </p>
-            </div>
-          </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <SummaryTile label="Receipts" value={String(summary.grand_total.receipt_count)} />
+          <SummaryTile label="Total spend" value={formatNgn(summary.grand_total.total_cost_ngn)} />
+          <SummaryTile
+            label="Litres bought"
+            value={`${summary.grand_total.total_receipt_liters.toFixed(1)} L`}
+          />
+          <SummaryTile
+            label="Avg. price / L"
+            value={
+              summary.grand_total.total_receipt_liters > 0
+                ? formatNgn(
+                    Math.round(summary.grand_total.total_cost_ngn / summary.grand_total.total_receipt_liters)
+                  )
+                : '—'
+            }
+          />
+        </div>
       ) : (
-        <SummaryCardsSkeleton columns={3} />
+        <SummaryCardsSkeleton columns={4} />
       )}
 
       <div className="overflow-hidden rounded-lg border border-edge bg-panel">
@@ -427,11 +404,33 @@ export function ReceiptsPanel({
               <Receipt className="h-4 w-4 text-accent-y" /> Receipts
             </h2>
             <p className="mt-1 text-xs text-ink-dim">
-              What each driver logged at the pump, and what the tracker can confirm about it
+              Every fuel purchase — logged by a driver or entered here — with the spend behind it
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <ViewModeToggle mode={viewMode} onChange={setViewMode} />
+            <ViewModeToggle
+              mode={viewMode}
+              onChange={setViewMode}
+              modes={['list', 'calendar', 'graph'] as const}
+            />
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true);
+                setMessage(null);
+                try {
+                  await exportPurchasesToExcel(rangeQuery(range));
+                } catch (err) {
+                  setMessage(err instanceof Error ? err.message : 'Export failed');
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-panel-deep px-3 py-2 text-xs font-semibold text-ink transition-colors hover:border-brand/40 hover:text-brand disabled:opacity-50"
+            >
+              <ExcelIcon className="h-3.5 w-3.5" /> {exporting ? 'Exporting…' : 'Export to Excel'}
+            </button>
             <button
               type="button"
               onClick={() => setShowForm((v) => !v)}
@@ -599,6 +598,10 @@ export function ReceiptsPanel({
           </p>
         ) : viewMode === 'calendar' ? (
           <PurchaseCalendarView purchases={purchases} onViewEvent={setSelectedPurchase} />
+        ) : viewMode === 'graph' ? (
+          <div className="p-5">
+            <SpendChart points={spendByDate} />
+          </div>
         ) : (
           <ReconciledReceiptsTable
             groupedByDate={groupedByDate}
@@ -644,8 +647,8 @@ function ReconciledReceiptsTable({
             <th className="whitespace-nowrap px-4 py-3">Driver</th>
             <th className="whitespace-nowrap px-4 py-3">Merchant</th>
             <th className="whitespace-nowrap px-4 py-3 text-right">Receipt (L)</th>
-            <th className="whitespace-nowrap px-4 py-3">Tracker check</th>
-            <th className="whitespace-nowrap px-4 py-3 text-right">Could not fit</th>
+            <th className="whitespace-nowrap px-4 py-3 text-right">₦ / L</th>
+            <th className="whitespace-nowrap px-4 py-3 text-right">Distance since last fill</th>
             <th className="whitespace-nowrap px-4 py-3 text-right">Cost</th>
             <th className="whitespace-nowrap px-4 py-3">Status</th>
             <th className="whitespace-nowrap px-4 py-3" />
@@ -682,10 +685,11 @@ function ReconciledReceiptsTable({
               <td className="px-4 py-4 text-right font-mono font-semibold tabular-nums text-brand">
                 {summary.grand_total.total_receipt_liters.toFixed(1)} L
               </td>
-              {/* No measured-litres total to sum: the check is per receipt,
-                  and a fleet-wide "missing litres" figure derived from a tank
-                  sensor this vehicle does not have would be fiction. */}
-              <td className="px-4 py-4 text-xs text-ink-dim">Per receipt</td>
+              <td className="px-4 py-4 text-right font-mono text-xs tabular-nums text-ink-dim">
+                {summary.grand_total.total_receipt_liters > 0
+                  ? `avg ${formatNgn(Math.round(summary.grand_total.total_cost_ngn / summary.grand_total.total_receipt_liters))}`
+                  : '—'}
+              </td>
               <td className="px-4 py-4 text-right text-xs text-ink-dim">—</td>
               <td className="px-4 py-4 text-right font-mono font-bold tabular-nums text-ink">
                 {formatNgn(summary.grand_total.total_cost_ngn)}
@@ -698,46 +702,6 @@ function ReconciledReceiptsTable({
         )}
       </table>
     </div>
-  );
-}
-
-// What the tracker could confirm about a receipt, in the space of a table
-// cell. The vehicle has no tank sensor, so there is no measured litre figure
-// to put here — the honest answer is which checks passed and which did not.
-function TrackerCheckCell({
-  verification,
-}: {
-  verification?: ReceiptVerification | null;
-}) {
-  if (!verification) {
-    return <span className="text-xs text-ink-dim">Not checked</span>;
-  }
-
-  const decisive = verification.checks.filter((c) => c.code !== 'bought_vs_burned');
-  const failed = decisive.find((c) => c.outcome === 'fail');
-
-  if (failed) {
-    return (
-      <span className="text-xs text-bad" title={failed.detail}>
-        {failed.label} — failed
-      </span>
-    );
-  }
-
-  const unknown = decisive.filter((c) => c.outcome === 'unknown');
-  if (unknown.length > 0) {
-    return (
-      <span className="text-xs text-warn" title={unknown.map((c) => c.detail).join(' ')}>
-        Waiting on {unknown.length === decisive.length ? 'tracker data' : unknown[0].label.toLowerCase()}
-      </span>
-    );
-  }
-
-  return (
-    <span className="text-xs text-good" title={verification.summary}>
-      At station · volume fits
-      {verification.distanceMeters != null ? ` (${verification.distanceMeters} m)` : ''}
-    </span>
   );
 }
 
@@ -843,12 +807,8 @@ function ReconciledDateGroup({
           <td className="px-4 py-2 text-right font-mono text-xs tabular-nums text-brand">
             {row.total_receipt_liters.toFixed(1)} L
           </td>
-          <td className="px-4 py-2 text-right font-mono text-xs text-good">
-            —
-          </td>
-          <td className="px-4 py-2 text-right font-mono text-xs text-bad">
-            —
-          </td>
+          <td className="px-4 py-2 text-right font-mono text-xs text-ink-dim">—</td>
+          <td className="px-4 py-2 text-right font-mono text-xs text-ink-dim">—</td>
           <td className="px-4 py-2 text-right font-mono text-xs font-semibold tabular-nums text-ink">
             {formatNgn(row.total_cost_ngn)}
           </td>
@@ -874,10 +834,6 @@ function ReconciledReceiptRow({
   const isTheft = purchase.status === 'flagged_theft';
   const isPending = purchase.status === 'pending_receipt';
   const purchaseTime = purchase.purchased_at ?? purchase.timestamp;
-  // Litres the tank could not have taken. Absent on a clean receipt — the old
-  // "difference" column reported the whole fill as missing, because it was
-  // measuring against a sensor reading that is always zero here.
-  const overclaimed = purchase.verification?.overclaimedLiters ?? null;
 
   if (compact) {
     return (
@@ -885,13 +841,8 @@ function ReconciledReceiptRow({
         <td className="whitespace-nowrap px-4 py-3">{formatReceiptDate(purchaseTime)}</td>
         <td className="whitespace-nowrap px-4 py-3 font-mono font-medium text-ink">{purchase.license_plate}</td>
         <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
-        <td className="px-4 py-3">
-          <TrackerCheckCell verification={purchase.verification} />
-        </td>
-        <td
-          className={`px-6 py-3 text-right font-mono tabular-nums ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
-        >
-          {overclaimed ? `${overclaimed} L` : '—'}
+        <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">
+          {formatNgn(purchase.cost_per_liter_ngn)}
         </td>
         <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
         <td className="px-4 py-3">
@@ -923,13 +874,11 @@ function ReconciledReceiptRow({
       <td className="whitespace-nowrap px-4 py-3 text-ink-dim">{purchase.driver_name ?? '—'}</td>
       <td className="max-w-[12rem] px-4 py-3"><MerchantLabel merchant={purchase.merchant} /></td>
       <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{purchase.liters_declared} L</td>
-      <td className="min-w-[13rem] px-4 py-3">
-        <TrackerCheckCell verification={purchase.verification} />
+      <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">
+        {formatNgn(purchase.cost_per_liter_ngn)}
       </td>
-      <td
-        className={`whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums ${overclaimed ? 'font-bold text-bad' : 'text-ink-dim'}`}
-      >
-        {overclaimed ? `${overclaimed} L` : '—'}
+      <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums text-ink-dim">
+        {purchase.distance_km != null ? `${purchase.distance_km.toFixed(1)} km` : '—'}
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right font-mono tabular-nums">{formatNgn(purchase.total_cost_ngn)}</td>
       <td className="whitespace-nowrap px-4 py-3">
@@ -1043,11 +992,10 @@ export function FuelPurchaseTable({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-6 py-4">
         <div>
           <h2 className="flex items-center gap-2 font-semibold text-ink">
-            <Receipt className="h-4 w-4 text-accent-y" /> Fuel purchase reconciliation
+            <Receipt className="h-4 w-4 text-accent-y" /> Latest fuel purchases
           </h2>
           <p className="mt-1 text-xs text-ink-dim">
-            Driver-entered litres against what the tracker can confirm — vehicle position at the
-            purchase time, and whether the volume fits the tank
+            What each driver logged at the pump, newest first
           </p>
         </div>
         {onOpenReceipts && (
@@ -1070,8 +1018,7 @@ export function FuelPurchaseTable({
                 <th className="px-6 py-3">Date</th>
                 <th className="px-6 py-3">Vehicle</th>
                 <th className="px-6 py-3">Receipt (L)</th>
-                <th className="px-6 py-3">Tracker check</th>
-                <th className="px-6 py-3">Could not fit</th>
+                <th className="px-6 py-3">₦ / L</th>
                 <th className="px-6 py-3">Cost</th>
                 <th className="px-6 py-3">Status</th>
                 <th className="px-6 py-3" />

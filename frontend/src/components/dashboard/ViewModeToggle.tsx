@@ -1,15 +1,17 @@
 'use client';
 
-export function ViewModeToggle({
+export function ViewModeToggle<M extends string = 'list' | 'calendar'>({
   mode,
   onChange,
+  modes = ['list', 'calendar'] as unknown as readonly M[],
 }: {
-  mode: 'list' | 'calendar';
-  onChange: (mode: 'list' | 'calendar') => void;
+  mode: M;
+  onChange: (mode: M) => void;
+  modes?: readonly M[];
 }) {
   return (
     <div className="flex gap-2">
-      {(['list', 'calendar'] as const).map((id) => (
+      {modes.map((id) => (
         <button
           key={id}
           type="button"
