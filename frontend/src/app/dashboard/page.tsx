@@ -92,7 +92,7 @@ import {
   countActiveFuelEvents,
   FuelAnomaliesPanel,
 } from '@/components/dashboard/FuelAnomaliesPanel';
-import { FuelPurchaseTable, ReceiptsPanel } from '@/components/dashboard/ReceiptsPanel';
+import { FuelPurchaseTable, ReceiptsPanel, type ReceiptRange } from '@/components/dashboard/ReceiptsPanel';
 import { FuelAnalyticsPanel } from '@/components/dashboard/FuelAnalyticsPanel';
 import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
@@ -296,6 +296,7 @@ export default function DashboardPage() {
   const [efficiencySummary, setEfficiencySummary] = useState<FleetEfficiencySummary | null>(null);
   const [fuelPurchases, setFuelPurchases] = useState<FuelPurchasesResponse | null>(null);
   const [fuelPurchasePage, setFuelPurchasePage] = useState(1);
+  const [receiptRange, setReceiptRange] = useState<ReceiptRange>({ days: null });
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [todaySummary, setTodaySummary] = useState<DashboardSummary | null>(null);
@@ -411,9 +412,18 @@ export default function DashboardPage() {
     try {
       const params = new URLSearchParams({
         page: String(page),
-        limit: forReceipts ? '50' : '10',
+        limit: forReceipts ? '20' : '10',
       });
-      if (forReceipts) params.set('include_summary', 'true');
+      if (forReceipts) {
+        params.set('include_summary', 'true');
+        // The summary cards follow the same window as the list.
+        if ('from' in receiptRange) {
+          params.set('from', receiptRange.from);
+          params.set('to', receiptRange.to);
+        } else if (receiptRange.days != null) {
+          params.set('days', String(receiptRange.days));
+        }
+      }
       const purchaseData = await api<FuelPurchasesResponse>(
         `/telemetry/fuel-purchases?${params.toString()}`
       );
@@ -712,7 +722,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!getToken()) return;
     loadFuelPurchases(fuelPurchasePage, activeView === 'receipts');
-  }, [fuelPurchasePage, activeView]);
+  }, [fuelPurchasePage, activeView, receiptRange]);
 
   // Refetch when the snapshot window changes. Skips the first run so changing
   // the period costs one request, not two on top of the initial load.
@@ -1506,6 +1516,11 @@ export default function DashboardPage() {
               page={fuelPurchasePage}
               onPageChange={setFuelPurchasePage}
               onRefresh={() => loadFuelPurchases(fuelPurchasePage, true)}
+              range={receiptRange}
+              onRangeChange={(r) => {
+                setReceiptRange(r);
+                setFuelPurchasePage(1);
+              }}
             />
           )}
 

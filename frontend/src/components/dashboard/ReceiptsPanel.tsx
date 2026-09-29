@@ -21,23 +21,39 @@ import { IconTile, TableSkeleton } from '@/components/ui/chrome';
 import { MerchantLabel } from '@/components/StationLogo';
 
 
-function formatReceiptDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    timeZone: 'Africa/Lagos',
-  });
+const ordinal = (n: number) => {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
+};
+
+/** "28th September 2026", on the fleet's clock. */
+function formatReceiptDate(iso: string, withWeekday = false) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Africa/Lagos',
+    })
+      .formatToParts(new Date(iso))
+      .map((p) => [p.type, p.value])
+  );
+  const date = `${ordinal(Number(parts.day))} ${parts.month} ${parts.year}`;
+  return withWeekday ? `${parts.weekday}, ${date}` : date;
 }
 
+/** "7:46 am" — a pump slip is timed to the minute, not the second. */
 function formatReceiptTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-NG', {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-    timeZone: 'Africa/Lagos',
-  });
+  return new Date(iso)
+    .toLocaleTimeString('en-GB', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Africa/Lagos',
+    })
+    .toLowerCase();
 }
 
 function toDatetimeLocalValue(iso?: string) {
@@ -106,18 +122,108 @@ function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 }) {
   );
 }
 
+/** Which receipts the page shows. `days: null` is all time. */
+export type ReceiptRange = { days: number | null } | { from: string; to: string };
+
+const RANGE_PRESETS: Array<{ label: string; days: number | null }> = [
+  { label: 'All time', days: null },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+  { label: '90 days', days: 90 },
+];
+
+function ReceiptRangeFilter({
+  range,
+  onChange,
+}: {
+  range: ReceiptRange;
+  onChange: (range: ReceiptRange) => void;
+}) {
+  const custom = 'from' in range;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+  const [from, setFrom] = useState(custom ? range.from : '');
+  const [to, setTo] = useState(custom ? range.to : today);
+  const [showCustom, setShowCustom] = useState(custom);
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {RANGE_PRESETS.map((p) => {
+        const active = !custom && !showCustom && 'days' in range && range.days === p.days;
+        return (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => {
+              setShowCustom(false);
+              onChange({ days: p.days });
+            }}
+            className={`rounded-full border px-3 py-1 text-xs ${
+              active ? 'border-accent bg-accent/15 text-brand' : 'border-edge text-ink-mid hover:bg-panel-hover'
+            }`}
+          >
+            {p.label}
+          </button>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => setShowCustom(true)}
+        className={`rounded-full border px-3 py-1 text-xs ${
+          custom || showCustom ? 'border-accent bg-accent/15 text-brand' : 'border-edge text-ink-mid hover:bg-panel-hover'
+        }`}
+      >
+        Custom
+      </button>
+      {showCustom && (
+        <span className="flex items-center gap-1.5 text-xs text-ink-dim">
+          <input
+            type="date"
+            value={from}
+            max={to || today}
+            onChange={(e) => setFrom(e.target.value)}
+            className="rounded-lg border border-edge bg-panel px-2 py-1 text-xs text-ink"
+            aria-label="From"
+          />
+          to
+          <input
+            type="date"
+            value={to}
+            min={from || undefined}
+            max={today}
+            onChange={(e) => setTo(e.target.value)}
+            className="rounded-lg border border-edge bg-panel px-2 py-1 text-xs text-ink"
+            aria-label="To"
+          />
+          <button
+            type="button"
+            disabled={!from || !to}
+            onClick={() => onChange({ from, to })}
+            className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-y-ink disabled:opacity-40"
+          >
+            Apply
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function ReceiptsPanel({
   data,
   fleet,
   page,
   onPageChange,
   onRefresh,
+  range,
+  onRangeChange,
 }: {
   data: FuelPurchasesResponse | null;
   fleet: FleetVehicle[];
   page: number;
   onPageChange: (p: number) => void;
   onRefresh: () => void;
+  range: ReceiptRange;
+  onRangeChange: (range: ReceiptRange) => void;
 }) {
   const purchases = data?.purchases ?? [];
   const summary = data?.summary;
@@ -336,6 +442,10 @@ export function ReceiptsPanel({
           </div>
         </div>
 
+        <div className="border-b border-edge px-6 py-3">
+          <ReceiptRangeFilter range={range} onChange={onRangeChange} />
+        </div>
+
         {showForm && (
           <div className="border-b border-edge bg-canvas px-6 py-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -543,7 +653,7 @@ function ReconciledReceiptsTable({
         </thead>
         <tbody className="divide-y divide-divider text-ink-mid">
           {groupedByDate.map(([dayKey, dayPurchases]) => {
-            const dayLabel = formatReceiptDate(dayPurchases[0].timestamp);
+            const dayLabel = formatReceiptDate(dayPurchases[0].timestamp, true);
             const dayTotals = dailyTotalsByDate.get(dayKey) ?? [];
 
             return (
@@ -708,7 +818,7 @@ function ReconciledDateGroup({
   return (
     <>
       <tr className="bg-panel-hover/60">
-        <td colSpan={11} className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-brand">
+        <td colSpan={11} className="px-4 py-2 text-xs font-semibold text-brand">
           {dayLabel}
           {dayCost > 0 && (
             <span className="ml-3 font-mono normal-case text-ink-dim">
