@@ -6,6 +6,7 @@ import {
   FleetVehicle,
   FuelPurchase,
   FuelPurchasesResponse,
+  Driver,
   formatNgn,
   api,
   milesToKm,
@@ -125,10 +126,13 @@ function SummaryCardsSkeleton({ columns }: { columns: 2 | 3 | 4 }) {
 /** Which receipts the page shows. `days: null` is all time. */
 export type ReceiptRange = { days: number | null } | { from: string; to: string };
 
-/** The API query for a range — the same window the list and totals use. */
-export function rangeQuery(range: ReceiptRange): string {
-  if ('from' in range) return `from=${range.from}&to=${range.to}`;
-  return range.days != null ? `days=${range.days}` : '';
+/** The API query for a range and driver — what the list and totals use. */
+export function rangeQuery(range: ReceiptRange, driverId: string | null = null): string {
+  const parts: string[] = [];
+  if ('from' in range) parts.push(`from=${range.from}`, `to=${range.to}`);
+  else if (range.days != null) parts.push(`days=${range.days}`);
+  if (driverId) parts.push(`driver_id=${encodeURIComponent(driverId)}`);
+  return parts.join('&');
 }
 
 const RANGE_PRESETS: Array<{ label: string; days: number | null }> = [
@@ -222,6 +226,9 @@ export function ReceiptsPanel({
   onRefresh,
   range,
   onRangeChange,
+  drivers,
+  driverId,
+  onDriverChange,
 }: {
   data: FuelPurchasesResponse | null;
   fleet: FleetVehicle[];
@@ -230,6 +237,9 @@ export function ReceiptsPanel({
   onRefresh: () => void;
   range: ReceiptRange;
   onRangeChange: (range: ReceiptRange) => void;
+  drivers: Driver[];
+  driverId: string | null;
+  onDriverChange: (driverId: string | null) => void;
 }) {
   const purchases = data?.purchases ?? [];
   const summary = data?.summary;
@@ -420,7 +430,7 @@ export function ReceiptsPanel({
                 setExporting(true);
                 setMessage(null);
                 try {
-                  await exportPurchasesToExcel(rangeQuery(range));
+                  await exportPurchasesToExcel(rangeQuery(range, driverId));
                 } catch (err) {
                   setMessage(err instanceof Error ? err.message : 'Export failed');
                 } finally {
@@ -441,8 +451,25 @@ export function ReceiptsPanel({
           </div>
         </div>
 
-        <div className="border-b border-edge px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-6 py-3">
           <ReceiptRangeFilter range={range} onChange={onRangeChange} />
+          {drivers.length > 0 && (
+            <label className="flex items-center gap-2 text-xs text-ink-dim">
+              Driver
+              <select
+                value={driverId ?? ''}
+                onChange={(e) => onDriverChange(e.target.value || null)}
+                className="rounded-lg border border-edge bg-panel px-2 py-1 text-xs text-ink"
+              >
+                <option value="">All drivers</option>
+                {drivers.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
         {showForm && (

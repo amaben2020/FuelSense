@@ -1363,14 +1363,26 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
   const periodFilter = hasWindow
     ? sql`AND fp.purchased_at >= ${windowStart(window)} AND fp.purchased_at < ${windowEnd(window)}`
     : sql``;
-  const periodFilterUnaliased = hasWindow
-    ? sql`AND purchased_at >= ${windowStart(window)} AND purchased_at < ${windowEnd(window)}`
+  // Whose fill a purchase is: the driver who uploaded the receipt, else the
+  // vehicle's assigned driver — the same attribution the rows display.
+  const driverId =
+    typeof req.query.driver_id === 'string' && /^[0-9a-f-]{36}$/i.test(req.query.driver_id)
+      ? req.query.driver_id
+      : null;
+  const driverFilter = driverId
+    ? sql`AND COALESCE(
+        (SELECT fr_d.driver_id FROM fuel_receipts fr_d
+          WHERE fp.source = 'driver_upload'
+            AND fp.receipt_reference = 'DRV-' || upper(substr(fr_d.id::text, 1, 8))
+          LIMIT 1),
+        (SELECT v_d.driver_id FROM vehicles v_d WHERE v_d.id = fp.vehicle_id)
+      ) = ${driverId}::uuid`
     : sql``;
 
   try {
     const countResult = await db.execute(sql`
-      SELECT COUNT(*)::int AS total FROM fuel_purchases
-      WHERE customer_id = ${customerId} ${periodFilterUnaliased}
+      SELECT COUNT(*)::int AS total FROM fuel_purchases fp
+      WHERE fp.customer_id = ${customerId} ${periodFilter} ${driverFilter}
     `);
     const total = (countResult.rows[0] as Record<string, unknown>)?.total ?? 0;
 
@@ -1428,7 +1440,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
       LEFT JOIN fuel_receipts fr ON fp.source = 'driver_upload'
         AND fp.receipt_reference = 'DRV-' || upper(substr(fr.id::text, 1, 8))
       LEFT JOIN drivers submit_dr ON submit_dr.id = fr.driver_id
-      WHERE fp.customer_id = ${customerId} ${periodFilter}
+      WHERE fp.customer_id = ${customerId} ${periodFilter} ${driverFilter}
       ORDER BY fp.purchased_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `);
@@ -1523,7 +1535,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
         LEFT JOIN fuel_receipts fr ON fp.source = 'driver_upload'
           AND fp.receipt_reference = 'DRV-' || upper(substr(fr.id::text, 1, 8))
         LEFT JOIN drivers submit_dr ON submit_dr.id = fr.driver_id
-        WHERE fp.customer_id = ${customerId} ${periodFilter}
+        WHERE fp.customer_id = ${customerId} ${periodFilter} ${driverFilter}
         GROUP BY 1, 2
         ORDER BY 1 DESC, 2 ASC
       `);
@@ -1535,7 +1547,7 @@ router.get('/fuel-purchases', async (req: Request, res: Response) => {
           SUM(COALESCE(fp.liters_actual::numeric, 0))::numeric AS total_obd_liters,
           COUNT(*)::int AS receipt_count
         FROM fuel_purchases fp
-        WHERE fp.customer_id = ${customerId} ${periodFilter}
+        WHERE fp.customer_id = ${customerId} ${periodFilter} ${driverFilter}
       `);
 
       const grand = (grandResult.rows[0] ?? {}) as Record<string, unknown>;
