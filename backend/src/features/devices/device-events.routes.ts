@@ -5,6 +5,7 @@ import { distanceDeltasCte } from '../telemetry/telemetry-deltas.repository';
 import { IDLE_BURN_LITERS_PER_HOUR, round1 } from '../fuel/fuel-metrics.service';
 import { effectiveFuelPrice } from '../fuel/fuel-price.service';
 import { logAndRespond } from '../../shared/errors';
+import { countedHarshEvent } from '../telemetry/harsh-events.repository';
 
 const router = express.Router();
 
@@ -176,6 +177,7 @@ router.get('/', async (req: Request, res: Response) => {
       LEFT JOIN vehicles v ON v.id = e.vehicle_id
       LEFT JOIN drivers dr ON dr.id = v.driver_id
       WHERE ${sql.join(filters, sql` AND `)}
+        AND ${countedHarshEvent('e')}
       ORDER BY e.occurred_at DESC
       LIMIT ${limit}
     `);
@@ -198,6 +200,7 @@ router.get('/summary', async (req: Request, res: Response) => {
         FROM device_events
         WHERE customer_id = ${customerId}
           AND occurred_at > NOW() - (${days} || ' days')::INTERVAL
+          AND ${countedHarshEvent('device_events')}
         GROUP BY vehicle_id, event_type
       `),
       db.execute(sql`

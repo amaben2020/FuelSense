@@ -5,6 +5,7 @@
 // revisits the same depots, markets and filling stations daily, and Google
 // bills per call, so the same stop is only ever resolved once.
 import { db, placeCache, eq, sql } from '../../shared/db-helpers';
+import { geofences } from '../../config/db/schema';
 import { inArray } from 'drizzle-orm';
 import { chargeGoogleCall, GoogleCallKind } from './google-usage.service';
 
@@ -261,8 +262,25 @@ async function proxyImage(
   }
 }
 
+// References handed out by authenticated lookups that are not stored anywhere
+// yet — a station preview before the manager saves it. Bounded so the set
+// cannot grow without limit; an evicted preview simply loses its image.
+const ISSUED_REFS_MAX = 500;
+const issuedPhotoRefs = new Set<string>();
+
+function rememberPhotoRef(ref: string | null): string | null {
+  if (!ref) return null;
+  if (issuedPhotoRefs.size >= ISSUED_REFS_MAX) {
+    const oldest = issuedPhotoRefs.values().next().value;
+    if (oldest !== undefined) issuedPhotoRefs.delete(oldest);
+  }
+  issuedPhotoRefs.add(ref);
+  return ref;
+}
+
 /**
- * Places photo, but only for a reference we have already stored. Accepting an
+ * Places photo, but only for a reference we have already stored or just
+ * handed out. Accepting an
  * arbitrary reference would turn this public route into an open, billable
  * proxy onto Google's image API.
  */
@@ -270,12 +288,21 @@ export async function fetchPlacePhoto(
   ref: string,
   maxWidth = 480
 ): Promise<ProxiedImage | null> {
-  const [known] = await db
-    .select({ geoKey: placeCache.geoKey })
-    .from(placeCache)
-    .where(eq(placeCache.photoReference, ref))
-    .limit(1);
-  if (!known) return null;
+  if (!issuedPhotoRefs.has(ref)) {
+    const [known] = await db
+      .select({ geoKey: placeCache.geoKey })
+      .from(placeCache)
+      .where(eq(placeCache.photoReference, ref))
+      .limit(1);
+    const [station] = known
+      ? [known]
+      : await db
+          .select({ id: geofences.id })
+          .from(geofences)
+          .where(eq(geofences.photoRef, ref))
+          .limit(1);
+    if (!station) return null;
+  }
 
   return proxyImage(
     `photo:${ref}:${maxWidth}`,
@@ -360,6 +387,11 @@ export const placeKeyFor = geoKeyFor;
 export interface FuelStation {
   name: string;
   placeId: string | null;
+  /** Where Google puts the station itself, not the point that was queried. */
+  latitude: number | null;
+  longitude: number | null;
+  address: string | null;
+  photoRef: string | null;
   /** Metres from the queried point to the station Google returned. */
   distanceMeters: number | null;
   /** Proxied through our API, so the key stays server-side. */
@@ -403,10 +435,15 @@ export async function nearbyFuelStation(lat: number, lng: number): Promise<FuelS
       | { lat: number; lng: number }
       | undefined;
     const photos = top.photos as Array<Record<string, unknown>> | undefined;
+    const photoRef = rememberPhotoRef((photos?.[0]?.photo_reference as string) ?? null);
     station = {
       name: (top.name as string) ?? 'Filling station',
       placeId: (top.place_id as string) ?? null,
-      photoUrl: photoUrlFor((photos?.[0]?.photo_reference as string) ?? null),
+      latitude: geometry?.lat ?? null,
+      longitude: geometry?.lng ?? null,
+      address: (top.vicinity as string) ?? null,
+      photoRef,
+      photoUrl: photoUrlFor(photoRef),
       distanceMeters: geometry
         ? Math.round(
             Math.hypot(
@@ -421,6 +458,66 @@ export async function nearbyFuelStation(lat: number, lng: number): Promise<FuelS
   stationCache.set(key, { at: Date.now(), station });
   return station;
 }
+
+export interface PlaceSummary {
+  placeId: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  address: string | null;
+  photoRef: string | null;
+  photoUrl: string | null;
+  isFuelStation: boolean;
+}
+
+const detailsCache = new Map<string, { at: number; place: PlaceSummary }>();
+const DETAILS_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Name, position, address and one photo for a place picked from autocomplete.
+ *
+ * Autocomplete returns only a description and an id, and a zone needs a
+ * centre — so choosing a station from the search costs this one call. The
+ * field mask keeps it on the cheaper Basic tier.
+ */
+export async function placeDetails(placeId: string): Promise<PlaceSummary | null> {
+  const cached = detailsCache.get(placeId);
+  if (cached && Date.now() - cached.at < DETAILS_TTL_MS) {
+    rememberPhotoRef(cached.place.photoRef);
+    return cached.place;
+  }
+  if (!GOOGLE_KEY) return null;
+
+  const url = new URL('https://maps.googleapis.com/maps/api/place/details/json');
+  url.searchParams.set('place_id', placeId);
+  url.searchParams.set('fields', 'place_id,name,geometry/location,formatted_address,photos,types');
+  url.searchParams.set('key', GOOGLE_KEY);
+
+  const data = await fetchJson(url.toString(), 'place_details');
+  const result = data?.result as Record<string, unknown> | undefined;
+  const location = (result?.geometry as Record<string, unknown> | undefined)?.location as
+    | { lat: number; lng: number }
+    | undefined;
+  if (!result || !location) return null;
+
+  const photos = result.photos as Array<Record<string, unknown>> | undefined;
+  const photoRef = rememberPhotoRef((photos?.[0]?.photo_reference as string) ?? null);
+  const place: PlaceSummary = {
+    placeId: (result.place_id as string) ?? placeId,
+    name: (result.name as string) ?? 'Unnamed place',
+    latitude: location.lat,
+    longitude: location.lng,
+    address: (result.formatted_address as string) ?? null,
+    photoRef,
+    photoUrl: photoUrlFor(photoRef),
+    isFuelStation: ((result.types as string[] | undefined) ?? []).includes('gas_station'),
+  };
+  detailsCache.set(placeId, { at: Date.now(), place });
+  return place;
+}
+
+/** The proxied image path for a stored photo reference. */
+export const placePhotoPath = (ref: string | null): string | null => photoUrlFor(ref);
 
 /**
  * A map of the claim: the receipt's pin and, when known, where the tracker

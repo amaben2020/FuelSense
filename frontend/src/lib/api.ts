@@ -2172,6 +2172,101 @@ export function deleteGeofence(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Watched fuel stations
+
+export interface FuelStation {
+  id: string;
+  name: string;
+  address: string | null;
+  place_id: string | null;
+  photo_url: string | null;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  stops_30d: number;
+  last_stop_at: string | null;
+}
+
+/** A station found on Google, not yet watched. */
+export interface StationCandidate {
+  place_id: string;
+  name: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  photo_url: string | null;
+  is_fuel_station?: boolean;
+  distance_m?: number | null;
+}
+
+export interface FuelStationVisit {
+  id: number;
+  station_id: string;
+  station_name: string;
+  address: string | null;
+  photo_url: string | null;
+  latitude: number;
+  longitude: number;
+  vehicle_id: string;
+  license_plate: string;
+  driver_name: string | null;
+  entered_at: string;
+  stopped_at: string | null;
+  exited_at: string | null;
+  dwell_seconds: number;
+  /** 'passed' = drove through the zone without standing still. */
+  status: 'stopped' | 'on_site' | 'passed';
+}
+
+export interface StationSuggestion {
+  description: string;
+  place_id: string;
+  name: string;
+  fuel_station: boolean;
+}
+
+export const fetchFuelStations = () => api<FuelStation[]>('/fuel-stations');
+
+export function fetchFuelStationVisits(opts: {
+  days: number;
+  stationId?: string | null;
+  includePasses?: boolean;
+}) {
+  const params = new URLSearchParams({ days: String(opts.days) });
+  if (opts.stationId) params.set('station_id', opts.stationId);
+  if (opts.includePasses) params.set('include_passes', 'true');
+  return api<{ period_days: number; visits: FuelStationVisit[] }>(
+    `/fuel-stations/visits?${params}`
+  );
+}
+
+export function searchStations(query: string, near?: { lat: number; lng: number } | null) {
+  const params = new URLSearchParams({ q: query, type: 'establishment' });
+  if (near) {
+    params.set('lat', String(near.lat));
+    params.set('lng', String(near.lng));
+  }
+  return api<StationSuggestion[]>(`/places/autocomplete?${params}`);
+}
+
+export const fetchStationPlace = (placeId: string) =>
+  api<StationCandidate>(`/fuel-stations/place/${encodeURIComponent(placeId)}`);
+
+export const fetchNearbyStation = (lat: number, lng: number) =>
+  api<{ station: StationCandidate | null }>(`/fuel-stations/nearby?lat=${lat}&lng=${lng}`);
+
+export function watchFuelStation(
+  input:
+    | { place_id: string; name?: string; radius_m?: number }
+    | { name: string; latitude: number; longitude: number; radius_m?: number }
+) {
+  return api<{ id: string }>('/fuel-stations', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export const unwatchFuelStation = (id: string) =>
+  api<void>(`/fuel-stations/${id}`, { method: 'DELETE' });
+
+// ---------------------------------------------------------------------------
 // Vehicle catalogue
 //
 // Make / model / year with the figures a new vehicle is seeded from. Served

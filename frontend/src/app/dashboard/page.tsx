@@ -17,6 +17,7 @@ import {
   Lock,
   LogOut,
   Menu,
+  MapPinned,
   RadioTower,
   ReceiptText,
   Route,
@@ -102,6 +103,7 @@ import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPanel';
 import { GeofencesPanel } from '@/components/dashboard/GeofencesPanel';
+import { FuelStationsPanel } from '@/components/dashboard/FuelStationsPanel';
 import { CalibrationGuidePanel } from '@/components/dashboard/CalibrationGuidePanel';
 import { RefuelPlanningPanel } from '@/components/dashboard/RefuelPlanningPanel';
 import { ServiceRecordPanel } from '@/components/dashboard/ServiceRecordPanel';
@@ -147,6 +149,7 @@ type DashboardView =
   | 'fuel'
   | 'estimate'
   | 'receipts'
+  | 'stations'
   | 'anomalies'
   | 'theft'
   | 'alerts'
@@ -221,6 +224,7 @@ const VIEW_META: Record<
   fuel: { icon: Fuel, nav: 'Fuel analytics', title: 'Fuel analytics' },
   estimate: { icon: Calculator, nav: 'Fuel estimate', title: 'Fuel estimate' },
   receipts: { icon: ReceiptText, nav: 'Receipts', title: 'Receipts' },
+  stations: { icon: MapPinned, nav: 'Fuel stations', title: 'Fuel stations' },
   anomalies: { icon: History, nav: 'Replay events', title: 'Replay events' },
   theft: { icon: Lock, nav: 'Theft', title: 'Theft & immobilizer' },
   alerts: { icon: Siren, nav: 'Alerts', title: 'Alerts' },
@@ -243,6 +247,7 @@ const VIEWS: { id: DashboardView; label: string; hash: string }[] = [
   { id: 'fuel', label: 'Fuel analytics', hash: 'fuel' },
   { id: 'estimate', label: 'Fuel estimate', hash: 'estimate' },
   { id: 'receipts', label: 'Receipts', hash: 'receipts' },
+  { id: 'stations', label: 'Fuel stations', hash: 'stations' },
   { id: 'anomalies', label: 'Replay events', hash: 'anomalies' },
   { id: 'theft', label: 'Theft', hash: 'theft' },
   { id: 'alerts', label: 'Alerts', hash: 'alerts' },
@@ -262,7 +267,7 @@ const NAV_GROUPS: { label: string; views: DashboardView[] }[] = [
     label: 'Fleet',
     views: ['vehicle', 'trips', 'behavior', 'drivers', 'intel', 'records', 'certificates', 'geofences'],
   },
-  { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'anomalies'] },
+  { label: 'Fuel', views: ['fuel', 'estimate', 'receipts', 'stations', 'anomalies'] },
   { label: 'Security', views: ['theft', 'alerts'] },
   { label: 'System', views: ['calibration', 'settings'] },
 ];
@@ -1466,6 +1471,8 @@ export default function DashboardPage() {
           )}
 
           {activeView === 'calibration' && <CalibrationGuidePanel fleet={fleet} />}
+
+          {activeView === 'stations' && <FuelStationsPanel fleet={fleet} readOnly={readOnly} />}
 
           {activeView === 'geofences' && (
             <GeofencesPanel

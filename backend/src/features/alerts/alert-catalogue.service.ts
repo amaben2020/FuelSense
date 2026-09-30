@@ -141,6 +141,17 @@ export const ALERT_CATALOGUE: AlertDefinition[] = [
     emailable: true,
   },
   {
+    type: 'fuel_station_arrival',
+    label: 'Stopped at a watched fuel station',
+    severity: 'info',
+    meaning:
+      'A vehicle stopped at one of the fuel stations you watch, so you know it actually went there.',
+    trigger:
+      'The vehicle is inside the station zone, below 5 km/h, at least a minute after entering it. Driving past never raises this.',
+    source: 'analysis',
+    emailable: true,
+  },
+  {
     type: 'excessive_idle',
     label: 'Excessive idling',
     severity: 'warning',
@@ -342,6 +353,7 @@ export const DRIVER_HIDDEN_ALERTS = new Set<string>([
   'trip_start',
   'trip_end',
   'receipt_uploaded',
+  'fuel_station_arrival',
   'fuel_discrepancy_reported',
   'immobilizer_engaged',
   'immobilizer_released',

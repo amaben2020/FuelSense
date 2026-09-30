@@ -507,6 +507,7 @@ const saveTelemetry = async (device: TeltonikaDevice, record: TeltonikaRecord): 
         latitude: telemetryRow.latitude != null ? Number(telemetryRow.latitude) : null,
         longitude: telemetryRow.longitude != null ? Number(telemetryRow.longitude) : null,
         recordedAt,
+        speedKph: telemetryRow.speedKph ?? null,
         licensePlate: vehicleRow?.license_plate ?? undefined,
         driverName: vehicleRow?.driver_name ?? null,
       });

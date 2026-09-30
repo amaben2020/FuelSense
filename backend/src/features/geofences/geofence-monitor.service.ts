@@ -8,6 +8,12 @@ import { db, alerts, vehicles, eq, and, sql } from '../../shared/db-helpers';
 import { geofences, geofenceStates } from '../../config/db/schema';
 import { alertEmail, sendMail } from '../../shared/mailer';
 import { resolveAlertRecipient } from '../alerts/alert-mail.service';
+import {
+  StationFix,
+  closeVisit,
+  noteInsideFix,
+  openVisit,
+} from '../fuel-stations/fuel-station-visits.service';
 
 const EARTH_RADIUS_M = 6_371_000;
 
@@ -27,6 +33,7 @@ export interface GeofenceContext {
   latitude: number | null;
   longitude: number | null;
   recordedAt: Date;
+  speedKph?: number | null;
   licensePlate?: string;
   driverName?: string | null;
 }
@@ -271,7 +278,25 @@ export async function handleGeofenceForRecord(
     }
 
     const changed = was == null || was !== isInside;
-    if (!changed) continue;
+    const isStation = zone.purpose === 'fuel_station';
+    const fix: StationFix = {
+      ...ctx,
+      latitude,
+      longitude,
+      speedKph: ctx.speedKph ?? null,
+    };
+
+    if (!changed) {
+      if (isStation && isInside && (await noteInsideFix(zone, fix))) {
+        crossings.push({
+          zoneId: zone.id,
+          zoneName: zone.name,
+          purpose: zone.purpose,
+          direction: 'entered',
+        });
+      }
+      continue;
+    }
 
     await db
       .insert(geofenceStates)
@@ -284,6 +309,15 @@ export async function handleGeofenceForRecord(
     if (was == null) continue;
 
     const direction: 'entered' | 'exited' = isInside ? 'entered' : 'exited';
+
+    // A station zone logs the visit and alerts only once the vehicle has
+    // stopped there (see fuel-station-visits), never on the bare crossing.
+    if (isStation) {
+      if (isInside) await openVisit(zone, fix);
+      else await closeVisit(zone, fix);
+      continue;
+    }
+
     if (!wants(zone.notifyOn, direction)) continue;
 
     const plate = ctx.licensePlate ?? 'Vehicle';

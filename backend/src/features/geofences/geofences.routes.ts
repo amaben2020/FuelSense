@@ -174,6 +174,8 @@ router.get('/events', async (req: Request, res: Response) => {
         WHERE g.customer_id = ${customerId}
           AND g.active
           AND g.shape IN ('circle', 'polygon')
+          -- Fuel stations keep their own visit log (/fuel-stations/visits).
+          AND g.purpose <> 'fuel_station'
       ),
       fixes AS (
         SELECT

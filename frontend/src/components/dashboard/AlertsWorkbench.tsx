@@ -37,6 +37,7 @@ const SEVERITY: Record<string, Severity> = {
   overspeeding: 'warning',
   geofence_exit: 'warning',
   geofence_entry: 'info',
+  fuel_station_arrival: 'info',
   immobilizer_released: 'info',
   doors_locked: 'info',
   trip_start: 'info',
@@ -62,6 +63,7 @@ const TYPE_LABEL: Record<string, string> = {
   overspeeding: 'Overspeeding',
   geofence_entry: 'Entered zone',
   geofence_exit: 'Left zone',
+  fuel_station_arrival: 'At fuel station',
   trip_start: 'Trip started',
   receipt_uploaded: 'Receipt filed',
 };

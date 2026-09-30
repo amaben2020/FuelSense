@@ -740,6 +740,33 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('odometer_audit', 'gap_fuel_liters', 'DECIMAL(8,2)');
   await ensureColumn('odometer_audit', 'gap_rate_l_per_100km', 'DECIMAL(6,2)');
 
+  await ensureColumn('geofences', 'place_id', 'VARCHAR(255)');
+  await ensureColumn('geofences', 'address', 'TEXT');
+  await ensureColumn('geofences', 'photo_ref', 'TEXT');
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuel_station_visits (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      geofence_id UUID NOT NULL REFERENCES geofences(id) ON DELETE CASCADE,
+      vehicle_id UUID NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+      driver_name VARCHAR(255),
+      entered_at TIMESTAMP NOT NULL,
+      stopped_at TIMESTAMP,
+      exited_at TIMESTAMP
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS fuel_station_visits_customer_entered_idx
+      ON fuel_station_visits (customer_id, entered_at)
+  `);
+  // At most one open visit per vehicle per station, so a replayed or
+  // duplicated entry can never leave two rows waiting for the same exit.
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS fuel_station_visits_open_idx
+      ON fuel_station_visits (geofence_id, vehicle_id) WHERE exited_at IS NULL
+  `);
+
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_device_events_customer_occurred
       ON device_events (customer_id, occurred_at DESC)

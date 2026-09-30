@@ -36,6 +36,7 @@ const TOAST_TITLE: Record<string, string> = {
   route_deviation: 'Off route',
   geofence_entry: 'Entered a zone',
   geofence_exit: 'Left a zone',
+  fuel_station_arrival: 'At a fuel station',
   device_offline: 'Tracker offline',
   device_unplugged: 'Tracker unplugged',
   power_unplug: 'Tracker unplugged',
@@ -60,6 +61,7 @@ const TOAST_ICON: Record<string, typeof BellRing> = {
   route_deviation: Route,
   geofence_entry: MapPin,
   geofence_exit: MapPin,
+  fuel_station_arrival: Fuel,
   device_offline: WifiOff,
   device_unplugged: WifiOff,
   receipt_uploaded: CheckCircle2,
@@ -77,6 +79,7 @@ export const AUDIBLE_ALERT_TYPES = new Set([
   'fuel_discrepancy',
   'route_deviation',
   'overspeeding',
+  'fuel_station_arrival',
 ]);
 
 export function toastTitle(type: string): string {

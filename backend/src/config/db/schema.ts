@@ -732,8 +732,12 @@ export const geofences = pgTable(
     radiusM: integer('radius_m'),
     /** [[lat, lng], ...] ring for polygon zones. */
     polygon: jsonb('polygon'),
-    /** 'depot' | 'customer' | 'restricted' — drives how a breach is phrased. */
+    /** 'depot' | 'customer' | 'restricted' | 'fuel_station' — drives how a breach is phrased. */
     purpose: varchar('purpose', { length: 24 }).notNull().default('depot'),
+    /** Google place a fuel-station zone was picked from, and what it showed. */
+    placeId: varchar('place_id', { length: 255 }),
+    address: text('address'),
+    photoRef: text('photo_ref'),
     /** Alert when a vehicle enters, leaves, or both. */
     notifyOn: varchar('notify_on', { length: 12 }).notNull().default('both'),
     /**
@@ -774,6 +778,40 @@ export const geofenceStates = pgTable(
   },
   (table) => [
     uniqueIndex('geofence_state_zone_vehicle_idx').on(table.geofenceId, table.vehicleId),
+  ]
+);
+
+/**
+ * One row per time a vehicle went inside a watched fuel station's zone.
+ *
+ * `stoppedAt` is what separates a visit from a drive-by: forecourts sit on
+ * the road, so a zone around one catches every vehicle that passes it. Only
+ * a vehicle that stood still inside for a minute is announced to the manager;
+ * the rest stay in the log as passes.
+ */
+export const fuelStationVisits = pgTable(
+  'fuel_station_visits',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    geofenceId: uuid('geofence_id')
+      .notNull()
+      .references(() => geofences.id, { onDelete: 'cascade' }),
+    vehicleId: uuid('vehicle_id')
+      .notNull()
+      .references(() => vehicles.id, { onDelete: 'cascade' }),
+    driverName: varchar('driver_name', { length: 255 }),
+    enteredAt: timestamp('entered_at').notNull(),
+    stoppedAt: timestamp('stopped_at'),
+    exitedAt: timestamp('exited_at'),
+  },
+  (table) => [
+    index('fuel_station_visits_customer_entered_idx').on(table.customerId, table.enteredAt),
+    uniqueIndex('fuel_station_visits_open_idx')
+      .on(table.geofenceId, table.vehicleId)
+      .where(sql`exited_at IS NULL`),
   ]
 );
 

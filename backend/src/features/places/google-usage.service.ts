@@ -42,6 +42,7 @@ export type GoogleCallKind =
   | 'streetview_image'
   | 'place_photo'
   | 'places_autocomplete'
+  | 'place_details'
   | 'static_map'
   | 'directions';
 
@@ -52,6 +53,7 @@ const USD_PER_1000: Record<GoogleCallKind, number> = {
   streetview_meta: 0,
   streetview_image: 7,
   places_autocomplete: 3,
+  place_details: 17,
   place_photo: 7,
   static_map: 2,
   directions: 5,
@@ -70,6 +72,7 @@ const MONTHLY_CAP: Record<GoogleCallKind, number> = {
   places_nearby: Number(process.env.GOOGLE_CAP_NEARBY_MONTH || 4_500), // free 5,000
   directions: Number(process.env.GOOGLE_CAP_DIRECTIONS_MONTH || 9_000), // free 10,000
   places_autocomplete: Number(process.env.GOOGLE_CAP_AUTOCOMPLETE_MONTH || 4_500),
+  place_details: Number(process.env.GOOGLE_CAP_PLACE_DETAILS_MONTH || 4_500),
   static_map: Number(process.env.GOOGLE_CAP_STATIC_MAP_MONTH || 9_000),
   place_photo: Number(process.env.GOOGLE_CAP_PLACE_PHOTO_MONTH || 4_500),
   streetview_image: Number(process.env.GOOGLE_CAP_STREETVIEW_MONTH || 4_500),
@@ -88,6 +91,7 @@ const DAILY_CAP: Record<GoogleCallKind, number> = {
   places_nearby: Number(process.env.GOOGLE_CAP_NEARBY_DAY || 900),
   directions: Number(process.env.GOOGLE_CAP_DIRECTIONS_DAY || 1_800),
   places_autocomplete: Number(process.env.GOOGLE_CAP_AUTOCOMPLETE_DAY || 900),
+  place_details: Number(process.env.GOOGLE_CAP_PLACE_DETAILS_DAY || 900),
   static_map: Number(process.env.GOOGLE_CAP_STATIC_MAP_DAY || 1_800),
   place_photo: Number(process.env.GOOGLE_CAP_PLACE_PHOTO_DAY || 900),
   streetview_image: Number(process.env.GOOGLE_CAP_STREETVIEW_DAY || 900),

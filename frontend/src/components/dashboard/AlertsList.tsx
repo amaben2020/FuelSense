@@ -29,6 +29,7 @@ const ALERT_TONE: Record<string, 'bad' | 'warn' | 'good' | 'neutral'> = {
   overspeeding: 'warn',
   geofence_entry: 'neutral',
   geofence_exit: 'neutral',
+  fuel_station_arrival: 'neutral',
   trip_start: 'neutral',
   trip_end: 'neutral',
   receipt_uploaded: 'good',

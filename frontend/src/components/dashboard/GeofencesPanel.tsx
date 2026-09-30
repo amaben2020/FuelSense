@@ -51,7 +51,8 @@ export function GeofencesPanel({ onDrawZone }: { onDrawZone?: () => void }) {
   const load = useCallback(() => {
     return Promise.all([fetchGeofences(), fetchGeofenceEvents(30)])
       .then(([z, e]) => {
-        setZones(z);
+        // Fuel stations are zones too, but they live on their own page.
+        setZones(z.filter((zone) => zone.purpose !== 'fuel_station'));
         setEvents(e.events);
         setError(null);
       })

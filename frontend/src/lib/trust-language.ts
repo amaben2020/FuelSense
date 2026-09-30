@@ -162,6 +162,7 @@ export const ZONE_PURPOSE_LABEL: Record<string, string> = {
   depot: 'Depot',
   customer: 'Customer site',
   restricted: 'Restricted area',
+  fuel_station: 'Fuel station',
 };
 
 export const TRUST_COPY = {

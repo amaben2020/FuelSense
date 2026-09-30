@@ -42,6 +42,7 @@ const CLASSIFICATION: Record<string, AlertClass> = {
   trip_end: 'informational',
   geofence_entry: 'informational',
   geofence_exit: 'informational',
+  fuel_station_arrival: 'informational',
   immobilizer_engaged: 'informational',
   immobilizer_released: 'informational',
   doors_locked: 'informational',
