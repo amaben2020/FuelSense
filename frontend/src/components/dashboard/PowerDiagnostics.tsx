@@ -25,7 +25,7 @@ const BACKUP_EMPTY_V = 3.5;
 const BACKUP_FULL_V = 4.2;
 
 /** Reads a 12 V lead-acid rail and says what the number actually means. */
-function externalVerdict(volts: number): { label: string; tone: ChargeTone } {
+export function externalVerdict(volts: number): { label: string; tone: ChargeTone } {
   if (volts >= 13.2) return { label: 'Alternator charging', tone: 'good' };
   if (volts >= 12.4) return { label: 'Healthy · engine off', tone: 'good' };
   if (volts >= 11.8) return { label: 'Low charge', tone: 'warn' };

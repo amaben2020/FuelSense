@@ -1489,6 +1489,7 @@ export default function DashboardPage() {
                 setSelectedVehicleId(vehicleId);
                 switchView('live');
               }}
+              onNavigate={(view) => switchView(view)}
             />
           )}
 

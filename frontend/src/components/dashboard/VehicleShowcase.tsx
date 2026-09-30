@@ -25,6 +25,7 @@ import { FuelLevelChart } from './FuelLevelChart';
 import { VehicleSignalsTable } from './VehicleSignalsTable';
 import { PowerDiagnostics } from './PowerDiagnostics';
 import { VehiclePartModal } from './VehiclePartModal';
+import { VehicleContextCards } from './VehicleContextCards';
 import type { HotspotId } from './Vehicle3D';
 import { getVehicleSignals } from '@/lib/api';
 import { LiquidFuelGauge, SpeedGauge } from './Gauges';
@@ -180,11 +181,13 @@ export function VehicleShowcase({
   selectedVehicleId,
   onSelectVehicle,
   onOpenLive,
+  onNavigate,
 }: {
   fleet: FleetVehicle[];
   selectedVehicleId: string | null;
   onSelectVehicle: (id: string) => void;
   onOpenLive: (vehicleId: string) => void;
+  onNavigate?: (view: 'records' | 'certificates' | 'drivers' | 'geofences') => void;
 }) {
   const vehicle = useMemo(
     () => fleet.find((v) => v.id === selectedVehicleId) ?? fleet[0] ?? null,
@@ -192,6 +195,9 @@ export function VehicleShowcase({
   );
   const { data: estimate } = useEstimatedConsumption(7);
   const [openPart, setOpenPart] = useState<HotspotId | null>(null);
+  // The fuel curve and the raw signals used to sit below the fold; the stage
+  // switches to them instead, so nothing on this page needs a long scroll.
+  const [stage, setStage] = useState<'vehicle' | 'fuel' | 'signals'>('vehicle');
   // Voltages live on /vehicle-signals, not the fleet list, so the part modal
   // fetches them alongside the panel rather than inventing placeholders.
   const [volts, setVolts] = useState<{
@@ -305,6 +311,71 @@ export function VehicleShowcase({
             aria-hidden
             className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_38%,color-mix(in_srgb,var(--good)_7%,transparent),transparent_70%)]"
           />
+          <div className="relative flex justify-end border-b border-edge px-4 py-2.5">
+            <div className="inline-flex gap-1 rounded-full border border-edge bg-panel-deep p-1" role="tablist">
+              {(
+                [
+                  ['vehicle', 'Vehicle'],
+                  ['fuel', 'Fuel curve'],
+                  ['signals', 'Live data'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={stage === id}
+                  onClick={() => setStage(id)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    stage === id ? 'bg-brand text-canvas' : 'text-ink-dim hover:text-ink'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {stage === 'fuel' ? (
+            <div className="relative p-5">
+              <p className="mb-3 text-xs text-ink-dim">
+                {vehicle.fuel_source === 'virtual' ? (
+                  <>
+                    <Link
+                      href="/documentation/signals#fuel-level"
+                      className="text-brand underline decoration-dotted underline-offset-2"
+                      title="No tank sensor is fitted — this curve is modelled from distance and idle time"
+                    >
+                      Virtual tank
+                    </Link>{' '}
+                    curve, modelled from distance and idle
+                  </>
+                ) : (
+                  'Fuel level over time'
+                )}{' '}
+                · shaded = engine idling
+              </p>
+              <FuelLevelChart
+                key={vehicle.id}
+                vehicleId={vehicle.id}
+                capacityLiters={
+                  vehicle.tank_capacity_liters != null
+                    ? Number(vehicle.tank_capacity_liters)
+                    : vehicle.virtual_tank_capacity_liters != null
+                      ? Number(vehicle.virtual_tank_capacity_liters)
+                      : null
+                }
+                refreshKey={vehicle.last_telemetry_at ?? 0}
+              />
+            </div>
+          ) : stage === 'signals' ? (
+            <div className="relative max-h-[560px] overflow-y-auto">
+              <VehicleSignalsTable
+                key={vehicle.id}
+                vehicleId={vehicle.id}
+                refreshKey={vehicle.last_telemetry_at ?? 0}
+              />
+            </div>
+          ) : (
           <div className="relative h-[420px] cursor-grab active:cursor-grabbing">
             <Vehicle3D
               plate={vehicle.license_plate}
@@ -401,6 +472,7 @@ export function VehicleShowcase({
               Drag to rotate · scroll to zoom · tap a marker for detail
             </p>
           </div>
+          )}
 
           <div className="relative flex flex-wrap items-center justify-between gap-4 border-t border-edge bg-panel-deep/70 px-6 py-4">
             <div className="flex items-center gap-3">
@@ -431,51 +503,16 @@ export function VehicleShowcase({
               </span>
             </div>
           </div>
+          <div className="relative border-t border-edge">
+            <VehicleContextCards
+              vehicle={vehicle}
+              externalVoltage={volts.external}
+              onOpenLive={onOpenLive}
+              onNavigate={onNavigate}
+            />
+          </div>
         </div>
       </div>
-
-      <div className="rounded-lg border border-edge bg-panel p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold text-ink">Fuel telemetry</h3>
-          <p className="text-xs text-ink-dim">
-            {vehicle.fuel_source === 'virtual' ? (
-              <>
-                <Link
-                  href="/documentation/signals#fuel-level"
-                  className="text-brand underline decoration-dotted underline-offset-2"
-                  title="No tank sensor is fitted — this curve is modelled from the tracker's fuel-burn counter"
-                >
-                  Virtual tank
-                </Link>{' '}
-                curve from GPS fuel-burn data
-              </>
-            ) : (
-              'Fuel level over time'
-            )}{' '}
-            · shaded = engine idling
-          </p>
-        </div>
-        <div className="mt-3">
-          <FuelLevelChart
-            key={vehicle.id}
-            vehicleId={vehicle.id}
-            capacityLiters={
-              vehicle.tank_capacity_liters != null
-                ? Number(vehicle.tank_capacity_liters)
-                : vehicle.virtual_tank_capacity_liters != null
-                  ? Number(vehicle.virtual_tank_capacity_liters)
-                  : null
-            }
-            refreshKey={vehicle.last_telemetry_at ?? 0}
-          />
-        </div>
-      </div>
-
-      <VehicleSignalsTable
-        key={vehicle.id}
-        vehicleId={vehicle.id}
-        refreshKey={vehicle.last_telemetry_at ?? 0}
-      />
 
       <VehiclePartModal
         part={openPart}
