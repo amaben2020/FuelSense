@@ -404,12 +404,22 @@ export function DrivingBehaviorPanel() {
 
   const load = useCallback(async () => {
     try {
-      const [summaryData, eventsData] = await Promise.all([
+      // Driving events are fetched on their own. In one list capped at 150,
+      // a busy week's ignition, trip and idle edges crowded them out — 11
+      // harsh events in the summary, 2 in the list.
+      const [summaryData, eventsData, drivingData] = await Promise.all([
         api<DeviceEventsSummary>(`/device-events/summary?days=${days}`),
         api<DeviceEventsResponse>(`/device-events?days=${days}&limit=150`),
+        api<DeviceEventsResponse>(`/device-events?days=${days}&limit=500&type=driving`),
       ]);
       setSummary(summaryData);
-      setEvents(eventsData.events);
+      const byId = new Map(eventsData.events.map((e) => [e.id, e]));
+      for (const e of drivingData.events) byId.set(e.id, e);
+      setEvents(
+        [...byId.values()].sort(
+          (a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime()
+        )
+      );
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load device events');

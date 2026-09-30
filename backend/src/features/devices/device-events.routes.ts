@@ -109,6 +109,14 @@ const gradeForScore = (score: number): string => {
   return 'F';
 };
 
+const DRIVING_EVENT_TYPES = [
+  'harsh_braking',
+  'harsh_acceleration',
+  'harsh_cornering',
+  'overspeeding',
+  'crash',
+];
+
 router.get('/', async (req: Request, res: Response) => {
   const days = Math.min(Number(req.query.days) || 7, 90);
   const limit = Math.min(Number(req.query.limit) || 100, 500);
@@ -132,6 +140,16 @@ router.get('/', async (req: Request, res: Response) => {
       filters.push(
         sql`e.event_type IN (${sql.join(
           SECURITY_EVENT_TYPES.map((t) => sql`${t}`),
+          sql`, `
+        )})`
+      );
+    } else if (type === 'driving') {
+      // How the vehicle was driven, on its own: the ignition, trip and idle
+      // edges outnumber these tenfold, so a mixed list capped by count pushed
+      // every harsh event of a busy week off the end of it.
+      filters.push(
+        sql`e.event_type IN (${sql.join(
+          DRIVING_EVENT_TYPES.map((t) => sql`${t}`),
           sql`, `
         )})`
       );
