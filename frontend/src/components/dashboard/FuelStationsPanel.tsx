@@ -20,6 +20,7 @@ import {
 } from '@/lib/api';
 import { FLEET_MAPS_KEY, LAGOS_CENTER, fleetMapDefaults } from '@/lib/fleet-map-theme';
 import { useLightTheme } from '@/lib/use-light-theme';
+import { parseServerTime } from '@/lib/map-utils';
 import { MapResizeFix } from '@/components/maps/SharedMapLayers';
 import { Panel, SegmentedPills, StatusChip } from '@/components/ui/chrome';
 import { StationLogo, stationFor } from '@/components/StationLogo';
@@ -39,8 +40,9 @@ type Draft =
   | { kind: 'place'; place: StationCandidate }
   | { kind: 'custom'; point: Point };
 
-const lagosTime = (iso: string, withDate = true) =>
-  new Date(iso).toLocaleString('en-GB', {
+// Raw timestamps arrive zone-less (UTC wall time); parseServerTime reads them as UTC.
+const lagosTime = (value: string, withDate = true) =>
+  (parseServerTime(value) ?? new Date(NaN)).toLocaleString('en-GB', {
     timeZone: 'Africa/Lagos',
     ...(withDate ? { day: 'numeric', month: 'short' } : {}),
     hour: '2-digit',
@@ -177,6 +179,8 @@ export function FuelStationsPanel({
   const [suggestions, setSuggestions] = useState<StationSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
   const searchSeq = useRef(0);
+  // Filling the box with a picked name must not search for it again.
+  const skipNextSearch = useRef(false);
 
   const origin = useMemo(() => freshestFix(fleet), [fleet]);
   const initialCenter = useMemo(
@@ -217,6 +221,10 @@ export function FuelStationsPanel({
   // Debounced search; a stale response never overwrites a newer one.
   useEffect(() => {
     const q = query.trim();
+    if (skipNextSearch.current) {
+      skipNextSearch.current = false;
+      return;
+    }
     if (q.length < 3) {
       setSuggestions([]);
       return;
@@ -242,6 +250,7 @@ export function FuelStationsPanel({
 
   const pickSuggestion = async (s: StationSuggestion) => {
     setSuggestions([]);
+    skipNextSearch.current = true;
     setQuery(s.name);
     setResolving(true);
     setSelectedId(null);

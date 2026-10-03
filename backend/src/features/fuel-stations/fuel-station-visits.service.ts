@@ -76,7 +76,9 @@ export async function noteInsideFix(zone: StationZone, fix: StationFix): Promise
   if (announced.has(key)) return false;
   if (fix.speedKph == null || fix.speedKph >= STOPPED_KPH) return false;
 
-  const cutoff = new Date(fix.recordedAt.getTime() - MIN_DWELL_MS);
+  // entered_at is a zone-less UTC wall time, so the cutoff is passed the same
+  // way; a bare Date would be bound with the process's offset.
+  const cutoff = new Date(fix.recordedAt.getTime() - MIN_DWELL_MS).toISOString();
   const [visit] = await db
     .update(fuelStationVisits)
     .set({ stoppedAt: fix.recordedAt })
@@ -86,7 +88,7 @@ export async function noteInsideFix(zone: StationZone, fix: StationFix): Promise
         eq(fuelStationVisits.vehicleId, fix.vehicleId),
         sql`${fuelStationVisits.exitedAt} IS NULL`,
         sql`${fuelStationVisits.stoppedAt} IS NULL`,
-        sql`${fuelStationVisits.enteredAt} <= ${cutoff}`
+        sql`${fuelStationVisits.enteredAt} <= ${cutoff}::timestamp`
       )
     )
     .returning({ id: fuelStationVisits.id, enteredAt: fuelStationVisits.enteredAt });

@@ -11,10 +11,8 @@
 // the existing scoring, feed and icons pick them up with no further wiring.
 import { db, sql, deviceEvents } from '../../shared/db-helpers';
 import {
-  detectHarshEvents,
   detectOverspeed,
   DrivingSample,
-  HarshEvent,
   OverspeedStretch,
 } from './harsh-driving.service';
 
@@ -97,29 +95,8 @@ export async function detectDrivingEvents(): Promise<{ found: number; written: n
       frameToSample(frame, new Date(frame.recorded_at as string)),
     );
 
-    const events = detectHarshEvents(samples);
-    found += events.length;
-
-    for (const event of events) {
-      if (await alreadyRecorded(vehicle.vehicle_id, event)) continue;
-
-      await db.insert(deviceEvents).values({
-        imei: vehicle.imei,
-        customerId: vehicle.customer_id,
-        vehicleId: vehicle.vehicle_id,
-        eventType: event.type,
-        severity: event.severity,
-        value: event.magnitudeMs2.toString(),
-        unit: 'm/s2',
-        speedKph: event.speedKph,
-        latitude: event.lat?.toString() ?? null,
-        longitude: event.lng?.toString() ?? null,
-        occurredAt: event.occurredAt,
-      });
-
-      written += 1;
-    }
-
+    // Harsh acceleration, braking and cornering come from the tracker's own
+    // accelerometer (AVL 253) now; only overspeeding is still derived here.
     // Overspeeding, from the same speed series. Only when the fleet has
     // declared a limit for this vehicle — see `detectOverspeed`.
     const overspeeds = detectOverspeed(samples, vehicle.speed_limit_kph);
@@ -175,28 +152,6 @@ async function overspeedRecorded(
   return (existing.rows?.length ?? 0) > 0;
 }
 
-/**
- * Guards re-runs, nothing more.
- *
- * The window is deliberately tight. A minute-wide match looked safe and was
- * not: pulling away from three junctions in quick succession is three separate
- * manoeuvres, and a wide window silently swallowed the second and third —
- * 81 events detected, only 58 written. Contiguous samples are already merged
- * into a single event by the detector, so anything arriving seconds apart is a
- * genuinely distinct moment.
- */
-async function alreadyRecorded(vehicleId: string, event: HarshEvent): Promise<boolean> {
-  const existing = await db.execute(sql`
-    SELECT 1 FROM device_events
-    WHERE vehicle_id = ${vehicleId}
-      AND event_type = ${event.type}
-      AND occurred_at BETWEEN ${event.occurredAt}::timestamp - INTERVAL '2 seconds'
-        AND ${event.occurredAt}::timestamp + INTERVAL '2 seconds'
-    LIMIT 1
-  `);
-  return existing.rows.length > 0;
-}
-
 let timer: NodeJS.Timeout | null = null;
 
 export function startDrivingEventSweep(intervalMs = 10 * 60 * 1000): void {
@@ -206,7 +161,7 @@ export function startDrivingEventSweep(intervalMs = 10 * 60 * 1000): void {
     try {
       const { found, written } = await detectDrivingEvents();
       if (written > 0) {
-        console.log(`[driving_events] ${written} new harsh event(s) of ${found} detected`);
+        console.log(`[driving_events] ${written} new overspeed event(s) of ${found} detected`);
       }
     } catch (error) {
       console.error('[driving_events] sweep failed:', (error as Error).message);
