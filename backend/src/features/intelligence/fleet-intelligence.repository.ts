@@ -91,7 +91,10 @@ export function tamperSignalsCte({
           -- is ordinary coverage; both at once is the jamming signature.
           WHEN COALESCE(prev_gsm, 5) > ${weakGsm}
             AND COALESCE(gsm_signal, 0) <= ${weakGsm}
-            AND COALESCE(gnss_status, 1) = 0
+            -- 2 = receiver on but no fix (what a jammer causes); 0 = off.
+            -- This read only 0 until 2026-10-05, which the FMC150 never
+            -- sends while driving, so the rule could not fire.
+            AND COALESCE(gnss_status, 1) IN (0, 2)
             AND COALESCE(prev_speed, 0) >= 15
             THEN 'signal_loss'
           -- A silence that began mid-journey. A unit switched off in motion

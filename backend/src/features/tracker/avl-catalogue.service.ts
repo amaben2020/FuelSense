@@ -185,9 +185,13 @@ export const AVL_CATALOGUE: Record<number, AvlDefinition> = {
   69: {
     label: 'GNSS status',
     group: 'gnss',
-    states: { 0: 'Off', 1: 'On, no fix', 2: 'On, fix', 3: 'Sleep' },
+    // Teltonika: 0 off, 1 on with fix, 2 on without fix, 3 sleep. Checked
+    // against this fleet's own frames: 99.99% of code-1 frames carry a valid
+    // position (~15 satellites), almost no code-2 frames do. The device has
+    // also sent 4, which Teltonika's FMC150 table (range 0-3) does not define.
+    states: { 0: 'Off', 1: 'On, fix', 2: 'On, no fix', 3: 'Sleep', 4: 'Undocumented (4)' },
     description:
-      'Whether the satellite receiver is on and whether it has locked onto a position. “On, no fix” means it is still searching, which is common under cover, in a garage, or in the first minute after waking.',
+      'Whether the satellite receiver is on and whether it has locked onto a position. “On, no fix” means it is still searching, which is common under cover, in a garage, or in the first minute after waking. “Sleep” is normal for a parked vehicle.',
   },
   113: { label: 'Battery level', group: 'electrical', unit: '%' },
 
