@@ -15,6 +15,8 @@ import {
   SquarePen,
   Square,
   Trash2,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { api, apiUrl, getToken } from '@/lib/api';
@@ -124,6 +126,204 @@ function BrainMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   );
 }
 
+const FAB_KEY = 'fuelbrain_fab_pos';
+const MUTE_KEY = 'fuelbrain_muted';
+const EDGE = 16;
+const DRAG_THRESHOLD = 5;
+
+const readStored = <T,>(key: string): T | null => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+};
+const writeStored = (key: string, value: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Private mode or blocked storage: the button just forgets its spot.
+  }
+};
+
+/**
+ * Two soft notes when an answer finishes, synthesised rather than shipped as
+ * a file. The context is created on the click that sent the question, so the
+ * browser's autoplay rule lets it sound later when the answer lands.
+ */
+function chime(ctx: AudioContext | null) {
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  [
+    [659.25, 0],
+    [987.77, 0.11],
+  ].forEach(([freq, delay]) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, t + delay);
+    gain.gain.exponentialRampToValueAtTime(0.12, t + delay + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.45);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t + delay);
+    osc.stop(t + delay + 0.5);
+  });
+}
+
+/** Keep the launcher fully on screen. */
+function clampFab(el: HTMLElement | null, x: number, y: number) {
+  const w = el?.offsetWidth ?? 150;
+  const h = el?.offsetHeight ?? 56;
+  return {
+    x: Math.min(Math.max(x, EDGE), window.innerWidth - w - EDGE),
+    y: Math.min(Math.max(y, EDGE), window.innerHeight - h - EDGE),
+  };
+}
+
+/** The nearest side, at the same height — where a dropped launcher settles. */
+function snapFab(el: HTMLElement | null, x: number, y: number) {
+  const w = el?.offsetWidth ?? 150;
+  const side = x + w / 2 < window.innerWidth / 2 ? EDGE : window.innerWidth - w - EDGE;
+  return clampFab(el, side, y);
+}
+
+/**
+ * The floating FuelBrain button. Drag it anywhere so it never sits on top of
+ * what the manager is working on; on release it springs to the nearest side
+ * and remembers the spot. Movement writes the transform straight to the
+ * element once per frame instead of re-rendering on every pointer event,
+ * which is what keeps the drag smooth.
+ */
+function FuelBrainLauncher({ onOpen }: { onOpen: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const pos = useRef({ x: 0, y: 0 });
+  const frame = useRef(0);
+  const suppressClick = useRef(false);
+  const endDrag = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const saved = readStored<{ right: boolean; y: number }>(FAB_KEY);
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const put = ({ x, y }: { x: number; y: number }) => {
+      pos.current = { x, y };
+      el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    };
+    put(
+      saved
+        ? clampFab(el, saved.right ? window.innerWidth - w - EDGE : EDGE, saved.y)
+        : clampFab(el, window.innerWidth - w - EDGE, window.innerHeight - h - 24)
+    );
+    el.style.visibility = 'visible';
+
+    const onResize = () => put(snapFab(el, pos.current.x, pos.current.y));
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      cancelAnimationFrame(frame.current);
+      endDrag.current?.();
+    };
+  }, []);
+
+  /**
+   * The drag follows the pointer on the window, not the button: a quick
+   * flick leaves the button before the first move event, and the button
+   * would never see the rest. No pointer capture either — capturing would
+   * retarget a plain click away from the button.
+   */
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const el = ref.current;
+    if (!el) return;
+    // A drag's trailing click may never come; never let it eat this one.
+    suppressClick.current = false;
+    el.classList.remove('is-settling');
+    const id = e.pointerId;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const ox = pos.current.x;
+    const oy = pos.current.y;
+    let moved = false;
+
+    const put = (x: number, y: number) => {
+      pos.current = { x, y };
+      el.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    };
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      const dx = ev.clientX - sx;
+      const dy = ev.clientY - sy;
+      if (!moved) {
+        if (Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+        moved = true;
+        el.classList.add('is-dragging');
+      }
+      ev.preventDefault();
+      cancelAnimationFrame(frame.current);
+      frame.current = requestAnimationFrame(() => {
+        const next = clampFab(el, ox + dx, oy + dy);
+        put(next.x, next.y);
+      });
+    };
+    const onUp = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return;
+      finish();
+      if (!moved) return;
+      suppressClick.current = true;
+      cancelAnimationFrame(frame.current);
+      el.classList.add('is-settling');
+      const next = snapFab(el, pos.current.x, pos.current.y);
+      put(next.x, next.y);
+      writeStored(FAB_KEY, { right: next.x > window.innerWidth / 2, y: next.y });
+    };
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      el.classList.remove('is-dragging');
+      endDrag.current = null;
+    };
+    endDrag.current?.();
+    endDrag.current = finish;
+    window.addEventListener('pointermove', onMove, { passive: false });
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="fb-fab"
+      style={{ visibility: 'hidden' }}
+      onPointerDown={startDrag}
+      /* On the wrapper, not the button, so the drag-ending click is caught
+         wherever it lands; a button click or Enter bubbles up here. */
+      onClick={() => {
+        // The click that ends a drag is not a request to open.
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          return;
+        }
+        onOpen();
+      }}
+    >
+      <button
+        type="button"
+        title="FuelBrain — drag to move"
+        aria-label="Open FuelBrain"
+        className="flex h-[52px] cursor-[inherit] items-center gap-2 rounded-full bg-brand px-5 font-semibold text-canvas"
+      >
+        <Brain className="h-5 w-5" />
+        <span className="text-sm">FuelBrain</span>
+      </button>
+    </div>
+  );
+}
+
 /**
  * FuelBrain: a Claude-style chat over the fleet's own data.
  *
@@ -137,6 +337,10 @@ export function FuelBrain() {
   const firstName = (customer?.user?.name || customer?.name || '').split(' ')[0];
 
   const [open, setOpen] = useState(false);
+  const [muted, setMuted] = useState(() =>
+    typeof window === 'undefined' ? false : readStored<boolean>(MUTE_KEY) === true
+  );
+  const audioRef = useRef<AudioContext | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [sidebar, setSidebar] = useState(true);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -235,6 +439,10 @@ export function FuelBrain() {
     setInput('');
     setError(null);
     setActivity('Thinking');
+    if (!muted && !audioRef.current && typeof window !== 'undefined' && 'AudioContext' in window) {
+      audioRef.current = new AudioContext();
+    }
+    void audioRef.current?.resume().catch(() => {});
     setStreaming(true);
     setMessages((prev) => [...prev, { role: 'user', content: question }, { role: 'assistant', content: '' }]);
 
@@ -299,6 +507,7 @@ export function FuelBrain() {
         }
       }
       if (!finished) throw new Error('The answer was cut off. Try again.');
+      if (!muted) chime(audioRef.current);
       void loadSessions();
     } catch (err) {
       const stopped = controller.signal.aborted;
@@ -502,6 +711,20 @@ export function FuelBrain() {
               </p>
               <button
                 type="button"
+                onClick={() => {
+                  setMuted((m) => {
+                    writeStored(MUTE_KEY, !m);
+                    return !m;
+                  });
+                }}
+                title={muted ? 'Sound off — click to play a sound when answers finish' : 'Sound on'}
+                aria-pressed={!muted}
+                className="rounded-lg p-2 text-ink-dim hover:bg-ink/5 hover:text-ink"
+              >
+                {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+              </button>
+              <button
+                type="button"
                 onClick={() => setExpanded((v) => !v)}
                 title={expanded ? 'Shrink' : 'Expand'}
                 className="hidden rounded-lg p-2 text-ink-dim hover:bg-ink/5 hover:text-ink md:block"
@@ -611,20 +834,9 @@ export function FuelBrain() {
         </div>
       )}
 
-      {!(open && expanded) && (
-        <button
-          type="button"
-          onClick={toggleOpen}
-          aria-expanded={open}
-          title="FuelBrain"
-          className={`fixed bottom-6 right-4 z-[1260] h-14 items-center gap-2 rounded-full bg-brand px-5 font-semibold text-canvas shadow-[0_8px_30px_-6px_rgba(0,229,153,0.55)] transition hover:scale-[1.03] ${
-            open ? 'hidden md:flex' : 'flex'
-          }`}
-        >
-          {open ? <X className="h-5 w-5" /> : <Brain className="h-5 w-5" />}
-          <span className="text-sm">FuelBrain</span>
-        </button>
-      )}
+      {/* Hidden while the chat is open: the window has its own close button,
+          and a button floating over the conversation would cover it. */}
+      {!open && <FuelBrainLauncher onOpen={toggleOpen} />}
     </>
   );
 }

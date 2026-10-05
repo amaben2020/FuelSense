@@ -181,6 +181,7 @@ router.post('/chat', askLimiter, async (req: Request, res: Response) => {
     try {
       reply = await askFuelBrain({
         authorization: req.headers.authorization ?? '',
+        customerId: req.user.customerId,
         history,
         question,
         signal: abort.signal,
