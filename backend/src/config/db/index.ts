@@ -83,6 +83,11 @@ export const initDatabase = async (): Promise<void> => {
 
   await ensureColumn('customers', 'phone', 'VARCHAR(50)');
   await ensureColumn('customers', 'company_name', 'VARCHAR(255)');
+  // DEFAULT NOW() backfills every existing account as verified when the
+  // column first appears; only new sign-ups start unverified.
+  await ensureColumn('customers', 'email_verified_at', 'TIMESTAMP DEFAULT NOW()');
+  await ensureColumn('customers', 'email_verify_token_hash', 'VARCHAR(64)');
+  await ensureColumn('customers', 'email_verify_sent_at', 'TIMESTAMP');
   await ensureColumn('customers', 'updated_at', 'TIMESTAMP DEFAULT NOW()');
   await ensureColumn('customers', 'onboarding_completed', 'BOOLEAN DEFAULT false');
   await ensureColumn('customers', 'logo_url', 'TEXT');
@@ -740,6 +745,8 @@ export const initDatabase = async (): Promise<void> => {
   await ensureColumn('odometer_audit', 'gap_fuel_liters', 'DECIMAL(8,2)');
   await ensureColumn('odometer_audit', 'gap_rate_l_per_100km', 'DECIMAL(6,2)');
 
+  await ensureColumn('alerts', 'driver_dismissed_at', 'TIMESTAMP');
+
   await ensureColumn('geofences', 'place_id', 'VARCHAR(255)');
   await ensureColumn('geofences', 'address', 'TEXT');
   await ensureColumn('geofences', 'photo_ref', 'TEXT');
@@ -765,6 +772,49 @@ export const initDatabase = async (): Promise<void> => {
   await db.execute(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS fuel_station_visits_open_idx
       ON fuel_station_visits (geofence_id, vehicle_id) WHERE exited_at IS NULL
+  `);
+
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuelbrain_sessions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      user_id UUID REFERENCES fleet_users(id) ON DELETE CASCADE,
+      title VARCHAR(120) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS fuelbrain_sessions_owner_idx
+      ON fuelbrain_sessions (customer_id, updated_at)
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuelbrain_messages (
+      id BIGSERIAL PRIMARY KEY,
+      session_id UUID NOT NULL REFERENCES fuelbrain_sessions(id) ON DELETE CASCADE,
+      role VARCHAR(10) NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS fuelbrain_messages_session_idx
+      ON fuelbrain_messages (session_id, id)
+  `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuelbrain_usage (
+      id BIGSERIAL PRIMARY KEY,
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      user_id UUID REFERENCES fleet_users(id) ON DELETE SET NULL,
+      month VARCHAR(7) NOT NULL,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS fuelbrain_usage_customer_month_idx
+      ON fuelbrain_usage (customer_id, month)
   `);
 
   await db.execute(sql`

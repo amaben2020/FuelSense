@@ -14,6 +14,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import type { Alert } from '@/lib/api';
+import { SwipeToDismiss } from '@/components/ui/SwipeToDismiss';
 
 /**
  * What an alert type is called when it interrupts someone.
@@ -171,9 +172,10 @@ export function AlertToasts({
       className="pointer-events-none fixed inset-x-0 bottom-6 z-[1300] flex flex-col items-center gap-2 px-4"
     >
       {toasts.map((t) => (
-        <div
+        <SwipeToDismiss
           key={t.key}
-          className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-xl border bg-panel/95 px-4 py-3 shadow-2xl backdrop-blur-md ${
+          onDismiss={() => setToasts((prev) => prev.filter((x) => x.key !== t.key))}
+          className={`pointer-events-auto cursor-grab flex w-full max-w-md items-start gap-3 rounded-xl border bg-panel/95 px-4 py-3 shadow-2xl backdrop-blur-md ${
             t.tone === 'bad'
               ? 'border-bad/50'
               : t.tone === 'warn'
@@ -193,7 +195,7 @@ export function AlertToasts({
             </p>
             <p className="mt-0.5 truncate text-xs text-ink-mid">{t.detail}</p>
           </div>
-        </div>
+        </SwipeToDismiss>
       ))}
     </div>
   );

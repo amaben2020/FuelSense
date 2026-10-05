@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { api, AuthResponse, setToken } from '@/lib/api';
 import { AuthError, AuthFooter, AuthLayout, AuthSubmit, Field, inputClass } from '@/components/AuthLayout';
 import { useAuthStore } from '@/store/authStore';
@@ -14,6 +14,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [verified, setVerified] = useState<string | null>(null);
+
+  // Where the emailed confirmation link lands. Read from location rather than
+  // useSearchParams so the statically exported page needs no Suspense boundary.
+  useEffect(() => {
+    setVerified(new URLSearchParams(window.location.search).get('verified'));
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -48,6 +55,18 @@ export default function LoginPage() {
       subtitle="Every litre, every kilometre and every receipt, in one place."
     >
       <form onSubmit={handleSubmit}>
+        {verified === 'ok' && (
+          <p role="status" className="mb-4 rounded-lg border border-good/40 bg-good/10 px-3 py-2.5 text-sm text-good">
+            Email confirmed. Sign in to continue.
+          </p>
+        )}
+        {(verified === 'expired' || verified === 'invalid') && (
+          <AuthError>
+            {verified === 'expired'
+              ? 'That link has expired. Sign in and use "Resend link" on the dashboard.'
+              : 'That confirmation link is not valid. Sign in to request a new one.'}
+          </AuthError>
+        )}
         {error && <AuthError>{error}</AuthError>}
 
         <Field label="Email">

@@ -28,6 +28,7 @@ import driverPortalRoutes from './features/driver-portal/driver-portal.routes';
 import fuelEventsRoutes from './features/fuel/fuel-events.routes';
 import deviceEventsRoutes from './features/devices/device-events.routes';
 import placesRoutes from './features/places/places.routes';
+import fuelBrainRoutes from './features/fuelbrain/fuelbrain.routes';
 import featureRoutes from './features/feature-flags/feature-flags.routes';
 import fuelPriceRoutes from './features/fuel/fuel-price.routes';
 import contactRoutes from './features/contact/contact.routes';
@@ -197,6 +198,7 @@ app.use('/api/fuel-price', fuelPriceRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/fuelbrain', fuelBrainRoutes);
 
 const start = async () => {
   await initDatabase();

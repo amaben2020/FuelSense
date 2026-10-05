@@ -31,6 +31,16 @@ export const customers = pgTable('customers', {
   name: varchar('name', { length: 255 }).notNull(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+  /**
+   * Null until the account holder clicks the link we emailed at sign-up.
+   * Defaults to NOW() so every account that predates verification — the
+   * seeded and demo fleets included — counts as verified; only /register
+   * writes a null. While null, no fleet mail is sent (see fleetRecipients).
+   */
+  emailVerifiedAt: timestamp('email_verified_at').defaultNow(),
+  /** sha256 of the outstanding link's token; the raw token is only ever in the email. */
+  emailVerifyTokenHash: varchar('email_verify_token_hash', { length: 64 }),
+  emailVerifySentAt: timestamp('email_verify_sent_at'),
   phone: varchar('phone', { length: 50 }),
   companyName: varchar('company_name', { length: 255 }),
   // White-labelling: the customer's own logo, shown in place of ours. A URL
@@ -441,6 +451,9 @@ export const alerts = pgTable('alerts', {
    */
   driverNote: text('driver_note'),
   driverNoteAt: timestamp('driver_note_at'),
+  /** Swiped away in the driver app. Hides it from the driver only; the
+   *  manager's record is untouched. */
+  driverDismissedAt: timestamp('driver_dismissed_at'),
   driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
   /**
    * What the manager made of the driver's account. `accepted` closes the
@@ -896,4 +909,57 @@ export const maintenanceLogs = pgTable(
     createdAt: timestamp('created_at').defaultNow(),
   },
   (t) => [index('maintenance_logs_vehicle_done_idx').on(t.vehicleId, t.doneAt)]
+);
+
+/**
+ * FuelBrain conversations. Owned by whoever asked — the account holder (no
+ * fleet_users row) or a fleet user — so two managers on one fleet never see
+ * each other's chats. Only the text of each turn is kept; tool traffic is
+ * re-fetched on the next question rather than replayed stale.
+ */
+export const fuelbrainSessions = pgTable(
+  'fuelbrain_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => fleetUsers.id, { onDelete: 'cascade' }),
+    title: varchar('title', { length: 120 }).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [index('fuelbrain_sessions_owner_idx').on(t.customerId, t.updatedAt)]
+);
+
+export const fuelbrainMessages = pgTable(
+  'fuelbrain_messages',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => fuelbrainSessions.id, { onDelete: 'cascade' }),
+    role: varchar('role', { length: 10 }).notNull(),
+    content: text('content').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('fuelbrain_messages_session_idx').on(t.sessionId, t.id)]
+);
+
+/** Tokens each FuelBrain question cost, for the per-fleet monthly allowance. */
+export const fuelbrainUsage = pgTable(
+  'fuelbrain_usage',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => fleetUsers.id, { onDelete: 'set null' }),
+    /** Lagos calendar month, 'YYYY-MM'. */
+    month: varchar('month', { length: 7 }).notNull(),
+    inputTokens: integer('input_tokens').notNull(),
+    outputTokens: integer('output_tokens').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [index('fuelbrain_usage_customer_month_idx').on(t.customerId, t.month)]
 );

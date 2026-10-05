@@ -12,6 +12,13 @@ import { signToken, signFleetUserToken, authenticateCustomer } from './auth.midd
 import { logAndRespond } from '../../shared/errors';
 import { fleetUsers, FLEET_ROLES, type FleetRole } from '../../config/db/schema';
 import { and, desc } from 'drizzle-orm';
+import {
+  APP_URL,
+  RESEND_COOLDOWN_SECONDS,
+  VERIFY_TTL_HOURS,
+  hashVerifyToken,
+  sendVerificationEmail,
+} from './email-verification.service';
 
 /**
  * Who is signed in, alongside the fleet they belong to. The manager is the
@@ -75,11 +82,19 @@ router.post('/register', authLimiter, async (req: Request, res: Response) => {
         passwordHash,
         companyName: companyName?.trim() || null,
         phone: phone?.trim() || null,
+        emailVerifiedAt: null,
       })
       .returning(customerPublicSelect);
 
+    // Sign-up still succeeds if SendGrid is down; the dashboard banner
+    // offers a resend.
+    const verification_sent = await sendVerificationEmail(customer).catch((err) => {
+      console.error('[auth] verification email failed:', err);
+      return false;
+    });
+
     const token = signToken(customer as Parameters<typeof signToken>[0]);
-    res.status(201).json({ token, customer });
+    res.status(201).json({ token, customer, verification_sent });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
@@ -295,6 +310,80 @@ router.patch('/team/:id', authenticateCustomer, async (req: Request, res: Respon
       return;
     }
     res.json({ member });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/**
+ * The link in the sign-up email. Served by the API and answered with a
+ * redirect, so it works whatever frontend build is deployed: the login page
+ * reads ?verified= to say how it went.
+ */
+router.get('/verify-email', async (req: Request, res: Response) => {
+  const token = String(req.query.token ?? '');
+  const back = (outcome: 'ok' | 'expired' | 'invalid') =>
+    res.redirect(302, `${APP_URL}/login?verified=${outcome}`);
+  if (!/^[0-9a-f]{64}$/.test(token)) return back('invalid');
+
+  try {
+    const [row] = await db
+      .select({ id: customers.id, sentAt: customers.emailVerifySentAt })
+      .from(customers)
+      .where(eq(customers.emailVerifyTokenHash, hashVerifyToken(token)))
+      .limit(1);
+    if (!row) return back('invalid');
+    if (!row.sentAt || Date.now() - row.sentAt.getTime() > VERIFY_TTL_HOURS * 3_600_000) {
+      return back('expired');
+    }
+    await db
+      .update(customers)
+      .set({ emailVerifiedAt: sql`NOW()`, emailVerifyTokenHash: null })
+      .where(eq(customers.id, row.id));
+    return back('ok');
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/** A new link for the signed-in account holder, at most once a minute. */
+router.post('/verify-email/resend', authenticateCustomer, async (req: Request, res: Response) => {
+  if (req.user.userId) {
+    res.status(403).json({ error: 'Only the account holder can confirm the account email.' });
+    return;
+  }
+  try {
+    const [c] = await db
+      .select({
+        id: customers.id,
+        name: customers.name,
+        email: customers.email,
+        verifiedAt: customers.emailVerifiedAt,
+        sentAt: customers.emailVerifySentAt,
+      })
+      .from(customers)
+      .where(eq(customers.id, req.user.customerId));
+    if (!c) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+    if (c.verifiedAt) {
+      res.json({ success: true, already_verified: true });
+      return;
+    }
+    const waited = c.sentAt ? (Date.now() - c.sentAt.getTime()) / 1000 : Infinity;
+    if (waited < RESEND_COOLDOWN_SECONDS) {
+      res.status(429).json({
+        error: `Wait ${Math.ceil(RESEND_COOLDOWN_SECONDS - waited)} s before asking for another link.`,
+      });
+      return;
+    }
+    const sent = await sendVerificationEmail(c);
+    if (!sent) {
+      res.status(502).json({ error: 'The email could not be sent. Try again shortly.' });
+      return;
+    }
+    res.json({ success: true, sent_to: c.email });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

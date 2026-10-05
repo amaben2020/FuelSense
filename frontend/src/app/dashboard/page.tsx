@@ -99,6 +99,8 @@ import { LiveMonitoringMap } from '@/components/dashboard/LiveMonitoringMap';
 import { TelemetryHistoryTable } from '@/components/dashboard/TelemetryHistoryTable';
 import { AlertsWorkbench } from '@/components/dashboard/AlertsWorkbench';
 import { LoadErrorBanner } from '@/components/dashboard/LoadErrorBanner';
+import { VerifyEmailBanner } from '@/components/dashboard/VerifyEmailBanner';
+import { FuelBrain } from '@/components/dashboard/FuelBrain';
 import { isPro } from '@/lib/plan';
 import { DrivingBehaviorPanel } from '@/components/dashboard/DrivingBehaviorPanel';
 import { DriverManagementPanel } from '@/components/dashboard/DriverManagementPanel';
@@ -1234,6 +1236,7 @@ export default function DashboardPage() {
               rather than of whichever view happens to be open. Unplug leads —
               it outranks a low tank, because it can mean the evidence stream
               itself is about to stop. */}
+          <VerifyEmailBanner />
           <PowerUnplugBanner
             fleet={fleet}
             onSelectVehicle={(id) => {
@@ -1651,6 +1654,9 @@ export default function DashboardPage() {
       />
 
       <AlertToasts incoming={freshAlerts} driverFor={driverForVehicle} />
+
+      {/* A viewer's token cannot POST, so the chat would only ever fail for them. */}
+      {role !== 'viewer' && <FuelBrain />}
 
       {viewOnlyNotice && (
         <div

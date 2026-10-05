@@ -4,10 +4,12 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BellOff, CheckCircle2, Info, Loader2, Send, ShieldAlert } from 'lucide-react';
 import {
   DriverAlert,
+  dismissDriverAlert,
   explainDriverAlert,
   fetchDriverAlerts,
 } from '@/lib/driver-api';
 import { useLatest } from '@/lib/use-latest';
+import { SwipeToDismiss } from '@/components/ui/SwipeToDismiss';
 
 const PAGE_SIZE = 20;
 
@@ -133,6 +135,14 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
     }
   };
 
+  // Optimistic: the card is already off screen when the request goes out. A
+  // failure brings the list back from the server rather than resurrecting a
+  // card the driver watched leave.
+  const dismiss = (alert: DriverAlert) => {
+    setAlerts((prev) => prev?.filter((x) => x.id !== alert.id) ?? prev);
+    dismissDriverAlert(alert.id).catch(() => void reload());
+  };
+
   if (error) {
     return (
       <div className="rounded-2xl border border-bad/40 bg-bad/10 p-4 text-sm text-bad">
@@ -186,7 +196,11 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
                 {heading}
               </p>
             )}
-            <div className="rounded-2xl border border-edge bg-panel p-4">
+            <SwipeToDismiss
+              disabled={a.can_explain}
+              onDismiss={() => dismiss(a)}
+              className="rounded-2xl border border-edge bg-panel p-4"
+            >
               <div className="flex items-start gap-3">
                 <span
                   className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
@@ -262,7 +276,10 @@ export function DriverAlertsScreen({ onCountChange }: { onCountChange?: (n: numb
                     Explain what happened
                   </button>
                 ))}
-            </div>
+              {heading === 'For your information' && (
+                <p className="mt-2 text-right text-[10px] text-ink-dim">Swipe to dismiss</p>
+              )}
+            </SwipeToDismiss>
             </Fragment>
           );
         })

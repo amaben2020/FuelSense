@@ -6,6 +6,11 @@ export function liveStreamUrl(): string | null {
   const token = getToken();
   return token ? `${API_URL}/telemetry/stream?token=${encodeURIComponent(token)}` : null;
 }
+/** Absolute URL for a call that cannot go through `api()` — a streamed body. */
+export function apiUrl(path: string): string {
+  return `${API_URL}${path}`;
+}
+
 const TOKEN_KEY = 'fuelsense_token';
 
 export function getToken(): string | null {
@@ -246,6 +251,8 @@ export interface Customer {
   white_label?: boolean | null;
   subscription_status: string;
   onboarding_completed?: boolean;
+  /** Null until a new sign-up clicks the emailed link; absent from older backends. */
+  email_verified_at?: string | null;
   created_at: string;
 }
 

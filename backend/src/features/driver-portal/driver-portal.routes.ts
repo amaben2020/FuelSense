@@ -767,6 +767,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
         AND customer_id = ${req.driver.customerId}
         AND created_at > NOW() - (${days} || ' days')::INTERVAL
         AND alert_type NOT IN (${hidden})
+        AND driver_dismissed_at IS NULL
     `);
     const total = Number((countResult.rows[0] as Record<string, unknown>)?.total) || 0;
 
@@ -778,6 +779,7 @@ router.get('/alerts', async (req: Request, res: Response) => {
         AND customer_id = ${req.driver.customerId}
         AND created_at > NOW() - (${days} || ' days')::INTERVAL
         AND alert_type NOT IN (${hidden})
+        AND driver_dismissed_at IS NULL
       -- Anything still waiting for the driver's account comes first, so the
       -- to-do is at the top of the screen rather than paged out of sight.
       ORDER BY
@@ -835,6 +837,40 @@ router.get('/alerts', async (req: Request, res: Response) => {
       has_more: offset + items.length < total,
       alerts: items,
     });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+/** Hides an alert from the driver's list. One still waiting for the driver's
+ *  account cannot be swiped away — the manager is waiting on it. */
+router.post('/alerts/:id/dismiss', async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(404).json({ error: 'That alert cannot be dismissed.' });
+    return;
+  }
+  try {
+    const assignment = await getDriverAssignment(req.driver.driverId, req.driver.customerId);
+    if (!assignment?.vehicle_id) {
+      res.status(404).json({ error: 'No vehicle assigned' });
+      return;
+    }
+    const explainable = sql.join([...DRIVER_EXPLAINABLE_ALERTS].map((t) => sql`${t}`), sql`, `);
+    const result = await db.execute(sql`
+      UPDATE alerts SET driver_dismissed_at = NOW()
+      WHERE id = ${id}
+        AND vehicle_id = ${assignment.vehicle_id}
+        AND customer_id = ${req.driver.customerId}
+        AND driver_dismissed_at IS NULL
+        AND NOT (alert_type IN (${explainable}) AND is_resolved = false AND driver_note IS NULL)
+      RETURNING id
+    `);
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'That alert cannot be dismissed.' });
+      return;
+    }
+    res.json({ success: true });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }

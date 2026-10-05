@@ -15,10 +15,18 @@ export async function fleetRecipients(
   extra: Array<string | null | undefined> = []
 ): Promise<string[]> {
   const [account] = await db
-    .select({ email: customers.email, list: customers.notificationEmails })
+    .select({
+      email: customers.email,
+      list: customers.notificationEmails,
+      verifiedAt: customers.emailVerifiedAt,
+    })
     .from(customers)
     .where(eq(customers.id, customerId))
     .limit(1);
+
+  // An unverified sign-up may have typed someone else's address; nothing
+  // goes out on its behalf until the link in the welcome email is clicked.
+  if (!account?.verifiedAt) return [];
 
   const named = [...extra, ...(account?.list ?? [])]
     .map((e) => (e ?? '').trim().toLowerCase())

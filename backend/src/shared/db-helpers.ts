@@ -220,6 +220,7 @@ export const customerPublicSelect = {
   white_label: customers.whiteLabel,
   subscription_status: customers.subscriptionStatus,
   onboarding_completed: customers.onboardingCompleted,
+  email_verified_at: customers.emailVerifiedAt,
   created_at: customers.createdAt,
 };
 

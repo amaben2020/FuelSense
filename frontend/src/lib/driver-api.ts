@@ -305,6 +305,10 @@ export async function explainDriverAlert(id: number, note: string) {
   );
 }
 
+export async function dismissDriverAlert(id: number) {
+  return driverApi<{ success: boolean }>(`/driver/alerts/${id}/dismiss`, { method: 'POST' });
+}
+
 /** The product's name for the last fleet a driver signed into on this phone. */
 export function rememberedDriverProductName(): string {
   try {
