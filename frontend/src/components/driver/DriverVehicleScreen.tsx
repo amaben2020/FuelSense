@@ -95,21 +95,15 @@ export function DriverVehicleScreen() {
             icon={MapPin}
             label="Last GPS"
             className="col-span-2"
-            value={
-              status.recorded_at
-                ? new Date(status.recorded_at).toLocaleTimeString('en-NG', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    timeZone: 'Africa/Lagos',
-                  })
-                : '—'
-            }
+            value={status.recorded_at ? fixAge(status.recorded_at) : '—'}
             accent="text-warn"
-            sub={
-              status.latitude != null
-                ? `${status.latitude.toFixed(4)}, ${status.longitude?.toFixed(4)}`
-                : undefined
-            }
+            sub={[
+              status.recorded_at && fixStamp(status.recorded_at),
+              status.latitude != null &&
+                `${status.latitude.toFixed(4)}, ${status.longitude?.toFixed(4)}`,
+            ]
+              .filter(Boolean)
+              .join(' · ') || undefined}
           />
         </div>
       </div>
@@ -132,6 +126,34 @@ export function DriverVehicleScreen() {
       </p>
     </div>
   );
+}
+
+// A bare "7:24" read as a clock, not as the age of the fix — and with no day
+// on it, a fix from yesterday evening looked current. Lead with how old it is.
+function fixAge(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)} h ago`;
+  return `${Math.floor(mins / 1440)} d ago`;
+}
+
+function fixStamp(iso: string): string {
+  const lagosDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString('en-NG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Africa/Lagos',
+  });
+  if (lagosDay(d) === lagosDay(new Date())) return `Today ${time}`;
+  const day = d.toLocaleDateString('en-NG', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Africa/Lagos',
+  });
+  return `${day}, ${time}`;
 }
 
 function StatCard({

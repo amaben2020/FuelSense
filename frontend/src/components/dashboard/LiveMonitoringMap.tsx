@@ -866,6 +866,17 @@ export function LiveMonitoringMap({
   // application state — leaving the view should discard it, not persist it.
   const [zones, setZones] = useState<Geofence[]>([]);
   const [drawing, setDrawing] = useState(false);
+  // Stop kinds switched off from the legend. A busy day stacks dozens of
+  // markers on one route; the legend is how a manager thins them to the ones
+  // they care about.
+  const [hiddenStops, setHiddenStops] = useState<Set<string>>(() => new Set());
+  const toggleStopKind = (kind: string) =>
+    setHiddenStops((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
   const [shapeMode, setShapeMode] = useState<ZoneShapeMode>('circle');
   // The clicks placed so far. One point for a circle, two opposite corners for
   // a rectangle, three or more vertices for a polygon.
@@ -1184,6 +1195,7 @@ export function LiveMonitoringMap({
 
             {/* Numbered, clickable trip-start badges for the selected vehicle */}
             {selectedTrack &&
+              !hiddenStops.has('start') &&
               selectedTrips.map((trip, i) => (
                 <TripBadgeMarker
                   key={`trip-start-${selectedTrack.vehicleId}-${i}`}
@@ -1205,6 +1217,7 @@ export function LiveMonitoringMap({
                 car park read as a route leading on past it. A finished trip
                 gets a flag; the live one does not, because the car is there. */}
             {selectedTrack &&
+              !hiddenStops.has('destination') &&
               selectedTrips.map((trip, i) => {
                 const end = trip.stops.find((s) => s.kind === 'destination');
                 if (!end || trip.active) return null;
@@ -1236,7 +1249,9 @@ export function LiveMonitoringMap({
               selectedTrips.flatMap((trip, ti) =>
                 trip.stops
                   .filter(
-                    (s) => s.kind === 'stop' || s.kind === 'pause' || s.kind === 'traffic'
+                    (s) =>
+                      (s.kind === 'stop' || s.kind === 'pause' || s.kind === 'traffic') &&
+                      !hiddenStops.has(s.kind)
                   )
                   .map((stop, si) => (
                     <TripBadgeMarker
@@ -1305,36 +1320,54 @@ export function LiveMonitoringMap({
             {/* Legend. The stop dots are the only thing on the map encoding
                 meaning purely in colour, so the key has to be on screen —
                 otherwise an amber dot is just an amber dot. */}
-            <div className="glass pointer-events-none absolute bottom-4 left-4 z-10 rounded-xl px-4 py-3.5">
+            <div className="glass absolute bottom-4 left-4 z-10 rounded-xl px-4 py-3.5">
               <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-ink-dim">
                 Stops
               </p>
-              <ul className="space-y-2">
+              <ul className="space-y-1">
                 {[
                   // Wording mirrors the thresholds in
-                  // backend/src/lib/trip-segmentation.ts. If those constants
-                  // move, these move with them.
-                  { c: 'bg-brand', t: 'Trip start', d: 'Where the drive began' },
-                  { c: 'bg-traffic', t: 'Slow traffic', d: 'Under 15 km/h for 5 min+' },
-                  { c: 'bg-warn', t: 'Stopped', d: 'Parked 5 min or more' },
-                  { c: 'bg-ink-dim', t: 'Brief pause', d: '1.5 to 5 minutes' },
-                  { c: 'bg-bad', t: 'Trip end', d: 'Where the drive ended' },
-                ].map(({ c, t, d }) => (
-                  <li key={t} className="flex items-start gap-2.5">
-                    {/* Nudged down so the dot aligns with the label's first
-                        line rather than the block's centre now that each row
-                        carries a second line. */}
-                    <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${c}`} />
-                    <span className="leading-tight">
-                      <span className="block text-sm font-medium text-ink">{t}</span>
-                      {/* The colour alone never said what separates a pause
-                          from a stop, so the key now carries the rule it is
-                          keying rather than only the name. */}
-                      <span className="block text-[11px] text-ink-dim">{d}</span>
-                    </span>
-                  </li>
-                ))}
+                  // backend/src/features/telemetry/trip-segmentation.service.ts. If those
+                  // constants move, these move with them.
+                  { k: 'start', c: 'bg-brand', t: 'Trip start', d: 'Where the drive began' },
+                  { k: 'traffic', c: 'bg-traffic', t: 'Slow traffic', d: 'Under 15 km/h for 5 min+' },
+                  { k: 'stop', c: 'bg-warn', t: 'Stopped', d: 'Parked 5 min or more' },
+                  { k: 'pause', c: 'bg-ink-dim', t: 'Brief pause', d: '1.5 to 5 minutes' },
+                  { k: 'destination', c: 'bg-bad', t: 'Trip end', d: 'Where the drive ended' },
+                ].map(({ k, c, t, d }) => {
+                  const off = hiddenStops.has(k);
+                  return (
+                    <li key={k}>
+                      {/* Each row is the switch for its own markers, so the
+                          key does something rather than only describing. */}
+                      <button
+                        type="button"
+                        aria-pressed={!off}
+                        title={off ? `Show ${t.toLowerCase()} markers` : `Hide ${t.toLowerCase()} markers`}
+                        onClick={() => toggleStopKind(k)}
+                        className={`-mx-1.5 flex w-[calc(100%+0.75rem)] items-start gap-2.5 rounded-lg px-1.5 py-1 text-left transition hover:bg-ink/5 ${
+                          off ? 'opacity-40' : ''
+                        }`}
+                      >
+                        <span
+                          className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${off ? 'border border-ink-dim bg-transparent' : c}`}
+                        />
+                        <span className="leading-tight">
+                          <span className={`block text-sm font-medium text-ink ${off ? 'line-through' : ''}`}>
+                            {t}
+                          </span>
+                          <span className="block text-[11px] text-ink-dim">{d}</span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
+              {selectedTrack ? (
+                <p className="mt-2 text-[10px] text-ink-dim">Tap a row to show or hide it</p>
+              ) : (
+                <p className="mt-2 text-[10px] text-ink-dim">Select a vehicle to see its stops</p>
+              )}
             </div>
             {/* Zone tooltip. Follows the cursor inside the zone and offers the
                 one action a manager wants from the map itself — getting rid of
