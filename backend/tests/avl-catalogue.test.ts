@@ -14,8 +14,17 @@ describe('decodeSignal', () => {
     expect(decodeSignal(239, 0).display).toBe('Off')
     expect(decodeSignal(239, 1).display).toBe('On')
     expect(decodeSignal(240, 1).display).toBe('Moving')
-    expect(decodeSignal(69, 1).display).toBe('On, no fix')
     expect(decodeSignal(200, 0).display).toBe('No sleep')
+  })
+
+  // Teltonika AVL 69. Code 1 used to read "On, no fix"; this fleet's own frames
+  // show code 1 carries a valid position 99.99% of the time, code 2 almost never.
+  it('labels GNSS status the way the tracker means it', () => {
+    expect(decodeSignal(69, 0).display).toBe('Off')
+    expect(decodeSignal(69, 1).display).toBe('On, fix')
+    expect(decodeSignal(69, 2).display).toBe('On, no fix')
+    expect(decodeSignal(69, 3).display).toBe('Sleep')
+    expect(decodeSignal(69, 4).display).toBe('Undocumented (4)')
   })
 
   it('resolves the GSM operator code to a carrier', () => {
