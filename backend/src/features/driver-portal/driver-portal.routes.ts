@@ -1,3 +1,4 @@
+import { getFleetByCustomerId } from '../../config/db/queries';
 import express, { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { signDriverToken, authenticateDriver } from '../auth/auth.middleware';
@@ -168,6 +169,11 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
       LIMIT 1
     `);
 
+    const [fleetRow] = (await getFleetByCustomerId(db, req.driver.customerId, assignment.vehicle_id)) as Array<{
+      total_odometer_km: unknown;
+      odometer_km: unknown;
+    }>;
+
     const device = await db.execute(sql`
       SELECT last_seen_at, imei
       FROM devices
@@ -229,7 +235,18 @@ router.get('/vehicle/status', async (req: Request, res: Response) => {
       last_seen_at: lastSeen?.toISOString() ?? null,
       recorded_at: row?.recorded_at ?? null,
       fuel_level_liters: row?.fuel_level_liters != null ? Number(row.fuel_level_liters) : null,
-      odometer_km: row?.odometer_km != null ? Number(row.odometer_km) : null,
+      // The dashboard's odometer, from the dashboard's own query: the
+      // manager's corrected total when a baseline is set, else the tracker's
+      // count. Reading the raw tracker figure here let the two screens differ
+      // the moment a manager entered an odometer reading.
+      odometer_km:
+        fleetRow?.total_odometer_km != null
+          ? Number(fleetRow.total_odometer_km)
+          : fleetRow?.odometer_km != null
+            ? Number(fleetRow.odometer_km)
+            : row?.odometer_km != null
+              ? Number(row.odometer_km)
+              : null,
       speed_kph: row?.speed_kph != null ? Number(row.speed_kph) : null,
       ignition_on: row?.ignition_on ?? null,
       latitude: row?.latitude != null ? Number(row.latitude) : null,

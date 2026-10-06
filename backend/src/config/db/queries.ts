@@ -3,7 +3,16 @@ import type { db as DbType } from './index';
 
 type DbOrTx = typeof DbType | Parameters<Parameters<typeof DbType.transaction>[0]>[0];
 
-export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): Promise<unknown[]> => {
+/**
+ * The fleet as the dashboard shows it. `vehicleId` narrows it to one vehicle
+ * for the driver app, so a driver sees exactly the figures — the corrected
+ * odometer above all — that the manager sees, from the same SQL.
+ */
+export const getFleetByCustomerId = async (
+  dbOrTx: DbOrTx,
+  customerId: string,
+  vehicleId?: string
+): Promise<unknown[]> => {
   const result = await (dbOrTx as typeof DbType).execute(sql`
     SELECT
       v.id,
@@ -108,6 +117,7 @@ export const getFleetByCustomerId = async (dbOrTx: DbOrTx, customerId: string): 
       LIMIT 1
     ) unplug ON true
     WHERE v.customer_id = ${customerId}
+      ${vehicleId ? sql`AND v.id = ${vehicleId}` : sql``}
     ORDER BY v.license_plate ASC
   `);
   return result.rows;
