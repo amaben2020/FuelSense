@@ -816,6 +816,27 @@ export const initDatabase = async (): Promise<void> => {
     CREATE INDEX IF NOT EXISTS fuelbrain_usage_customer_month_idx
       ON fuelbrain_usage (customer_id, month)
   `);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS fuelbrain_actions (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      customer_id UUID NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      user_id UUID REFERENCES fleet_users(id) ON DELETE CASCADE,
+      session_id UUID REFERENCES fuelbrain_sessions(id) ON DELETE CASCADE,
+      message_id BIGINT REFERENCES fuelbrain_messages(id) ON DELETE CASCADE,
+      kind VARCHAR(30) NOT NULL,
+      driver_id UUID REFERENCES drivers(id) ON DELETE SET NULL,
+      to_email VARCHAR(255) NOT NULL,
+      subject VARCHAR(200) NOT NULL,
+      body TEXT NOT NULL,
+      status VARCHAR(12) NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      decided_at TIMESTAMP
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS fuelbrain_actions_customer_idx
+      ON fuelbrain_actions (customer_id, created_at)
+  `);
 
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_device_events_customer_occurred

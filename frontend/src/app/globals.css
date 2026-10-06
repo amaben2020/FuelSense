@@ -701,3 +701,25 @@ input[type='time']::-webkit-calendar-picker-indicator {
     transition: none;
   }
 }
+
+/* FuelBrain chart series, in fixed order (never cycled). Validated with the
+   dataviz palette checker against --canvas in each theme: dark passes every
+   check; light passes with slots 4 and 6 under 3:1 on white, which is why
+   every chart offers a data table. Slot 1 is the brand hue, stepped darker in
+   dark mode because #cde04a is too light to read as a mark. */
+.fb-chart {
+  --fb-s1: #879c1a;
+  --fb-s2: #3987e5;
+  --fb-s3: #d95926;
+  --fb-s4: #199e70;
+  --fb-s5: #9085e9;
+  --fb-s6: #d55181;
+}
+.light .fb-chart {
+  --fb-s1: #5c7410;
+  --fb-s2: #2a78d6;
+  --fb-s3: #eb6834;
+  --fb-s4: #1baf7a;
+  --fb-s5: #4a3aa7;
+  --fb-s6: #e87ba4;
+}

@@ -41,6 +41,8 @@ export interface MailInput {
    * a contact-form enquiry, say — must not be swallowed by it.
    */
   bypassOverride?: boolean;
+  /** Where a reply goes — e.g. the manager, for a message sent to a driver. */
+  replyTo?: string;
 }
 
 export async function sendMail({
@@ -50,6 +52,7 @@ export async function sendMail({
   html,
   attachments,
   bypassOverride,
+  replyTo,
 }: MailInput): Promise<boolean> {
   if (!API_KEY) {
     console.warn('[mailer] SENDGRID_API_KEY not set — skipping:', subject);
@@ -67,6 +70,7 @@ export async function sendMail({
     await sgMail.send({
       to: recipient,
       from: FROM,
+      ...(replyTo && isDeliverable(replyTo) ? { replyTo } : {}),
       subject,
       text,
       html: html ?? text,

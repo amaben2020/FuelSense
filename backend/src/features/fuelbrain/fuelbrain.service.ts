@@ -9,8 +9,10 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import { sql } from 'drizzle-orm';
-import { db } from '../../shared/db-helpers';
+import { eq, sql } from 'drizzle-orm';
+import { db, drivers } from '../../shared/db-helpers';
+import { fuelbrainActions } from '../../config/db/schema';
+import { isDeliverable } from '../../shared/mailer';
 
 const MODEL = 'claude-opus-5-5';
 const MAX_TOOL_CHARS = 40_000;
@@ -36,6 +38,17 @@ How the data works — say so when it matters to an answer:
 Product rules — do not recommend against them:
 - Receipts are recorded, never judged. FuelSense deliberately does not ask drivers to fill to full, read the gauge, or prove where they bought fuel; those checks were removed because they produced false accusations. Do not suggest them.
 - To judge whether the rate is right, compare litres bought (receipts) with modelled litres over a long window (30 days or more), and say the difference can be off by up to one tank's capacity because the tank level at the start and end is unknown.
+
+Documents: vehicle licences and roadworthiness (VIO) certificates live in the certificates tool, not in the service schedule. Check it for any question about licences, papers, VIO, expiry or renewals. A certificate of kind "vio" IS the VIO certificate. A certificate may not be linked to a vehicle record and may carry a different registration than the fleet's plate; report it anyway, and if the fleet has one vehicle or the make and model match, say it most likely belongs to that vehicle rather than saying there is none.
+
+Messaging drivers: when the manager asks you to message, warn or remind a driver, use draft_driver_message. It only DRAFTS the email; the manager reviews it and presses Send. Never say a message was sent. Write it the way a fair manager would: plain, polite, specific (dates, places, figures from the tools), what you are asking the driver to do, no threats, and never accuse anyone of theft or fraud. If the request is unclear about which driver, ask.
+
+Charts and diagrams — the chat renders two special code blocks:
+- A chart, when a comparison over time or across 3+ items reads better as a picture. Use a fenced block with language "chart" containing ONLY JSON:
+  {"type":"bar"|"line","title":"Distance per day, last 7 days","unit":"km","x":["Mon","Tue"],"series":[{"name":"LAG-001-FS","values":[12.5,0]}]}
+  Rules: 1 to 6 series, at most 31 x labels, every values array the same length as x, numbers only (null for no data), all numbers from tools. Use "line" for change over time, "bar" for comparing items. One unit per chart: never mix litres and naira in one chart. Still state the key figure in words.
+- A diagram, when explaining a process or sequence (how the fuel estimate is built, a trip's stops). Use a fenced "mermaid" block with a simple flowchart or sequence diagram. Keep labels short and plain; no styling directives.
+Do not use either for one or two numbers; a sentence is better.
 
 How to answer:
 - Fetch before you answer. Never invent, estimate or round away a number you did not get from a tool. If no tool covers the question, say what FuelSense does not track.
@@ -72,7 +85,7 @@ const dateRange = {
  * as the second. Hand the model only what it needs, under names that say
  * which is which (and spend fewer of the fleet's credits doing it).
  */
-function shapeEfficiency(body: string): string {
+export function shapeEfficiency(body: string): string {
   let data: { summary?: unknown; vehicles?: Array<Record<string, unknown>> };
   try {
     data = JSON.parse(body);
@@ -142,30 +155,147 @@ async function vehicleStatus(customerId: string): Promise<string> {
   `);
   const now = Date.now();
   return JSON.stringify(
-    (rows.rows as Array<Record<string, unknown>>).map((r) => {
-      const seen = r.tracker_last_seen ? Date.parse(`${r.tracker_last_seen}Z`) : NaN;
-      const silentHours = Number.isFinite(seen) ? (now - seen) / 3_600_000 : null;
-      const state = !r.imei
-        ? 'no tracker fitted'
-        : silentHours == null || silentHours > 3
-          ? 'tracker offline (no contact for over 3 hours)'
-          : r.ignition === 1
-            ? r.gps_valid
-              ? 'driving / engine on'
-              : 'engine on but no GPS fix (check the GPS antenna if this persists)'
-            : r.gnss_status === 3
-              ? 'parked (ignition off, GPS asleep; last position is where it is parked)'
-              : 'ignition off';
-      return { ...r, state };
-    })
+    (rows.rows as Array<Record<string, unknown>>).map((r) => ({ ...r, state: vehicleState(r, now) }))
   );
+}
+
+/**
+ * Parked, driving, offline or no fix — the one judgement FuelBrain got wrong
+ * on a real car, so it lives here as a pure function with tests around it.
+ * Timestamps are the database's wall-clock strings, read as UTC.
+ */
+export function vehicleState(
+  r: { imei?: unknown; tracker_last_seen?: unknown; ignition?: unknown; gnss_status?: unknown; gps_valid?: unknown },
+  nowMs: number
+): string {
+  if (!r.imei) return 'no tracker fitted';
+  const seen = r.tracker_last_seen ? Date.parse(`${String(r.tracker_last_seen).replace(' ', 'T')}Z`) : NaN;
+  const silentHours = Number.isFinite(seen) ? (nowMs - seen) / 3_600_000 : null;
+  if (silentHours == null || silentHours > 3) return 'tracker offline (no contact for over 3 hours)';
+  if (r.ignition === 1) {
+    return r.gps_valid
+      ? 'driving / engine on'
+      : 'engine on but no GPS fix (check the GPS antenna if this persists)';
+  }
+  if (r.gnss_status === 3) return 'parked (ignition off, GPS asleep; last position is where it is parked)';
+  return 'ignition off';
 }
 
 const windowQuery = (i: { days?: number; from?: string; to?: string }) =>
   i.from && i.to ? `from=${i.from}&to=${i.to}` : `days=${i.days ?? 7}`;
 
-function tools(get: Fetcher, customerId: string) {
+export interface DraftedAction {
+  id: string;
+  kind: 'driver_email';
+  driver_name: string;
+  to: string;
+  subject: string;
+  body: string;
+}
+
+export interface ToolContext {
+  customerId: string;
+  userId: string | null;
+  /** Who the draft is signed by: the person asking. */
+  signerName: string;
+  /** Called the moment a draft exists, so the chat can show its card. */
+  onAction: (action: DraftedAction) => void;
+  /** Ids drafted this turn, for the route to attach to the saved reply. */
+  drafted: string[];
+}
+
+/**
+ * Which driver the model meant. An id or exact name wins outright, so "Ade"
+ * cannot be ambiguous with "Adebayo" when a driver is literally called Ade;
+ * otherwise a unique partial match, and anything else goes back to the model
+ * to ask the manager rather than guessing.
+ */
+export function matchDriver<D extends { id: string; name: string }>(
+  list: D[],
+  query: string
+): { kind: 'one'; driver: D } | { kind: 'ambiguous'; names: string[] } | { kind: 'none' } {
+  const q = query.trim().toLowerCase();
+  if (!q) return { kind: 'none' };
+  const exact = list.filter((d) => d.id === query.trim() || d.name.toLowerCase() === q);
+  if (exact.length === 1) return { kind: 'one', driver: exact[0] };
+  const partial = exact.length > 1 ? exact : list.filter((d) => d.name.toLowerCase().includes(q));
+  if (partial.length === 1) return { kind: 'one', driver: partial[0] };
+  if (partial.length > 1) return { kind: 'ambiguous', names: partial.map((d) => d.name) };
+  return { kind: 'none' };
+}
+
+/**
+ * A draft email to one of this fleet's drivers. Nothing is sent here: the row
+ * waits as 'pending' until the manager presses Send on the card.
+ */
+async function draftDriverMessage(
+  ctx: ToolContext,
+  input: { driver: string; subject: string; message: string }
+): Promise<string> {
+  const fleetDrivers = await db
+    .select({ id: drivers.id, name: drivers.fullName, email: drivers.email, status: drivers.status })
+    .from(drivers)
+    .where(eq(drivers.customerId, ctx.customerId));
+  const found = matchDriver(fleetDrivers, input.driver);
+  if (found.kind === 'none') {
+    return `No driver in this fleet matches "${input.driver}". Drivers: ${fleetDrivers.map((d) => d.name).join(', ') || 'none'}.`;
+  }
+  if (found.kind === 'ambiguous') {
+    return `More than one driver matches "${input.driver}": ${found.names.join(', ')}. Ask the manager which one.`;
+  }
+  const driver = found.driver;
+  if (!driver.email || !isDeliverable(driver.email)) {
+    return `${driver.name} has no usable email address on file, so nothing was drafted. The manager can add one under Driver management.`;
+  }
+  const [row] = await db
+    .insert(fuelbrainActions)
+    .values({
+      customerId: ctx.customerId,
+      userId: ctx.userId,
+      kind: 'driver_email',
+      driverId: driver.id,
+      toEmail: driver.email,
+      subject: input.subject.trim().slice(0, 200),
+      body: input.message.trim(),
+    })
+    .returning({ id: fuelbrainActions.id });
+  ctx.drafted.push(row.id);
+  ctx.onAction({
+    id: row.id,
+    kind: 'driver_email',
+    driver_name: driver.name,
+    to: driver.email,
+    subject: input.subject.trim().slice(0, 200),
+    body: input.message.trim(),
+  });
+  return `Draft ready for ${driver.name} (${driver.email}). It has NOT been sent: the manager must review it (they can edit it on the card) and press Send. Tell them that.`;
+}
+
+function tools(get: Fetcher, ctx: ToolContext) {
+  const customerId = ctx.customerId;
   return [
+    betaZodTool({
+      name: 'certificates',
+      description:
+        'Vehicle licences and roadworthiness (VIO) certificates on file: vehicle, driver, issuing state, issue and expiry dates, days to expiry and status (valid, expiring, expired).',
+      inputSchema: z.object({}),
+      run: () => get('/certificates'),
+    }),
+    betaZodTool({
+      name: 'draft_driver_message',
+      description:
+        `Draft an email to one of the fleet's drivers (a warning, reminder or note). It is NOT sent: the manager reviews the draft, can edit it on the card, and presses Send. Use the driver's full name as shown by other tools. Sign it off as ${ctx.signerName}.`,
+      inputSchema: z.object({
+        driver: z.string().min(2).describe("The driver's name, or their id."),
+        subject: z.string().min(3).max(200).describe('Short subject line.'),
+        message: z
+          .string()
+          .min(20)
+          .max(3000)
+          .describe('The email body in plain text, addressed to the driver by first name and signed off with the manager\'s name given in the tool description.'),
+      }),
+      run: (i) => draftDriverMessage(ctx, i),
+    }),
     betaZodTool({
       name: 'vehicle_status',
       description:
@@ -237,9 +367,12 @@ function tools(get: Fetcher, customerId: string) {
     }),
     betaZodTool({
       name: 'harsh_driving',
-      description: 'Harsh braking, acceleration and cornering events from the tracker, per vehicle and driver.',
+      description:
+        "Each driving event from the trackers' own accelerometers (harsh braking, acceleration, cornering, overspeeding, crash) with vehicle, driver, time (Lagos), speed and g-force. Use for any question about how someone drove, and to cite dates and counts in a warning.",
       inputSchema: z.object({ days }),
-      run: (i) => get(`/devices/green-driving?days=${i.days ?? 7}`),
+      // /devices/green-driving only reports whether eco-driving is switched
+      // on; it lists no events. FuelBrain once told a manager there were none.
+      run: (i) => get(`/device-events?type=driving&days=${i.days ?? 7}&limit=200`),
     }),
     betaZodTool({
       name: 'maintenance_status',
@@ -252,6 +385,8 @@ function tools(get: Fetcher, customerId: string) {
 
 /** What the chat shows while a tool runs, so a pause reads as work, not a hang. */
 export const TOOL_ACTIVITY: Record<string, string> = {
+  certificates: 'Checking licences and certificates',
+  draft_driver_message: 'Drafting a message to the driver',
   vehicle_status: 'Checking vehicle and tracker status',
   driver_performance: 'Reading driver performance',
   fleet_summary: 'Reading the fleet summary',
@@ -273,13 +408,17 @@ export const TOOL_ACTIVITY: Record<string, string> = {
 export async function askFuelBrain(opts: {
   authorization: string;
   customerId: string;
+  userId: string | null;
+  signerName: string;
+  onAction: (action: DraftedAction) => void;
+  drafted: string[];
   history: Array<{ role: 'user' | 'assistant'; content: string }>;
   question: string;
   onText: (delta: string) => void;
   onTool: (name: string) => void;
   /** Filled in as each model call reports usage, so a stopped or failed
    *  answer is still charged for what it consumed. */
-  usage: { inputTokens: number; outputTokens: number };
+  usage: { inputTokens: number; outputTokens: number; model?: string };
   signal?: AbortSignal;
 }): Promise<string> {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Lagos' });
@@ -296,7 +435,13 @@ export async function askFuelBrain(opts: {
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
       system: `${SYSTEM_PROMPT}\n\nToday is ${today}.`,
-      tools: tools(fetcherFor(opts.authorization), opts.customerId),
+      tools: tools(fetcherFor(opts.authorization), {
+        customerId: opts.customerId,
+        userId: opts.userId,
+        signerName: opts.signerName,
+        onAction: opts.onAction,
+        drafted: opts.drafted,
+      }),
       messages: [...opts.history, { role: 'user', content: opts.question }],
     },
     { signal: opts.signal }
@@ -309,6 +454,8 @@ export async function askFuelBrain(opts: {
     let outputSoFar = 0;
     for await (const event of stream) {
       if (event.type === 'message_start') {
+        // The model that actually answered, which a fallback can change.
+        opts.usage.model = event.message.model;
         const u = event.message.usage;
         opts.usage.inputTokens +=
           u.input_tokens + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);

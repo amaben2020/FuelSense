@@ -29,7 +29,8 @@
     "demo:push": "DOTENV_CONFIG_PATH=.env.demo drizzle-kit push",
     "demo:seed": "DOTENV_CONFIG_PATH=.env.demo tsx src/scripts/seed-blue-fleet.ts",
     "dev:demo": "DOTENV_CONFIG_PATH=.env.demo tsx watch src/server.ts",
-    "demo:serve": "DOTENV_CONFIG_PATH=.env.demo tsx src/server.ts"
+    "demo:serve": "DOTENV_CONFIG_PATH=.env.demo tsx src/server.ts",
+    "eval:fuelbrain": "tsx evals/fuelbrain/run.ts"
   },
   "keywords": [
     "teltonika",

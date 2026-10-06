@@ -9,6 +9,8 @@ import {
   Check,
   Copy,
   Loader2,
+  Mail,
+  Send,
   Maximize2,
   Minimize2,
   PanelLeft,
@@ -20,9 +22,20 @@ import {
   X,
 } from 'lucide-react';
 import { api, apiUrl, getToken } from '@/lib/api';
+import { FuelBrainChart, parseChartSpec } from '@/components/dashboard/FuelBrainChart';
+import { FuelBrainDiagram } from '@/components/dashboard/FuelBrainDiagram';
 import { useAuthStore } from '@/store/authStore';
 
-type Msg = { role: 'user' | 'assistant'; content: string };
+type DriverAction = {
+  id: string;
+  kind: 'driver_email';
+  driver_name: string | null;
+  to: string;
+  subject: string;
+  body: string;
+  status: 'pending' | 'sent' | 'cancelled';
+};
+type Msg = { role: 'user' | 'assistant'; content: string; actions?: DriverAction[] };
 type Session = { id: string; title: string; updated_at: string };
 type Allowance = {
   used_credits: number;
@@ -38,7 +51,41 @@ const STARTERS = [
   { title: 'Alerts to act on', prompt: 'Any alerts I should act on today?' },
 ];
 
-function Markdown({ children }: { children: string }) {
+/**
+ * Fenced blocks the model can use for pictures: ```chart (JSON, drawn by
+ * FuelBrainChart) and ```mermaid (diagrams). While an answer is still
+ * streaming a block is half-written, so it shows a placeholder until done.
+ */
+function CodeBlock({ lang, code, streaming }: { lang: string; code: string; streaming: boolean }) {
+  if (lang === 'chart' || lang === 'mermaid') {
+    if (streaming) {
+      return (
+        <div className="my-3 flex h-24 items-center justify-center rounded-xl border border-edge bg-panel text-xs text-ink-dim">
+          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin text-brand" />
+          {lang === 'chart' ? 'Drawing chart…' : 'Drawing diagram…'}
+        </div>
+      );
+    }
+    if (lang === 'mermaid') return <FuelBrainDiagram code={code} />;
+    const parsed = parseChartSpec(code);
+    if ('spec' in parsed) return <FuelBrainChart spec={parsed.spec} />;
+    return (
+      <div className="my-3 rounded-xl border border-edge bg-panel p-3">
+        <p className="mb-2 text-[11px] text-ink-dim">This chart could not be drawn: {parsed.error}</p>
+        <pre className="overflow-x-auto text-[12px] text-ink-mid">
+          <code>{code}</code>
+        </pre>
+      </div>
+    );
+  }
+  return (
+    <pre className="my-3 overflow-x-auto rounded-xl border border-edge bg-panel p-3 text-[12px]">
+      <code className="font-mono text-ink-mid">{code}</code>
+    </pre>
+  );
+}
+
+function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -52,7 +99,16 @@ function Markdown({ children }: { children: string }) {
         h2: (p) => <h3 className="mb-2 mt-4 text-base font-semibold text-ink first:mt-0" {...p} />,
         h3: (p) => <h4 className="mb-1.5 mt-3 font-semibold text-ink first:mt-0" {...p} />,
         a: (p) => <a className="text-brand underline underline-offset-2" target="_blank" rel="noreferrer" {...p} />,
-        code: (p) => <code className="rounded bg-ink/10 px-1.5 py-0.5 font-mono text-[0.85em] text-ink" {...p} />,
+        // Block code is drawn by CodeBlock, so <pre> just passes it through.
+        pre: ({ children: c }) => <>{c}</>,
+        code: ({ className, children: c }) => {
+          const text = String(c ?? '').replace(/\n$/, '');
+          const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+          if (lang || text.includes('\n')) {
+            return <CodeBlock lang={lang ?? ''} code={text} streaming={streaming} />;
+          }
+          return <code className="rounded bg-ink/10 px-1.5 py-0.5 font-mono text-[0.85em] text-ink">{c}</code>;
+        },
         table: (p) => (
           <div className="mb-3 overflow-x-auto rounded-xl border border-edge last:mb-0">
             <table className="w-full border-collapse text-[13px]" {...p} />
@@ -94,6 +150,117 @@ function greeting(): string {
 
 const formatReset = (iso: string) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString('en-NG', { day: 'numeric', month: 'short' });
+
+/**
+ * A message FuelBrain drafted for a driver. Nothing has been sent: Send is the
+ * only thing that mails it, and the server refuses a second send.
+ */
+function ActionCard({
+  action,
+  onStatus,
+}: {
+  action: DriverAction;
+  onStatus: (status: DriverAction['status']) => void;
+}) {
+  const [busy, setBusy] = useState<'send' | 'cancel' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [subject, setSubject] = useState(action.subject);
+  const [body, setBody] = useState(action.body);
+
+  const decide = async (what: 'send' | 'cancel') => {
+    setBusy(what);
+    setError(null);
+    try {
+      const r = await api<{ status: DriverAction['status'] }>(`/fuelbrain/actions/${action.id}/${what}`, {
+        method: 'POST',
+        body: what === 'send' ? JSON.stringify({ subject, body }) : undefined,
+      });
+      setEditing(false);
+      onStatus(r.status);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That did not go through.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border border-edge bg-panel">
+      <div className="flex items-center gap-2 border-b border-edge px-3.5 py-2.5">
+        <Mail className="h-4 w-4 text-brand" />
+        <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">
+          Email to {action.driver_name ?? 'driver'} <span className="font-normal text-ink-dim">· {action.to}</span>
+        </p>
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            action.status === 'sent'
+              ? 'bg-good/15 text-good'
+              : action.status === 'cancelled'
+                ? 'bg-ink/10 text-ink-dim'
+                : 'bg-warn/15 text-warn'
+          }`}
+        >
+          {action.status === 'sent' ? 'Sent' : action.status === 'cancelled' ? 'Not sent' : 'Draft — not sent'}
+        </span>
+      </div>
+      {editing ? (
+        <div className="space-y-2 px-3.5 py-3">
+          <input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            maxLength={200}
+            aria-label="Subject"
+            className="w-full rounded-lg border border-edge bg-canvas px-3 py-2 text-[13px] font-semibold text-ink focus:border-brand/60 focus:outline-none"
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            maxLength={5000}
+            rows={Math.min(14, Math.max(6, body.split('\n').length + 1))}
+            aria-label="Message"
+            className="w-full resize-y rounded-lg border border-edge bg-canvas px-3 py-2 text-[13px] leading-6 text-ink-mid focus:border-brand/60 focus:outline-none"
+          />
+        </div>
+      ) : (
+        <div className="px-3.5 py-3">
+          <p className="text-[13px] font-semibold text-ink">{subject}</p>
+          <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-6 text-ink-mid">{body}</p>
+        </div>
+      )}
+      {action.status === 'pending' && (
+        <div className="flex items-center justify-end gap-2 border-t border-edge px-3.5 py-2.5">
+          {error && <p className="mr-auto text-xs text-bad">{error}</p>}
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            disabled={busy != null}
+            className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-mid hover:bg-ink/5 disabled:opacity-50"
+          >
+            {editing ? 'Done editing' : 'Edit'}
+          </button>
+          <button
+            type="button"
+            onClick={() => decide('cancel')}
+            disabled={busy != null}
+            className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-ink-mid hover:bg-ink/5 disabled:opacity-50"
+          >
+            {busy === 'cancel' ? 'Discarding…' : 'Discard'}
+          </button>
+          <button
+            type="button"
+            onClick={() => decide('send')}
+            disabled={busy != null || subject.trim().length < 3 || body.trim().length < 5}
+            className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-canvas disabled:opacity-50"
+          >
+            <Send className="h-3.5 w-3.5" />
+            {busy === 'send' ? 'Sending…' : 'Send email'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function CopyButton({ text }: { text: string }) {
   const [done, setDone] = useState(false);
@@ -449,11 +616,14 @@ export function FuelBrain() {
     const controller = new AbortController();
     abortRef.current = controller;
     let got = '';
+    let acts: DriverAction[] = [];
     let finished = false;
 
+    const showReply = () =>
+      setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content: got, actions: acts }]);
     const appendToAnswer = (delta: string) => {
       got += delta;
-      setMessages((prev) => [...prev.slice(0, -1), { role: 'assistant', content: got }]);
+      showReply();
     };
 
     try {
@@ -483,7 +653,8 @@ export function FuelBrain() {
           const line = frame.split('\n').find((l) => l.startsWith('data: '));
           if (!line) continue;
           const event = JSON.parse(line.slice(6)) as {
-            type: 'text' | 'tool' | 'done' | 'error';
+            type: 'text' | 'tool' | 'action' | 'done' | 'error';
+            action?: Omit<DriverAction, 'status'>;
             delta?: string;
             label?: string;
             message?: string;
@@ -494,6 +665,9 @@ export function FuelBrain() {
           if (event.type === 'text' && event.delta) {
             setActivity(null);
             appendToAnswer(event.delta);
+          } else if (event.type === 'action' && event.action) {
+            acts = [...acts, { ...event.action, status: 'pending' }];
+            showReply();
           } else if (event.type === 'tool') {
             setActivity(event.label ?? 'Looking that up');
           } else if (event.type === 'done') {
@@ -802,7 +976,22 @@ export function FuelBrain() {
                                 {activity}…
                               </p>
                             )}
-                            {m.content && <Markdown>{m.content}</Markdown>}
+                            {m.content && <Markdown streaming={isLast && streaming}>{m.content}</Markdown>}
+                            {m.actions?.map((a) => (
+                              <ActionCard
+                                key={a.id}
+                                action={a}
+                                onStatus={(status) =>
+                                  setMessages((prev) =>
+                                    prev.map((msg) =>
+                                      msg.actions?.some((x) => x.id === a.id)
+                                        ? { ...msg, actions: msg.actions.map((x) => (x.id === a.id ? { ...x, status } : x)) }
+                                        : msg
+                                    )
+                                  )
+                                }
+                              />
+                            ))}
                             {isLast && streaming && !activity && (
                               <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-brand align-middle" />
                             )}

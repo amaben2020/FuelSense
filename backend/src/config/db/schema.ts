@@ -963,3 +963,33 @@ export const fuelbrainUsage = pgTable(
   },
   (t) => [index('fuelbrain_usage_customer_month_idx').on(t.customerId, t.month)]
 );
+
+/**
+ * Things FuelBrain proposed doing outside the chat — today, an email to a
+ * driver. The model only ever drafts one; nothing leaves until the manager
+ * presses Send on the card, which is what moves `status` off 'pending'.
+ */
+export const fuelbrainActions = pgTable(
+  'fuelbrain_actions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => customers.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => fleetUsers.id, { onDelete: 'cascade' }),
+    sessionId: uuid('session_id').references(() => fuelbrainSessions.id, { onDelete: 'cascade' }),
+    /** The assistant reply the card sits under. */
+    messageId: bigint('message_id', { mode: 'number' }).references(() => fuelbrainMessages.id, {
+      onDelete: 'cascade',
+    }),
+    kind: varchar('kind', { length: 30 }).notNull(),
+    driverId: uuid('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    toEmail: varchar('to_email', { length: 255 }).notNull(),
+    subject: varchar('subject', { length: 200 }).notNull(),
+    body: text('body').notNull(),
+    status: varchar('status', { length: 12 }).notNull().default('pending'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    decidedAt: timestamp('decided_at'),
+  },
+  (t) => [index('fuelbrain_actions_customer_idx').on(t.customerId, t.createdAt)]
+);

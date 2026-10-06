@@ -1,10 +1,11 @@
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { authenticateCustomer } from '../auth/auth.middleware';
-import { db } from '../../shared/db-helpers';
-import { fuelbrainMessages, fuelbrainSessions } from '../../config/db/schema';
+import { db, drivers } from '../../shared/db-helpers';
+import { customers, fleetUsers, fuelbrainActions, fuelbrainMessages, fuelbrainSessions } from '../../config/db/schema';
+import { sendMail, isDeliverable } from '../../shared/mailer';
 import { logAndRespond } from '../../shared/errors';
 import { TOOL_ACTIVITY, askFuelBrain, fuelBrainReady } from './fuelbrain.service';
 import { UNREPORTED_CALL_TOKENS, allowanceFor, recordUsage } from './fuelbrain-usage.service';
@@ -71,12 +72,24 @@ router.get('/sessions/:id/messages', async (req: Request, res: Response) => {
       res.status(404).json({ error: 'Chat not found' });
       return;
     }
-    const messages = await db
-      .select({ role: fuelbrainMessages.role, content: fuelbrainMessages.content })
+    const rows = await db
+      .select({ id: fuelbrainMessages.id, role: fuelbrainMessages.role, content: fuelbrainMessages.content })
       .from(fuelbrainMessages)
       .where(eq(fuelbrainMessages.sessionId, owned.id))
       .orderBy(asc(fuelbrainMessages.id));
-    res.json({ messages });
+    const actions = await db
+      .select(actionSelect)
+      .from(fuelbrainActions)
+      .leftJoin(drivers, eq(drivers.id, fuelbrainActions.driverId))
+      .where(eq(fuelbrainActions.sessionId, owned.id))
+      .orderBy(asc(fuelbrainActions.createdAt));
+    res.json({
+      messages: rows.map((m) => ({
+        role: m.role,
+        content: m.content,
+        actions: actions.filter((a) => a.message_id === m.id).map(({ message_id: _m, ...a }) => a),
+      })),
+    });
   } catch (error) {
     logAndRespond(res, req.path, error);
   }
@@ -123,7 +136,8 @@ router.post('/chat', askLimiter, async (req: Request, res: Response) => {
   }
 
   let send: (event: Record<string, unknown>) => void = () => {};
-  const usage = { inputTokens: 0, outputTokens: 0 };
+  const usage: { inputTokens: number; outputTokens: number; model?: string } = { inputTokens: 0, outputTokens: 0 };
+  const drafted: string[] = [];
   try {
     let session: { id: string; title: string } | undefined;
     if (requestedSession) {
@@ -182,6 +196,10 @@ router.post('/chat', askLimiter, async (req: Request, res: Response) => {
       reply = await askFuelBrain({
         authorization: req.headers.authorization ?? '',
         customerId: req.user.customerId,
+        userId: req.user.userId ?? null,
+        signerName: req.user.name || 'Your fleet manager',
+        onAction: (action) => send({ type: 'action', action }),
+        drafted,
         history,
         question,
         signal: abort.signal,
@@ -211,10 +229,21 @@ router.post('/chat', askLimiter, async (req: Request, res: Response) => {
         })
         .returning({ id: fuelbrainSessions.id, title: fuelbrainSessions.title });
     }
-    await db.insert(fuelbrainMessages).values([
-      { sessionId: session.id, role: 'user', content: question },
-      { sessionId: session.id, role: 'assistant', content: reply },
-    ]);
+    const saved = await db
+      .insert(fuelbrainMessages)
+      .values([
+        { sessionId: session.id, role: 'user', content: question },
+        { sessionId: session.id, role: 'assistant', content: reply },
+      ])
+      .returning({ id: fuelbrainMessages.id, role: fuelbrainMessages.role });
+    const replyId = saved.find((m) => m.role === 'assistant')?.id;
+    if (drafted.length && replyId) {
+      // Drafts made this turn sit under this reply when the chat is reopened.
+      await db
+        .update(fuelbrainActions)
+        .set({ sessionId: session.id, messageId: replyId })
+        .where(inArray(fuelbrainActions.id, drafted));
+    }
     await db
       .update(fuelbrainSessions)
       .set({ updatedAt: sql`NOW()` })
@@ -225,6 +254,8 @@ router.post('/chat', askLimiter, async (req: Request, res: Response) => {
       sessionId: session.id,
       title: session.title,
       allowance: await allowanceFor(req.user.customerId),
+      model: usage.model ?? null,
+      usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
     });
     res.end();
   } catch (error) {
@@ -238,11 +269,171 @@ router.post('/chat', askLimiter, async (req: Request, res: Response) => {
   }
 });
 
+const actionSelect = {
+  id: fuelbrainActions.id,
+  kind: fuelbrainActions.kind,
+  message_id: fuelbrainActions.messageId,
+  driver_name: drivers.fullName,
+  to: fuelbrainActions.toEmail,
+  subject: fuelbrainActions.subject,
+  body: fuelbrainActions.body,
+  status: fuelbrainActions.status,
+};
+
+const DRIVER_EMAILS_PER_DAY = 20;
+const DRAFT_TTL_MS = 24 * 3_600_000;
+
+/** The asker's own draft, still waiting. */
+async function pendingAction(req: Request) {
+  const id = String(req.params.id);
+  if (!UUID.test(id)) return null;
+  const [row] = await db
+    .select({
+      id: fuelbrainActions.id,
+      toEmail: fuelbrainActions.toEmail,
+      subject: fuelbrainActions.subject,
+      body: fuelbrainActions.body,
+      status: fuelbrainActions.status,
+      createdAt: fuelbrainActions.createdAt,
+      userId: fuelbrainActions.userId,
+    })
+    .from(fuelbrainActions)
+    .where(and(eq(fuelbrainActions.id, id), eq(fuelbrainActions.customerId, req.user.customerId)));
+  if (!row || (row.userId ?? null) !== (req.user.userId ?? null)) return null;
+  return row;
+}
+
+/**
+ * The only way a FuelBrain draft becomes an email: the manager pressing Send.
+ * The status flips first and only from 'pending', so a double click or a
+ * replayed request cannot send it twice.
+ */
+router.post('/actions/:id/send', async (req: Request, res: Response) => {
+  // The manager may have edited the draft on the card before sending.
+  const edited = (req.body ?? {}) as { subject?: unknown; body?: unknown };
+  const subject = typeof edited.subject === 'string' ? edited.subject.trim() : null;
+  const body = typeof edited.body === 'string' ? edited.body.trim() : null;
+  if ((subject != null && (subject.length < 3 || subject.length > 200)) || (body != null && (body.length < 5 || body.length > 5000))) {
+    res.status(400).json({ error: 'Keep the subject to 3-200 characters and the message to 5-5000.' });
+    return;
+  }
+  try {
+    const action = await pendingAction(req);
+    if (!action) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+    if (action.status !== 'pending') {
+      res.status(409).json({ error: `This message was already ${action.status}.`, status: action.status });
+      return;
+    }
+    if (Date.now() - action.createdAt.getTime() > DRAFT_TTL_MS) {
+      res.status(410).json({ error: 'This draft is over a day old. Ask FuelBrain for a fresh one.' });
+      return;
+    }
+    const [account] = await db
+      .select({
+        name: customers.name,
+        company: customers.companyName,
+        email: customers.email,
+        verifiedAt: customers.emailVerifiedAt,
+      })
+      .from(customers)
+      .where(eq(customers.id, req.user.customerId));
+    // An unverified sign-up could be anyone; it must not mail third parties.
+    if (!account?.verifiedAt) {
+      res.status(403).json({ error: 'Confirm your account email before sending messages to drivers.' });
+      return;
+    }
+    const [{ sentToday }] = await db
+      .select({ sentToday: sql<number>`COUNT(*)::int` })
+      .from(fuelbrainActions)
+      .where(
+        and(
+          eq(fuelbrainActions.customerId, req.user.customerId),
+          eq(fuelbrainActions.status, 'sent'),
+          gt(fuelbrainActions.decidedAt, sql`NOW() - INTERVAL '1 day'`)
+        )
+      );
+    if (sentToday >= DRIVER_EMAILS_PER_DAY) {
+      res.status(429).json({ error: `Your fleet has sent ${DRIVER_EMAILS_PER_DAY} driver messages today. Try again tomorrow.` });
+      return;
+    }
+
+    const claimed = await db
+      .update(fuelbrainActions)
+      .set({
+        status: 'sent',
+        decidedAt: sql`NOW()`,
+        ...(subject != null ? { subject } : {}),
+        ...(body != null ? { body } : {}),
+      })
+      .where(and(eq(fuelbrainActions.id, action.id), eq(fuelbrainActions.status, 'pending')))
+      .returning({ id: fuelbrainActions.id });
+    if (!claimed.length) {
+      res.status(409).json({ error: 'This message was already handled.' });
+      return;
+    }
+
+    // Replies go to whoever pressed Send.
+    let replyTo = account.email;
+    if (req.user.userId) {
+      const [user] = await db
+        .select({ email: fleetUsers.email })
+        .from(fleetUsers)
+        .where(eq(fleetUsers.id, req.user.userId));
+      if (user?.email) replyTo = user.email;
+    }
+    const fleetName = account.company || account.name;
+    const sent = await sendMail({
+      to: action.toEmail,
+      subject: subject ?? action.subject,
+      text: `${body ?? action.body}\n\n—\nSent by ${fleetName} through FuelSense. Reply to this email to answer your manager.`,
+      bypassOverride: true,
+      replyTo: isDeliverable(replyTo) ? replyTo : undefined,
+    });
+    if (!sent) {
+      await db
+        .update(fuelbrainActions)
+        .set({ status: 'pending', decidedAt: null })
+        .where(eq(fuelbrainActions.id, action.id));
+      res.status(502).json({ error: 'The email could not be sent. Try again shortly.' });
+      return;
+    }
+    res.json({ success: true, status: 'sent' });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
+router.post('/actions/:id/cancel', async (req: Request, res: Response) => {
+  try {
+    const action = await pendingAction(req);
+    if (!action) {
+      res.status(404).json({ error: 'Draft not found' });
+      return;
+    }
+    const done = await db
+      .update(fuelbrainActions)
+      .set({ status: 'cancelled', decidedAt: sql`NOW()` })
+      .where(and(eq(fuelbrainActions.id, action.id), eq(fuelbrainActions.status, 'pending')))
+      .returning({ id: fuelbrainActions.id });
+    if (!done.length) {
+      res.status(409).json({ error: `This message was already ${action.status}.` });
+      return;
+    }
+    res.json({ success: true, status: 'cancelled' });
+  } catch (error) {
+    logAndRespond(res, req.path, error);
+  }
+});
+
 async function charge(req: Request, usage: { inputTokens: number; outputTokens: number }) {
   await recordUsage({
     customerId: req.user.customerId,
     userId: req.user.userId ?? null,
-    ...usage,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
   }).catch((err) => console.error('[fuelbrain] usage not recorded:', err));
 }
 
