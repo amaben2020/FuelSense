@@ -23,7 +23,7 @@ against production:
 | 21 | GSM signal | — | Connectivity |
 | 24 | Speed | km/h | Harsh events, overspeed, idle detection |
 | 68 | Battery current | mA | Limited power diagnostics |
-| 69 | GNSS status | — | Fix quality |
+| 69 | GNSS status | — | 0 off · 1 on, **fix** · 2 on, **no fix** · 3 asleep (parked). The FMC150 has also sent an undocumented 4. Verified against this fleet's frames, Oct 2026 |
 | 181 | PDOP | — | Fix quality |
 | 182 | HDOP | — | Fix quality |
 | 199 | Trip odometer | m | Trip distance |

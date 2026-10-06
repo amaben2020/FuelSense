@@ -27,6 +27,12 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
+      label: 'FuelBrain',
+      collapsed: false,
+      items: ['fuelbrain/overview'],
+    },
+    {
+      type: 'category',
       label: 'Operations',
       collapsed: false,
       items: [
