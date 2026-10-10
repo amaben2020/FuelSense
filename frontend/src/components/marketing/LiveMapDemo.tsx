@@ -1,39 +1,29 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { APIProvider, Map, useMap } from '@vis.gl/react-google-maps';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-import { FLEET_DARK_MAP_STYLES, FLEET_MAPS_KEY } from '@/lib/fleet-map-theme';
-import { VehicleCarMarker } from '@/components/maps/SharedMapLayers';
+import { MAPBOX_TOKEN } from '@/components/maps/ReplayMap3D';
 import { GnssTrace } from './GnssTrace';
 import { SloshTank } from './SloshTank';
+import { LIVE_FIRST_LEG, LIVE_ROUTE, LIVE_ROUTE_KM } from './demo-routes';
+import { boundsOf, carElement, pointAt, routeLengths, sliceRoute, useLazyMapbox } from './mapbox-demo';
 
 // A trip on a real map, scrubbed by scroll position.
 //
-// The route is sample data, but everything drawn from it is genuine product
-// behaviour: the trail builds behind the vehicle, the tank drains against
-// distance, and each stop can be opened to see where the vehicle actually sat.
-
-const ROUTE: Array<{ lat: number; lng: number }> = [
-  { lat: 8.9947, lng: 7.6168 },
-  { lat: 8.9912, lng: 7.6201 },
-  { lat: 8.9868, lng: 7.6244 },
-  { lat: 8.9821, lng: 7.6289 },
-  { lat: 8.9764, lng: 7.6321 },
-  { lat: 8.9702, lng: 7.6338 },
-  { lat: 8.9641, lng: 7.6372 },
-  { lat: 8.9588, lng: 7.6428 },
-  { lat: 8.9536, lng: 7.6491 },
-  { lat: 8.9489, lng: 7.6558 },
-  { lat: 8.9451, lng: 7.6627 },
-  { lat: 8.9418, lng: 7.6702 },
-];
+// The drive is sample data on real roads (Gwarinpa → Wuse Market → Garki
+// Area 11, geometry in demo-routes.ts). Everything drawn from it is genuine
+// product behaviour: the trail builds behind the vehicle, the tank drains
+// against distance, and each stop opens to show where the vehicle sat.
+//
+// Mapbox, not Google: a public page's traffic is nobody's to control, and the
+// map is only created when this section is about to scroll into view. Opening
+// a stop re-aims the same map instead of loading a second one.
 
 export interface Stop {
   id: string;
   name: string;
-  position: { lat: number; lng: number };
   arrived: string;
   minutes: number;
   idleLiters: number;
@@ -42,399 +32,184 @@ export interface Stop {
 }
 
 const STOPS: Stop[] = [
-  {
-    id: 'depot',
-    name: 'Depot, Kubwa',
-    position: ROUTE[0],
-    arrived: '06:12',
-    minutes: 0,
-    idleLiters: 0.2,
-    at: 0.02,
-  },
-  {
-    id: 'market',
-    name: 'Nyanya market',
-    position: ROUTE[5],
-    arrived: '06:41',
-    minutes: 14,
-    idleLiters: 0.5,
-    at: 0.45,
-  },
-  {
-    id: 'client',
-    name: 'Client site, Karu',
-    position: ROUTE[9],
-    arrived: '07:08',
-    minutes: 9,
-    idleLiters: 0.3,
-    at: 0.82,
-  },
+  { id: 'depot', name: 'Depot, Gwarinpa', arrived: '06:12', minutes: 0, idleLiters: 0.1, at: 0 },
+  { id: 'market', name: 'Wuse Market', arrived: '06:38', minutes: 14, idleLiters: 0.2, at: LIVE_FIRST_LEG },
+  { id: 'client', name: 'Client site, Garki Area 11', arrived: '07:01', minutes: 9, idleLiters: 0.1, at: 1 },
 ];
 
 const START_LITERS = 42;
-const USED_LITERS = 3.1;
-const TOTAL_KM = 30.4;
+/** 17.6 km at the RAV4's 9.8 km/L city rate, plus the idling at the stops. */
+const USED_LITERS = 2.2;
 const PRICE_PER_LITER = 1300;
 
-/**
- * Compass bearing between two fixes, in degrees.
- *
- * Over the few hundred metres between consecutive points a flat approximation
- * is indistinguishable from great-circle, and it keeps the marker steady
- * rather than jittering on rounding.
- */
-function bearingBetween(
-  from: { lat: number; lng: number },
-  to: { lat: number; lng: number }
-): number {
-  const dLng = (to.lng - from.lng) * Math.cos((from.lat * Math.PI) / 180);
-  const dLat = to.lat - from.lat;
-  if (dLat === 0 && dLng === 0) return 0;
-  return (Math.atan2(dLng, dLat) * 180) / Math.PI;
-}
-
-/** Position along the route for a 0-1 fraction, interpolating between fixes. */
-function pointAt(fraction: number): { lat: number; lng: number } {
-  const clamped = Math.max(0, Math.min(1, fraction));
-  const span = (ROUTE.length - 1) * clamped;
-  const index = Math.min(ROUTE.length - 2, Math.floor(span));
-  const t = span - index;
-  const a = ROUTE[index];
-  const b = ROUTE[index + 1];
-  return { lat: a.lat + (b.lat - a.lat) * t, lng: a.lng + (b.lng - a.lng) * t };
-}
-
-function TripLayer({
-  onProgress,
-  onSelectStop,
-  selectedStopId,
-}: {
-  onProgress: (fraction: number) => void;
-  onSelectStop: (stop: Stop) => void;
-  selectedStopId: string | null;
-}) {
-  const map = useMap();
-  const progressRef = useRef(onProgress);
-  const selectRef = useRef(onSelectStop);
-  const markersRef = useRef<Map<string, google.maps.Marker> | null>(null);
-
-  useEffect(() => {
-    progressRef.current = onProgress;
-    selectRef.current = onSelectStop;
-  });
-
-  useEffect(() => {
-    if (!map) return;
-
-    const bounds = new google.maps.LatLngBounds();
-    ROUTE.forEach((point) => bounds.extend(point));
-    map.fitBounds(bounds, { top: 64, right: 56, bottom: 96, left: 56 });
-
-    const ghost = new google.maps.Polyline({
-      path: ROUTE,
-      map,
-      strokeColor: '#2b3446',
-      strokeOpacity: 1,
-      strokeWeight: 5,
-    });
-
-    const trail = new google.maps.Polyline({
-      path: [ROUTE[0]],
-      map,
-      strokeColor: '#cde04a',
-      strokeOpacity: 1,
-      strokeWeight: 5,
-    });
-
-    // Stops are the interactive part: each is a target you can open.
-    const stopMarkers = new window.Map<string, google.maps.Marker>();
-    STOPS.forEach((stop) => {
-      const marker = new google.maps.Marker({
-        position: stop.position,
-        map,
-        title: `${stop.name}: open street view`,
-        cursor: 'pointer',
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 9,
-          fillColor: '#ff9436',
-          fillOpacity: 0.95,
-          strokeColor: '#0b0e13',
-          strokeWeight: 3,
-        },
-        zIndex: 15,
-      });
-      marker.addListener('click', () => selectRef.current(stop));
-      stopMarkers.set(stop.id, marker);
-    });
-    markersRef.current = stopMarkers;
-
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const state = { value: reduceMotion ? 1 : 0 };
-
-    // The vehicle itself is drawn by <VehicleCarMarker> — the same marker the
-    // live dashboard uses — driven declaratively off the `fraction` state
-    // this reports upward. Only the trail stays imperative here.
-    const paint = () => {
-      const fraction = state.value;
-      const head = pointAt(fraction);
-      const covered = ROUTE.filter((_, i) => i / (ROUTE.length - 1) <= fraction);
-      trail.setPath([...covered, head]);
-      progressRef.current(fraction);
-    };
-
-    paint();
-
-    let tween: gsap.core.Tween | null = null;
-    if (!reduceMotion) {
-      gsap.registerPlugin(ScrollTrigger);
-      tween = gsap.to(state, {
-        value: 1,
-        ease: 'none',
-        scrollTrigger: {
-          trigger: map.getDiv(),
-          start: 'top 78%',
-          end: 'bottom 55%',
-          scrub: 0.7,
-        },
-        onUpdate: paint,
-      });
-    }
-
-    return () => {
-      tween?.scrollTrigger?.kill();
-      tween?.kill();
-      ghost.setMap(null);
-      trail.setMap(null);
-      stopMarkers.forEach((marker) => {
-        google.maps.event.clearInstanceListeners(marker);
-        marker.setMap(null);
-      });
-      markersRef.current = null;
-    };
-  }, [map]);
-
-  // Selection is reflected on the map itself, not only in the list.
-  useEffect(() => {
-    markersRef.current?.forEach((marker, id) => {
-      const active = id === selectedStopId;
-      marker.setIcon({
-        path: google.maps.SymbolPath.CIRCLE,
-        scale: active ? 12 : 9,
-        fillColor: active ? '#cde04a' : '#ff9436',
-        fillOpacity: 0.95,
-        strokeColor: '#0b0e13',
-        strokeWeight: 3,
-      });
-    });
-  }, [selectedStopId]);
-
-  return null;
-}
-
-/**
- * A close look at where the vehicle actually sat.
- *
- * Satellite rather than Street View: Google's car has driven very little of
- * Nigeria, so a panorama request outside the main corridors returns nothing
- * and the visitor gets a black rectangle. Imagery from above exists
- * everywhere, and for "where did my vehicle stop for fourteen minutes" it is
- * the more useful picture anyway. Street View is offered only when coverage
- * genuinely exists, and only once the visitor asks for it: a panorama is a
- * Pro-tier SKU with a fifth of the free allowance a map load gets, and this
- * sits on the public landing page where traffic is nobody's to control.
- *
- * One map and one panorama serve every stop. Google bills each `Map` and
- * `StreetViewPanorama` construction, not each recentre, so the earlier
- * remount-per-stop was paying for a fresh map load and a fresh panorama on
- * every click down the stop list. Now a visit costs one load, plus one
- * panorama the first time they choose Street View — the instances are held
- * across stops and merely repointed.
- */
-function StopView({ stop }: { stop: Stop }) {
-  const mapMount = useRef<HTMLDivElement>(null);
-  const panoMount = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markerRef = useRef<google.maps.Marker | null>(null);
-  const panoRef = useRef<google.maps.StreetViewPanorama | null>(null);
-  // Mode and panorama belong to a stop. Every new stop opens on satellite:
-  // Street View is a deliberate click per stop, never a mode a visitor is
-  // left in while they walk the list.
-  const [view, setView] = useState<{ stop: Stop; mode: 'satellite' | 'street'; panoId: string | null }>({
-    stop,
-    mode: 'satellite',
-    panoId: null,
-  });
-  if (view.stop !== stop) setView({ stop, mode: 'satellite', panoId: null });
-  const { mode, panoId } = view.stop === stop ? view : { mode: 'satellite' as const, panoId: null };
-  const setMode = (next: 'satellite' | 'street') => setView((v) => ({ ...v, mode: next }));
-
-  useEffect(() => {
-    if (typeof google === 'undefined') return;
-
-    // Metadata only — free, and the reason the button appears at all.
-    let cancelled = false;
-    new google.maps.StreetViewService()
-      .getPanorama({ location: stop.position, radius: 120 })
-      .then((result) => {
-        const id = result.data.location?.pano;
-        if (!cancelled && id) setView((v) => (v.stop === stop ? { ...v, panoId: id } : v));
-      })
-      .catch(() => {
-        // Expected across most of the country, so it is not an error state.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [stop]);
-
-  useEffect(() => {
-    const container = mapMount.current;
-    if (!container || typeof google === 'undefined') return;
-
-    if (!mapRef.current) {
-      mapRef.current = new google.maps.Map(container, {
-        center: stop.position,
-        zoom: 18,
-        mapTypeId: google.maps.MapTypeId.HYBRID,
-        disableDefaultUI: true,
-        gestureHandling: 'cooperative',
-      });
-      // A ring rather than a pin, so the imagery underneath stays readable.
-      markerRef.current = new google.maps.Marker({
-        map: mapRef.current,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 12,
-          fillColor: '#cde04a',
-          fillOpacity: 0.18,
-          strokeColor: '#cde04a',
-          strokeWeight: 2.5,
-        },
-      });
-    }
-
-    mapRef.current.setCenter(stop.position);
-    markerRef.current?.setPosition(stop.position);
-  }, [stop]);
-
-  useEffect(() => {
-    const container = panoMount.current;
-    if (!container || typeof google === 'undefined') return;
-    if (mode !== 'street' || !panoId) {
-      panoRef.current?.setVisible(false);
-      return;
-    }
-
-    if (!panoRef.current) {
-      panoRef.current = new google.maps.StreetViewPanorama(container, {
-        pano: panoId,
-        pov: { heading: 30, pitch: 0 },
-        addressControl: false,
-        fullscreenControl: false,
-        motionTracking: false,
-        motionTrackingControl: false,
-        linksControl: false,
-        panControl: false,
-        zoomControl: false,
-        enableCloseButton: false,
-      });
-    } else {
-      panoRef.current.setPano(panoId);
-      panoRef.current.setPov({ heading: 30, pitch: 0 });
-    }
-    panoRef.current.setVisible(true);
-  }, [mode, panoId]);
-
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${stop.position.lat},${stop.position.lng}`;
-
-  return (
-    <div className="fs-pano">
-      <div className="fs-pano__frame" ref={mapMount} hidden={mode === 'street' && panoId != null} />
-      <div className="fs-pano__frame" ref={panoMount} hidden={mode !== 'street' || panoId == null} />
-
-      {panoId && (
-        <div className="fs-pano__modes">
-          {(['satellite', 'street'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              className="fs-pano__mode"
-              aria-pressed={mode === option}
-              onClick={() => setMode(option)}
-            >
-              {option === 'satellite' ? 'Satellite' : 'Street view'}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="fs-pano__bar">
-        <span>
-          <strong>{stop.name}</strong>{' '}
-          <span style={{ color: '#7d8697' }}>
-            {stop.arrived} · {stop.minutes > 0 ? `${stop.minutes} min stop` : 'trip start'} ·{' '}
-            {stop.idleLiters.toFixed(1)} L idling
-          </span>
-        </span>
-        <a className="fs-pano__link" href={mapsUrl} target="_blank" rel="noopener noreferrer">
-          Open in Google Maps
-        </a>
-      </div>
-    </div>
-  );
-}
-
 export function LiveMapDemo() {
+  const root = useRef<HTMLDivElement>(null);
+  const mapBox = useRef<HTMLDivElement>(null);
+  const carRef = useRef<mapboxgl.Marker | null>(null);
+  const stopEls = useRef<HTMLElement[]>([]);
   const [fraction, setFraction] = useState(0);
   const [selected, setSelected] = useState<Stop | null>(null);
+  const lengths = useMemo(() => routeLengths(LIVE_ROUTE), []);
 
-  const selectStop = useCallback((stop: Stop) => setSelected(stop), []);
+  const { map, ready } = useLazyMapbox(
+    mapBox,
+    { bounds: boundsOf(LIVE_ROUTE), fitBoundsOptions: { padding: 56 }, antialias: true },
+    (m) => {
+      // Extruded buildings for when a stop is opened close up. Heights come
+      // from the style's own tiles, so where there is no data it stays flat.
+      const firstSymbol = (m.getStyle().layers ?? []).find((l) => l.type === 'symbol')?.id;
+      m.addLayer(
+        {
+          id: 'demo-buildings',
+          source: 'composite',
+          'source-layer': 'building',
+          filter: ['==', 'extrude', 'true'],
+          type: 'fill-extrusion',
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-color': '#22262e',
+            'fill-extrusion-height': ['get', 'height'],
+            'fill-extrusion-base': ['get', 'min_height'],
+            'fill-extrusion-opacity': 0.85,
+          },
+        },
+        firstSymbol
+      );
+      m.addSource('live-ghost', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: LIVE_ROUTE } },
+      });
+      m.addLayer({
+        id: 'live-ghost',
+        type: 'line',
+        source: 'live-ghost',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#5a6170', 'line-width': 2, 'line-dasharray': [1.5, 2] },
+      });
+      m.addSource('live-trail', {
+        type: 'geojson',
+        lineMetrics: true,
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [LIVE_ROUTE[0], LIVE_ROUTE[0]] } },
+      });
+      m.addLayer({
+        id: 'live-trail-glow',
+        type: 'line',
+        source: 'live-trail',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#cde04a', 'line-width': 12, 'line-opacity': 0.16, 'line-blur': 6 },
+      });
+      m.addLayer({
+        id: 'live-trail',
+        type: 'line',
+        source: 'live-trail',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-width': 4.5,
+          'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, '#7f9a26', 1, '#e2f56a'],
+        },
+      });
+      stopEls.current = STOPS.map((stop) => {
+        const el = document.createElement('button');
+        el.type = 'button';
+        el.className = 'fs-mapstop';
+        el.setAttribute('aria-label', stop.name);
+        el.dataset.at = String(stop.at);
+        el.addEventListener('click', () => setSelected(stop));
+        new mapboxgl.Marker({ element: el }).setLngLat(pointAt(LIVE_ROUTE, lengths, stop.at).at).addTo(m);
+        return el;
+      });
+      carRef.current = new mapboxgl.Marker({ element: carElement(), rotationAlignment: 'map', pitchAlignment: 'map' })
+        .setLngLat(LIVE_ROUTE[0])
+        .addTo(m);
+    }
+  );
 
-  if (!FLEET_MAPS_KEY) return <GnssTrace />;
+  // Scroll drives the trip.
+  useEffect(() => {
+    const scope = root.current;
+    if (!scope || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    gsap.registerPlugin(ScrollTrigger);
+    const ctx = gsap.context(() => {
+      const proxy = { t: 0 };
+      gsap.to(proxy, {
+        t: 1,
+        ease: 'none',
+        scrollTrigger: { trigger: scope, start: 'top 75%', end: 'bottom 55%', scrub: 0.7 },
+        onUpdate: () => setFraction(proxy.t),
+      });
+    }, scope);
+    return () => ctx.revert();
+  }, []);
 
-  const litersLeft = START_LITERS - USED_LITERS * fraction;
-  const km = TOTAL_KM * fraction;
-  const spend = Math.round(USED_LITERS * fraction * PRICE_PER_LITER);
+  const shown = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : fraction;
 
-  // Same lookahead the old imperative marker used, so the car still turns
-  // into corners instead of snapping after them.
-  const head = pointAt(fraction);
-  const ahead = pointAt(Math.min(1, fraction + 0.012));
-  const heading = bearingBetween(head, ahead);
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    const t = Math.max(shown, 0.002);
+    (m.getSource('live-trail') as mapboxgl.GeoJSONSource | undefined)?.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: sliceRoute(LIVE_ROUTE, lengths, 0, t) },
+    });
+    const { at, bearing } = pointAt(LIVE_ROUTE, lengths, t);
+    carRef.current?.setLngLat(at).setRotation(bearing);
+    for (const el of stopEls.current) el.classList.toggle('is-reached', shown >= Number(el.dataset.at) - 0.001);
+  }, [shown, ready, map, lengths]);
+
+  // Opening a stop flies the same map down to it; closing returns to the route.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    if (selected) {
+      m.flyTo({
+        center: pointAt(LIVE_ROUTE, lengths, selected.at).at,
+        zoom: 16.6,
+        pitch: 58,
+        bearing: -25,
+        duration: 1800,
+        essential: true,
+      });
+    } else {
+      m.fitBounds(boundsOf(LIVE_ROUTE), { padding: 56, pitch: 0, bearing: 0, duration: 1400 });
+    }
+    for (const el of stopEls.current) el.classList.toggle('is-selected', selected != null && el.getAttribute('aria-label') === selected.name);
+  }, [selected, ready, map, lengths]);
+
+  if (!MAPBOX_TOKEN) return <GnssTrace />;
+
+  const litersLeft = START_LITERS - USED_LITERS * shown;
+  const km = LIVE_ROUTE_KM * shown;
+  const spend = Math.round(USED_LITERS * shown * PRICE_PER_LITER);
 
   return (
-    <div className="fs-trace">
+    <div className="fs-trace" ref={root}>
       <div className="fs-trace__map">
         <div className="fs-mapframe">
-          <APIProvider apiKey={FLEET_MAPS_KEY}>
-            <Map
-              defaultCenter={ROUTE[5]}
-              defaultZoom={12}
-              disableDefaultUI
-              gestureHandling="cooperative"
-              styles={FLEET_DARK_MAP_STYLES}
-              style={{ width: '100%', height: '100%' }}
-            >
-              <TripLayer
-                onProgress={setFraction}
-                onSelectStop={selectStop}
-                selectedStopId={selected?.id ?? null}
-              />
-              {/* The exact marker the live dashboard renders for a moving
-                  vehicle, not a lookalike built for the landing page. */}
-              <VehicleCarMarker lat={head.lat} lng={head.lng} heading={heading} title="FLEET-01" />
-            </Map>
-          </APIProvider>
+          <div ref={mapBox} className="fs-mapframe__map" />
 
           <div className="fs-mapbadge">
             <span className="fs-live">
               <span className="fs-live__dot" aria-hidden />
-              LIVE-FMC150
+              LAG-001-FS
             </span>
-            <span className="fs-mapbadge__sub">Toyota RAV4 · Benneth · Abuja</span>
+            <span className="fs-mapbadge__sub">Toyota RAV4 · Abuja</span>
           </div>
+
+          {selected && (
+            <div className="fs-mapstopcard">
+              <div>
+                <p className="fs-mapstopcard__name">{selected.name}</p>
+                <p className="fs-mapstopcard__meta">
+                  {selected.arrived} · {selected.minutes > 0 ? `${selected.minutes} min stop` : 'trip start'} ·{' '}
+                  {selected.idleLiters.toFixed(1)} L idling
+                </p>
+              </div>
+              <button type="button" className="fs-mapstopcard__back" onClick={() => setSelected(null)}>
+                Back to route
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="fs-stops">
@@ -444,21 +219,16 @@ export function LiveMapDemo() {
               type="button"
               className="fs-stopbtn"
               aria-pressed={selected?.id === stop.id}
-              onClick={() => setSelected(stop)}
+              onClick={() => setSelected(selected?.id === stop.id ? null : stop)}
             >
               <span className="fs-stopbtn__name">{stop.name}</span>
               <span className="fs-stopbtn__meta">
-                {stop.arrived} · {stop.minutes > 0 ? `${stop.minutes} min` : 'departed'} ·{' '}
-                {stop.idleLiters.toFixed(1)} L
+                {stop.arrived} · {stop.minutes > 0 ? `${stop.minutes} min` : 'departed'} · {stop.idleLiters.toFixed(1)} L
               </span>
-              <span className="fs-stopbtn__cue">
-                {selected?.id === stop.id ? 'Showing' : 'Click to see the spot'}
-              </span>
+              <span className="fs-stopbtn__cue">{selected?.id === stop.id ? 'Showing · click to close' : 'Fly to this stop'}</span>
             </button>
           ))}
         </div>
-
-        {selected && <StopView stop={selected} />}
       </div>
 
       <aside className="fs-trace__gauge">
@@ -475,8 +245,7 @@ export function LiveMapDemo() {
           Burn rate
         </p>
         <p className="fs-trace__reading fs-trace__reading--tight">
-          {fraction > 0.02 ? ((USED_LITERS * fraction) / Math.max(km, 0.1)).toFixed(3) : '0.000'}{' '}
-          L/km
+          {shown > 0.02 ? ((USED_LITERS * shown) / Math.max(km, 0.1)).toFixed(3) : '0.000'} L/km
         </p>
 
         <p className="fs-trace__gaugelabel" style={{ marginTop: '1.25rem' }}>

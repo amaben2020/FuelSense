@@ -155,21 +155,17 @@ export function HaulixShowcase() {
       />
 
       <div className="relative mx-auto max-w-6xl px-6">
-        <p
-          data-hx-reveal
-          className="text-[11px] font-semibold uppercase tracking-[0.2em] text-brand"
-        >
-          What you are actually buying
-        </p>
-        <h2
-          data-hx-reveal
-          className="mt-4 max-w-2xl text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl"
-        >
-          Every part of the vehicle, accounted for.
+        <div className="fs-marker">
+          <span className="fs-marker__rule" />
+          <span className="fs-marker__label">The hardware</span>
+        </div>
+        <h2 data-hx-reveal className="fs-h2">
+          Every part of the vehicle, <em>accounted</em> for.
         </h2>
-        <p data-hx-reveal className="mt-5 max-w-xl text-base leading-relaxed text-ink-mid">
-          One tracker, wired to the battery, watching fuel, distance and power. Drag the vehicle
-          to look around — the markers are the same ones your fleet manager taps in the dashboard.
+        <p data-hx-reveal className="fs-body" style={{ marginTop: '1.25rem' }}>
+          One tracker, wired to the battery and ignition, reporting position, speed and distance.
+          Drag the vehicle to look around — the markers are the same ones your fleet manager taps
+          in the dashboard.
         </p>
 
         {/* Vehicle stage, restyled as a dashboard: instrument panel on the
@@ -183,7 +179,7 @@ export function HaulixShowcase() {
               className="inline-flex items-center gap-2 self-start rounded-full border border-edge bg-panel-deep px-3 py-1.5 text-xs font-semibold text-ink-mid transition hover:border-brand/40 hover:text-ink"
             >
               <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-good" aria-hidden />
-              Live · FLEET-01
+              Live · LAG-001-FS
             </button>
             <div className="mt-2 flex flex-1 items-center justify-center">
               <SpeedGauge
@@ -208,7 +204,7 @@ export function HaulixShowcase() {
               className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_40%,color-mix(in_srgb,var(--brand)_8%,transparent),transparent_70%)]"
             />
             <div className="relative h-[380px] cursor-grab active:cursor-grabbing sm:h-[460px]">
-              <Vehicle3D plate="FLEET-01" model="RAV4" />
+              <Vehicle3D plate="LAG-001-FS" model="RAV4" />
             </div>
             <div className="relative flex flex-wrap items-center justify-between gap-3 border-t border-edge bg-panel-deep/70 px-6 py-4 text-xs text-ink-dim">
               <span className="flex items-center gap-1.5">

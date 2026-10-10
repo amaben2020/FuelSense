@@ -13,6 +13,7 @@ const noopSubscribe = () => () => {};
 const LINKS = [
   { href: '/#how', label: 'How it works' },
   { href: '/#live', label: 'Live monitoring' },
+  { href: '/#fuelbrain', label: 'FuelBrain' },
   { href: '/#dashboard', label: 'Dashboard' },
   { href: '/pricing', label: 'Pricing' },
   { href: '/contact', label: 'Contact' },

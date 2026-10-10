@@ -10,9 +10,9 @@ import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
 import { ReconcileFlow } from '@/components/marketing/ReconcileFlow';
 import { FuelMath } from '@/components/marketing/FuelMath';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
-import { ScrollTimeline } from '@/components/marketing/ScrollTimeline';
 import { HaulixShowcase } from '@/components/marketing/HaulixShowcase';
 import { DrivingEvents } from '@/components/marketing/DrivingEvents';
+import { FuelBrainShowcase } from '@/components/marketing/FuelBrainShowcase';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
 
@@ -133,7 +133,6 @@ export default function LandingPage() {
   return (
     <div className="fs-landing" ref={scope}>
       <MarketingNav />
-      <ScrollTimeline />
 
       {/* 01. hero ------------------------------------------------------ */}
       <section className="fs-shell fs-hero">
@@ -180,6 +179,77 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* trust ---------------------------------------------------------- */}
+      <section className="fs-shell">
+        <div className="fs-trust" data-reveal>
+          {[
+            ['Hardware', 'Teltonika FMC150, fitted in an hour'],
+            ['Hosting', 'AWS eu-north-1, encrypted at rest'],
+            ['Access', 'Manager and read-only viewer roles'],
+            ['Method', 'Every figure shows its working'],
+          ].map(([label, value]) => (
+            <div className="fs-trust__item" key={label}>
+              <p className="fs-trust__label">{label}</p>
+              <p className="fs-trust__value">{value}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* 01. the problem ----------------------------------------------- */}
+      <section className="fs-shell fs-section" id="problem">
+        <Marker num="01" label="The problem" />
+        <div className="fs-split">
+          <div>
+            <h2 className="fs-h2" data-reveal>
+              Between two fill-ups, a fleet runs <em>blind</em>.
+            </h2>
+            <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+              You know what you paid at the pump. You do not know how far that fuel took the
+              vehicle, how much of it burned standing still with the engine running, or which
+              driver&rsquo;s day it went into. Every argument becomes one person&rsquo;s word against
+              another&rsquo;s.
+            </p>
+            <p className="fs-body" style={{ marginTop: '1rem' }} data-reveal>
+              FuelSense replaces that with a record: every trip, stop and idle minute from the
+              tracker, set against the receipts your drivers file.
+            </p>
+          </div>
+
+          <div className="fs-stats fs-stats--stack" data-reveal>
+            <div className="fs-stat">
+              <p className="fs-stat__value fs-mono" data-count="1300" data-prefix="₦">
+                ₦0
+              </p>
+              <p className="fs-stat__label">Per litre, and moving</p>
+              <p className="fs-stat__note">
+                Pump prices change faster than receipts accumulate. Each litre is valued at the
+                price in force the day it burned, so last month never changes when today&rsquo;s
+                price does.
+              </p>
+            </div>
+            <div className="fs-stat">
+              <p className="fs-stat__value fs-mono" data-count="0.9" data-decimals="1" data-suffix=" L/h">
+                0 L/h
+              </p>
+              <p className="fs-stat__label">Burned going nowhere</p>
+              <p className="fs-stat__note">
+                A typical petrol engine idling. Twenty minutes at a gate is fuel spent on zero
+                kilometres, and invisible on a fuel card statement.
+              </p>
+            </div>
+            <div className="fs-stat">
+              <p className="fs-stat__value fs-mono">0</p>
+              <p className="fs-stat__label">Sensors in the fuel line or tank</p>
+              <p className="fs-stat__note">
+                Nothing is spliced or drilled. Everything comes from one tracker wired to power and
+                ignition, and the receipts you already collect.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* 02. live monitoring ------------------------------------------- */}
       <section className="fs-shell fs-section" id="live">
         <Marker num="02" label="Live monitoring" />
@@ -220,55 +290,19 @@ export default function LandingPage() {
         </p>
       </section>
 
-      {/* 04. the problem ----------------------------------------------- */}
-      <section className="fs-shell fs-section" id="problem">
-        <Marker num="04" label="The problem" />
+      {/* 04. FuelBrain -------------------------------------------------- */}
+      <section className="fs-shell fs-section" id="fuelbrain">
+        <Marker num="04" label="FuelBrain" />
         <h2 className="fs-h2" data-reveal>
-          Between two fill-ups, a fleet runs <em>blind</em>.
+          Ask your fleet a <em>question</em>.
         </h2>
         <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
-          You know what you paid at the pump. You do not know how much of it moved the vehicle, how
-          much burned standing still with the engine running, or how much never reached the tank.
-          Every argument with a driver becomes one person&rsquo;s word against another&rsquo;s.
+          FuelBrain is an assistant that works over your own fleet data. Ask in plain English who
+          idled the most, what fuel cost last month, or which alerts need you today, and get an
+          answer with the figures behind it.
         </p>
 
-        <div className="fs-stats" style={{ marginTop: '2.5rem' }} data-reveal>
-          <div className="fs-stat">
-            <p className="fs-stat__value fs-mono" data-count="1300" data-prefix="₦">
-              ₦0
-            </p>
-            <p className="fs-stat__label">Per litre, and moving</p>
-            <p className="fs-stat__note">
-              Pump prices change faster than receipts accumulate. You set the price; earlier months
-              keep the price that applied when the fuel was actually burned.
-            </p>
-          </div>
-          <div className="fs-stat">
-            <p
-              className="fs-stat__value fs-mono"
-              data-count="2.3"
-              data-decimals="1"
-              data-suffix=" L/h"
-            >
-              0 L/h
-            </p>
-            <p className="fs-stat__label">Burned going nowhere</p>
-            <p className="fs-stat__note">
-              A 2.5L engine idling in traffic. Twenty minutes at a gate is fuel spent on zero
-              kilometres, and invisible without engine data.
-            </p>
-          </div>
-          <div className="fs-stat">
-            <p className="fs-stat__value fs-mono" data-count="100" data-suffix="%">
-              0%
-            </p>
-            <p className="fs-stat__label">Of trips, evidenced</p>
-            <p className="fs-stat__note">
-              Every trip carries its route, stops, idle time and fuel. Disputes get settled with a
-              replay, not an accusation.
-            </p>
-          </div>
-        </div>
+        <FuelBrainShowcase />
       </section>
 
       {/* 05. how it works ---------------------------------------------- */}
@@ -305,17 +339,17 @@ export default function LandingPage() {
 
           <article className="fs-step" data-step>
             <span className="fs-step__index">Step 02</span>
-            <h3 className="fs-h3">GNSS becomes litres</h3>
+            <h3 className="fs-h3">Distance and idling become litres</h3>
             <p className="fs-small">
-              The device computes fuel itself. Using satellite-measured speed and acceleration
-              against the vehicle&rsquo;s consumption profile, its firmware reports a running total
-              of fuel used and the rate it is burning right now.
+              Odometer-validated distance is divided by the vehicle&rsquo;s rated economy: the
+              official city figure for its model and year, or the rate you set. Engine-on minutes
+              standing still are added at an idle burn rate.
             </p>
             <div className="fs-step__figure">
               <p className="fs-small fs-mono" style={{ color: 'var(--green-700)' }}>
-                AVL 12 · fuel used (ml)
+                km ÷ km/L + idle h × L/h
                 <br />
-                AVL 13 · fuel rate (L/h)
+                AVL 16 · AVL 239 · AVL 24
               </p>
             </div>
           </article>
@@ -324,14 +358,14 @@ export default function LandingPage() {
             <span className="fs-step__index">Step 03</span>
             <h3 className="fs-h3">Litres become naira</h3>
             <p className="fs-small">
-              FuelSense keeps a virtual tank per vehicle, drains it against real burn, credits it
-              from the receipts you log, and prices the result at the fuel price in force that day
-              so last month&rsquo;s spend never changes when today&rsquo;s price does.
+              Each litre is priced at the fuel price in force the day it burned. Receipts your
+              drivers file are the money actually paid, kept separate from the estimate so the
+              two can be compared, never blended.
             </p>
             <div className="fs-step__figure">
               <p className="fs-small fs-mono" style={{ color: 'var(--green-700)' }}>
-                30.4 km ÷ 7.0 km/L
-                <br />= 4.3 L × ₦1,330 = ₦5,779
+                30.4 km ÷ 9.8 km/L = 3.1 L
+                <br />3.1 L × ₦1,300 = ₦4,030
               </p>
             </div>
           </article>
@@ -345,32 +379,26 @@ export default function LandingPage() {
         >
           <div className="fs-avl">
             <div>
-              <span className="fs-step__index">Why this beats a number someone typed in</span>
+              <span className="fs-step__index">Why we say &ldquo;modelled&rdquo;</span>
               <h3 className="fs-h3" style={{ maxWidth: '28ch', marginBlock: '0.5rem 0.875rem' }}>
-                AVL 12 is measured behaviour, not an assumption.
+                An estimate that admits it is one.
               </h3>
               <p className="fs-body">
-                The easy way to estimate fleet fuel is to multiply distance by a figure from a
-                brochure. That figure assumes smooth roads, steady speeds and no air conditioning,
-                none of which describe Lagos or Abuja. It cannot tell a crawling hour from a
-                flowing one, and it reports nothing at all for a vehicle that sat idling the whole
-                afternoon.
+                These trackers have no fuel sensor and no link to the engine computer. The
+                device&rsquo;s own GNSS fuel counter was tested against real receipts and fell far
+                short, so FuelSense does not rely on it. Litres are modelled from what the tracker
+                does measure well: how far the vehicle went and how long the engine ran while it
+                stood still.
               </p>
               <p className="fs-body">
-                <strong>AVL 12</strong>{' '}
-                is the tracker&rsquo;s own running total of fuel consumed,
-                built up continuously from how the vehicle actually moved: every acceleration,
-                every crawl, every minute of idling. Paired with <strong>AVL 13</strong>, the live
-                burn rate, it separates a hard-driven hour from an easy one on the same route.
+                That is stated wherever litres appear as money. The only fuel figure treated as
+                fact is a receipt, and receipts are shown as what was paid rather than folded into
+                the estimate.
               </p>
               <p className="fs-body">
-                It is still a model, and we say so. Rather than claim a fuel figure is exact,
-                every trip carries a <strong>confidence score</strong>. Three hours crawling
-                through Lagos gridlock registers almost no distance while the engine keeps
-                burning, so FuelSense reads that state from the tracker, estimates the idle burn,
-                and lowers the score with the reason attached. Receipts you log calibrate the
-                model further. Managing expectations honestly is what makes the outliers worth
-                acting on.
+                Every trip also carries a <strong>confidence score</strong> with its reasons:
+                sparse fixes, reporting gaps or a cold start without a GPS lock lower it. A manager
+                can see at a glance which figures are solid and which are worth a second look.
               </p>
             </div>
 
@@ -465,17 +493,17 @@ export default function LandingPage() {
         <div style={{ display: 'grid', gap: '1.5rem' }}>
           <div className="fs-panel" data-panel>
             <p className="fs-panel__title">Operational snapshot</p>
-            <p className="fs-panel__sub">Spend, with the distance that earned it</p>
+            <p className="fs-panel__sub">What was paid, and the distance it bought</p>
             <div className="fs-panelgrid">
               <div className="fs-tile">
-                <p className="fs-tile__label">Fuel spend · 7d</p>
-                <p className="fs-tile__value">₦48,300</p>
-                <p className="fs-tile__note">286 km · ₦169/km</p>
+                <p className="fs-tile__label">Distance · 7d</p>
+                <p className="fs-tile__value">286 km</p>
+                <p className="fs-tile__note">14 trips over 6 days</p>
               </div>
               <div className="fs-tile">
-                <p className="fs-tile__label">Money saved</p>
-                <p className="fs-tile__value fs-tile__value--good">₦6,420</p>
-                <p className="fs-tile__note">vs benchmark</p>
+                <p className="fs-tile__label">Bought · receipts</p>
+                <p className="fs-tile__value fs-tile__value--good">₦52,000</p>
+                <p className="fs-tile__note">40 L paid at the pump</p>
               </div>
               <div className="fs-tile">
                 <p className="fs-tile__label">Idling</p>
@@ -483,14 +511,14 @@ export default function LandingPage() {
                 <p className="fs-tile__note">7.9 L burned</p>
               </div>
               <div className="fs-tile">
-                <p className="fs-tile__label">Economy</p>
-                <p className="fs-tile__value">7.4 km/L</p>
-                <p className="fs-tile__note">vs 7.0 benchmark</p>
+                <p className="fs-tile__label">Cost per km</p>
+                <p className="fs-tile__value">₦133</p>
+                <p className="fs-tile__note">modelled, at ₦1,300/L</p>
               </div>
             </div>
             <p className="fs-panel__sub" style={{ marginTop: '0.875rem' }}>
-              286 km at the 7.0 km/L benchmark = 40.9 L, which at ₦1,330/L is ₦54,720. Actual spend
-              was ₦48,300, a saving of ₦6,420.
+              Receipts lead: ₦52,000 is money that left someone&rsquo;s hands. The modelled burn
+              (286 km ÷ 9.8 km/L plus 3h 40m idling, about 32.5 L) sits one click behind it.
             </p>
           </div>
 
@@ -501,12 +529,12 @@ export default function LandingPage() {
             </p>
             <div style={{ marginTop: '0.875rem' }}>
               {[
-                ['Fuel used (GPS)', '7.51 L', '12'],
-                ['Fuel rate (GPS)', '2.27 L/h', '13'],
-                ['Total odometer', '785.8 km', '16'],
+                ['Total odometer', '81,802 km', '16'],
+                ['Speed', '54 km/h', '24'],
+                ['GNSS status', 'Fix · good', '69'],
                 ['Ignition', 'On', '239'],
                 ['Movement', 'Moving', '240'],
-                ['GSM signal strength', '4 /5', '21'],
+                ['GSM signal strength', '4 / 5 · MTN', '21'],
               ].map(([label, value, avl]) => (
                 <div className="fs-row" key={avl}>
                   <span>{label}</span>
@@ -526,7 +554,7 @@ export default function LandingPage() {
             <p className="fs-panel__sub">Per vehicle and per driver, against a realistic baseline</p>
             <div style={{ marginTop: '0.875rem' }}>
               {[
-                { label: 'LIVE-FMC150 · Benneth', mid: '286 km · 38.6 L', right: '7.4 km/L', warn: false },
+                { label: 'LAG-001-FS · Benneth', mid: '286 km · 14 trips', right: '₦133/km', warn: false },
                 { label: 'Harsh braking', mid: 'this week', right: '4 events', warn: true },
                 { label: 'Idling', mid: '3h 40m engine-on, stationary', right: '₦10,500', warn: true },
                 { label: 'Driver score', mid: 'against fleet baseline', right: '92 / 100', warn: false },

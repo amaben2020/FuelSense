@@ -70,7 +70,7 @@ export function HeroDashboard() {
       onMouseLeave={() => (paused.current = false)}
     >
       <div className="fs-hero-dash__chrome">
-        <span className="fs-hero-dash__title">LIVE-FMC150 · Toyota RAV4</span>
+        <span className="fs-hero-dash__title">LAG-001-FS · Toyota RAV4</span>
         <span className="fs-live">
           <span className="fs-live__dot" aria-hidden />
           Live

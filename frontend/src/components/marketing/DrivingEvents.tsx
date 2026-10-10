@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import mapboxgl from 'mapbox-gl';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { BEHAVIOUR_ROUTE, BEHAVIOUR_ROUTE_KM } from './demo-routes';
+import { boundsOf, carElement, pointAt, routeLengths, sliceRoute, useLazyMapbox } from './mapbox-demo';
 
 // The driving-events panel, built to look and behave like the product.
 //
@@ -11,8 +14,9 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 // which defeats the point of the section — someone deciding whether this solves
 // their problem needs to see the actual instrument, not a diagram of one.
 //
-// So this is the replay panel in miniature: a road network underneath, the
-// vehicle marker from the fleet map, a track coloured by measured speed with
+// So this is the replay panel in miniature: a real Abuja road on a Mapbox
+// map (Life Camp to Maitama, geometry committed in demo-routes.ts), the
+// vehicle driving it as you scroll, a track coloured by measured speed with
 // manoeuvre stretches picked out, and the event feed ticking alongside it.
 //
 // **The telemetry below is a scripted demonstration, not a live feed**, and the
@@ -21,15 +25,6 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 // all match what `harsh-driving.ts` actually computes — but these particular
 // numbers describe a drive that never happened. Labelling it clearly is the
 // same standard the product itself is held to.
-
-const ROAD_BG =
-  'M -40 250 C 120 250, 190 236, 250 205 M 250 205 C 330 165, 360 92, 470 70 ' +
-  'M 470 70 C 560 52, 640 96, 720 120 M 90 320 C 180 300, 240 268, 300 230 ' +
-  'M 520 -10 C 540 60, 505 120, 470 190 M 470 190 C 440 250, 470 300, 520 340';
-
-const ROUTE =
-  'M 30 300 C 96 300, 150 288, 196 262 C 250 232, 276 176, 340 152 ' +
-  'C 400 130, 452 158, 508 136 C 560 116, 584 70, 648 56';
 
 type Tone = 'slow' | 'mid' | 'fast' | 'brake' | 'corner' | 'over';
 
@@ -70,7 +65,7 @@ const EVENTS: Event[] = [
     at: 0.13,
     clock: '07:12:04',
     type: 'Trip started',
-    detail: 'Ignition ON · Depot, Kubwa',
+    detail: 'Ignition ON · Depot, Life Camp',
     source: 'AVL 239 ignition edge',
     tone: 'mid',
   },
@@ -115,7 +110,7 @@ function readoutAt(t: number) {
   );
   return {
     speed: Math.max(0, speed),
-    distance: (t * 23.4).toFixed(1),
+    distance: (t * BEHAVIOUR_ROUTE_KM).toFixed(1),
     fuel: (39.7 - t * 2.38).toFixed(1),
     spent: Math.round(t * 3050).toLocaleString('en-NG'),
   };
@@ -155,64 +150,111 @@ const BEHAVIOURS: Array<{ id: Tone | 'all'; label: string; blurb: string }> = [
 
 export function DrivingEvents() {
   const root = useRef<HTMLDivElement>(null);
-  const [progress, setProgress] = useState(0);
+  const mapBox = useRef<HTMLDivElement>(null);
+  const carRef = useRef<mapboxgl.Marker | null>(null);
+  const pinsRef = useRef<HTMLElement[]>([]);
+  // Reduced motion gets the finished picture: the section is information,
+  // and the scrubbing is only its delivery.
+  const [progress, setProgress] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : 0
+  );
   const [behaviour, setBehaviour] = useState<Tone | 'all'>('all');
+  const lengths = useMemo(() => routeLengths(BEHAVIOUR_ROUTE), []);
 
+  /** The coloured track up to the car, honouring the selected behaviour. */
+  const trackData = useCallback(
+    (t: number, pick: Tone | 'all'): GeoJSON.FeatureCollection => ({
+      type: 'FeatureCollection',
+      features: SEGMENTS.filter((seg) => seg.from < t).map((seg) => {
+        const isManoeuvre = seg.tone === 'brake' || seg.tone === 'corner' || seg.tone === 'over';
+        // A manoeuvre the visitor is not inspecting falls back to its speed
+        // colour, so the track stays a complete drive rather than gaining gaps.
+        const muted = isManoeuvre && pick !== 'all' && pick !== seg.tone;
+        return {
+          type: 'Feature',
+          properties: { color: TONE[muted ? 'mid' : seg.tone], width: isManoeuvre && !muted ? 7 : 4.5 },
+          geometry: { type: 'LineString', coordinates: sliceRoute(BEHAVIOUR_ROUTE, lengths, seg.from, Math.min(seg.to, t)) },
+        };
+      }),
+    }),
+    [lengths]
+  );
+
+  const { map, ready } = useLazyMapbox(
+    mapBox,
+    { bounds: boundsOf(BEHAVIOUR_ROUTE), fitBoundsOptions: { padding: { top: 70, bottom: 40, left: 40, right: 40 } }, pitch: 38, bearing: -8 },
+    (m) => {
+      m.addSource('drive-ghost', {
+        type: 'geojson',
+        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: BEHAVIOUR_ROUTE } },
+      });
+      m.addLayer({
+        id: 'drive-ghost',
+        type: 'line',
+        source: 'drive-ghost',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#0b0e13', 'line-width': 10, 'line-opacity': 0.9 },
+      });
+      m.addLayer({
+        id: 'drive-ghost-dash',
+        type: 'line',
+        source: 'drive-ghost',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#3a3f48', 'line-width': 1.5, 'line-dasharray': [2, 2] },
+      });
+      m.addSource('drive-track', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      m.addLayer({
+        id: 'drive-track',
+        type: 'line',
+        source: 'drive-track',
+        layout: { 'line-cap': 'butt', 'line-join': 'round' },
+        paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] },
+      });
+      pinsRef.current = EVENTS.filter((e) => e.tone !== 'mid' && e.tone !== 'slow').map((e) => {
+        const el = document.createElement('div');
+        el.className = 'fs-mappin';
+        el.style.setProperty('--pin', TONE[e.tone]);
+        el.dataset.at = String(e.at);
+        el.dataset.tone = e.tone;
+        new mapboxgl.Marker({ element: el }).setLngLat(pointAt(BEHAVIOUR_ROUTE, lengths, e.at).at).addTo(m);
+        return el;
+      });
+      carRef.current = new mapboxgl.Marker({ element: carElement(), rotationAlignment: 'map', pitchAlignment: 'map' })
+        .setLngLat(BEHAVIOUR_ROUTE[0])
+        .addTo(m);
+    }
+  );
+
+  // Scroll drives the drive.
   useEffect(() => {
     const scope = root.current;
     if (!scope) return;
-
     gsap.registerPlugin(ScrollTrigger);
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const ctx = gsap.context(() => {
-      const base = scope.querySelector<SVGPathElement>('[data-route]');
-      const car = scope.querySelector<SVGGElement>('[data-car]');
-      const segs = gsap.utils.toArray<SVGPathElement>('[data-seg]', scope);
-      if (!base) return;
-
-      const total = base.getTotalLength();
-
-      // Each coloured stretch is the whole route clipped by a dash window, so
-      // the segments butt together exactly and read as one continuous drive.
-      segs.forEach((seg) => {
-        const from = Number(seg.dataset.from) * total;
-        const len = (Number(seg.dataset.to) - Number(seg.dataset.from)) * total;
-        seg.style.strokeDasharray = `0 ${from} ${len} ${total}`;
-      });
-
-      // Reduced motion still gets the finished picture — the section is
-      // information, and the scrubbing is only its delivery.
-      if (reduced) {
-        setProgress(1);
-        if (car) {
-          const p = base.getPointAtLength(total);
-          gsap.set(car, { x: p.x, y: p.y, opacity: 1 });
-        }
-        return;
-      }
-
       const proxy = { t: 0 };
       gsap.to(proxy, {
         t: 1,
         ease: 'none',
-        scrollTrigger: {
-          trigger: scope,
-          start: 'top 78%',
-          end: 'bottom 65%',
-          scrub: 0.6,
-        },
-        onUpdate: () => {
-          setProgress(proxy.t);
-          if (!car) return;
-          const p = base.getPointAtLength(proxy.t * total);
-          gsap.set(car, { x: p.x, y: p.y, opacity: proxy.t > 0.01 ? 1 : 0 });
-        },
+        scrollTrigger: { trigger: scope, start: 'top 75%', end: 'bottom 60%', scrub: 0.6 },
+        onUpdate: () => setProgress(proxy.t),
       });
     }, scope);
-
     return () => ctx.revert();
   }, []);
+
+  // Paint the frame: track, car, pins.
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+    (m.getSource('drive-track') as mapboxgl.GeoJSONSource | undefined)?.setData(trackData(progress, behaviour));
+    const { at, bearing } = pointAt(BEHAVIOUR_ROUTE, lengths, Math.max(progress, 0.001));
+    carRef.current?.setLngLat(at).setRotation(bearing);
+    for (const pin of pinsRef.current) {
+      const shown = progress >= Number(pin.dataset.at) && (behaviour === 'all' || behaviour === pin.dataset.tone);
+      pin.classList.toggle('is-on', shown);
+    }
+  }, [progress, behaviour, ready, map, trackData, lengths]);
 
   const live = readoutAt(progress);
   // "Everything" keeps the trip bookends for context; a single behaviour shows
@@ -256,68 +298,10 @@ export function DrivingEvents() {
       <div className="fs-events__stage">
         <div className="fs-events__chip">
           <span className="fs-events__dot" />
-          LAG-001-FS · Toyota RAV4 · Benneth · Abuja
+          LAG-001-FS · Toyota RAV4 · Life Camp → Maitama
         </div>
 
-        <svg
-          viewBox="0 0 700 360"
-          role="img"
-          aria-label="A drive coloured by measured speed, with harsh braking, harsh cornering and an overspeed stretch marked"
-        >
-          {/* Road network beneath, so the track reads as a journey through a
-              city rather than a line on a page. */}
-          <path d={ROAD_BG} fill="none" stroke="#20242c" strokeWidth={14} strokeLinecap="round" />
-          <path d={ROAD_BG} fill="none" stroke="#171b22" strokeWidth={10} strokeLinecap="round" />
-
-          {/* Casing under the track, same as the replay map. */}
-          <path data-route d={ROUTE} fill="none" stroke="#0b0e13" strokeWidth={13} strokeLinecap="round" />
-
-          {SEGMENTS.map((seg) => {
-            const isManoeuvre = seg.tone === 'brake' || seg.tone === 'corner' || seg.tone === 'over';
-            // A manoeuvre the visitor is not currently inspecting falls back to
-            // its speed colour, so the track still shows a complete drive
-            // rather than developing gaps.
-            const muted = isManoeuvre && behaviour !== 'all' && behaviour !== seg.tone;
-            const tone: Tone = muted ? 'mid' : seg.tone;
-            return (
-              <path
-                key={`${seg.from}-${seg.tone}`}
-                data-seg
-                data-from={seg.from}
-                data-to={seg.to}
-                d={ROUTE}
-                fill="none"
-                stroke={TONE[tone]}
-                strokeWidth={isManoeuvre && !muted ? 9 : 6}
-                strokeLinecap="butt"
-                style={{ transition: 'stroke 0.35s ease, stroke-width 0.35s ease' }}
-              />
-            );
-          })}
-
-          {/* Event pins, revealed as the vehicle reaches them. */}
-          {EVENTS.map((e) => {
-            const shown = progress >= e.at;
-            return (
-              <g key={e.type} opacity={shown ? 1 : 0} style={{ transition: 'opacity .25s' }}>
-                <circle
-                  cx={30 + e.at * 620}
-                  cy={300 - e.at * 250}
-                  r={13}
-                  fill={TONE[e.tone]}
-                  opacity={0.16}
-                />
-              </g>
-            );
-          })}
-
-          {/* The vehicle marker, matching the fleet map's puck-and-body. */}
-          <g data-car opacity={0}>
-            <circle r={15} fill="rgba(205,224,74,0.14)" />
-            <rect x={-9} y={-6} width={18} height={12} rx={3} fill="#d9dde4" />
-            <rect x={-6} y={-4.5} width={7} height={9} rx={1.5} fill="#20242c" />
-          </g>
-        </svg>
+        <div ref={mapBox} className="fs-events__map" role="img" aria-label="A drive from Life Camp to Maitama, coloured by measured speed, with harsh braking, harsh cornering and an overspeed stretch marked" />
 
         <div className="fs-events__legend">
           <span className="fs-events__key">

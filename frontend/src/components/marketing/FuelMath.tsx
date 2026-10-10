@@ -6,11 +6,10 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
 // The arithmetic, shown rather than described.
 //
-// Every claim FuelSense makes reduces to one of these six lines. Publishing
+// Every cost FuelSense puts on screen reduces to these three lines. Publishing
 // them is the point: a fleet manager who can see the formula can argue with
 // it, and a formula that survives being argued with is worth trusting. Each
-// row shows the symbolic form, then substitutes the real numbers from a
-// single day on the live vehicle.
+// row shows the symbolic form, then substitutes the numbers from one trip.
 
 interface Equation {
   id: string;
@@ -23,28 +22,28 @@ interface Equation {
 
 const EQUATIONS: Equation[] = [
   {
-    id: 'burn',
-    label: 'Fuel burned between two pings',
-    formula: 'ΔAVL12 × k ÷ 1000',
-    substituted: '(7514 − 7461) × 2.396 ÷ 1000',
-    result: '0.127 L',
-    note: 'The tracker reports millilitres burned. k corrects it.',
+    id: 'drive',
+    label: 'Fuel for the distance',
+    formula: 'km ÷ rated km/L',
+    substituted: '30.4 ÷ 9.8',
+    result: '3.10 L',
+    note: 'Odometer-validated distance over the vehicle’s official city economy for its model and year, or the rate you set.',
   },
   {
-    id: 'k',
-    label: 'The correction, k',
-    formula: 'rate̅ AVL13 ÷ rate̅ AVL12',
-    substituted: '2.221 ÷ 0.927',
-    result: '2.396',
-    note: 'The device’s own two fuel elements, measured against each other while idling. Receipts override this once they exist.',
+    id: 'idle',
+    label: 'Fuel for the idling',
+    formula: 'idle hours × idle L/h',
+    substituted: '0.37 × 0.9',
+    result: '0.33 L',
+    note: 'Engine on, speed under 2 km/h, counted to the minute from the tracker’s ignition and speed.',
   },
   {
-    id: 'gap',
-    label: 'Unaccounted fuel at a fill',
-    formula: 'added − (capacity − level)',
-    substituted: '45 − (60 − 30)',
-    result: '15 L',
-    note: 'No tank accepts more than its empty space. The excess is what the model wrongly believed was aboard.',
+    id: 'cost',
+    label: 'What it cost',
+    formula: 'litres × ₦/L that day',
+    substituted: '3.43 × 1,300',
+    result: '₦4,459',
+    note: 'Priced at the fuel price in force on the day. Receipts stay separate: they are what was paid, shown beside this, never mixed in.',
   },
 ];
 
@@ -108,11 +107,11 @@ export function FuelMath() {
       </ol>
 
       <p className="fs-math__foot">
-        Figures from one day on the live RAV4. Nothing is hidden behind a
+        Figures from one trip in a 2013 RAV4. Nothing is hidden behind a
         &ldquo;proprietary algorithm&rdquo;, because a number you cannot check is a number you
         cannot act on.{' '}
         <a className="fs-math__link" href="/documentation">
-          See all seven, with worked numbers
+          See the full method, with worked numbers
         </a>
       </p>
     </div>
