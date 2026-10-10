@@ -26,6 +26,7 @@ const envSchema = z.object({
   REAL_DEVICE_CCID: z.string().optional(),
   GOOGLE_CLOUD_VISION_API_KEY: z.string().optional(),
   GOOGLE_MAPS_API_KEY: z.string().optional(),
+  SENTRY_DSN: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

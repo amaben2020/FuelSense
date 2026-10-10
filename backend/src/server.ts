@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import './config/timezone';
 import './config/env';
+import { Sentry } from './config/sentry';
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
@@ -199,6 +200,10 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/certificates', certificateRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/fuelbrain', fuelBrainRoutes);
+
+// Errors a route throws or passes to next(); handlers that answer their own
+// 500 through logAndRespond report from there instead.
+Sentry.setupExpressErrorHandler(app);
 
 const start = async () => {
   await initDatabase();

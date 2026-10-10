@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import { Sentry } from '../config/sentry';
 
 /**
  * True when the failure is a Postgres unique-constraint violation.
@@ -37,6 +38,7 @@ export function logAndRespond(
 ): void {
   const err = error instanceof Error ? error : new Error(String(error));
   console.error(`[${context}]`, err, (err as { cause?: unknown }).cause ?? '');
+  Sentry.captureException(err, { tags: { context } });
   const safe = /^Failed query:/i.test(err.message) ? fallbackMessage : err.message;
   res.status(500).json({ error: safe });
 }
