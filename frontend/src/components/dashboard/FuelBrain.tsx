@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { gsap } from 'gsap';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -293,6 +294,36 @@ function BrainMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
   );
 }
 
+/**
+ * The large mark on the welcome screen: rings and an orbiting spark around
+ * the brain, all CSS so it costs no main-thread time. It spins up while an
+ * answer is being worked out. (A Rive file could replace this later; there is
+ * no .riv asset to load today, and this keeps the bundle free of a runtime.)
+ */
+function BrainOrb({ thinking = false }: { thinking?: boolean }) {
+  return (
+    <span className={`fb-orb h-20 w-20 ${thinking ? 'is-thinking' : ''}`} aria-hidden>
+      <span className="fb-orb__ring fb-orb__ring--3" />
+      <span className="fb-orb__ring" />
+      <span className="fb-orb__ring fb-orb__ring--2" />
+      <span className="fb-orb__dot" />
+      <span className="fb-orb__core h-12 w-12">
+        <Brain className="h-6 w-6" />
+      </span>
+    </span>
+  );
+}
+
+const reducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** clip-path that shows only `r` (viewport coords) inside an element at `box`. */
+const clipTo = (r: DOMRect, box: DOMRect, radius: number) =>
+  `inset(${Math.max(r.top - box.top, 0)}px ${Math.max(box.right - r.right, 0)}px ${Math.max(
+    box.bottom - r.bottom,
+    0
+  )}px ${Math.max(r.left - box.left, 0)}px round ${radius}px)`;
+
 const FAB_KEY = 'fuelbrain_fab_pos';
 const MUTE_KEY = 'fuelbrain_muted';
 const EDGE = 16;
@@ -363,7 +394,7 @@ function snapFab(el: HTMLElement | null, x: number, y: number) {
  * element once per frame instead of re-rendering on every pointer event,
  * which is what keeps the drag smooth.
  */
-function FuelBrainLauncher({ onOpen }: { onOpen: () => void }) {
+function FuelBrainLauncher({ onOpen }: { onOpen: (from: DOMRect | null) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const pos = useRef({ x: 0, y: 0 });
   const frame = useRef(0);
@@ -475,7 +506,7 @@ function FuelBrainLauncher({ onOpen }: { onOpen: () => void }) {
           suppressClick.current = false;
           return;
         }
-        onOpen();
+        onOpen(ref.current?.getBoundingClientRect() ?? null);
       }}
     >
       <button
@@ -522,6 +553,12 @@ export function FuelBrain() {
   const [error, setError] = useState<string | null>(null);
 
   const scroller = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  /** Where the launcher sat when the window opened; the window grows out of it and returns to it. */
+  const originRef = useRef<DOMRect | null>(null);
+  /** The window's rect just before an expand/shrink, for the FLIP that follows. */
+  const flipFrom = useRef<DOMRect | null>(null);
+  const closingRef = useRef(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -542,15 +579,6 @@ export function FuelBrain() {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [messages, activity]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
   // Grow the composer with its content, up to a cap, like a chat app should.
   useEffect(() => {
     const el = inputRef.current;
@@ -559,14 +587,123 @@ export function FuelBrain() {
     el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
   }, [input, open]);
 
-  const toggleOpen = () => {
-    if (!open) {
-      void loadSessions();
-      // A phone has no room for the list beside the chat.
-      setSidebar(window.innerWidth >= 768);
-    }
-    setOpen(!open);
+  const openFrom = (from: DOMRect | null) => {
+    originRef.current = from;
+    closingRef.current = false;
+    void loadSessions();
+    // A phone has no room for the list beside the chat.
+    setSidebar(window.innerWidth >= 768);
+    setOpen(true);
   };
+
+  // The window folds back into the spot the launcher occupies, then unmounts.
+  const close = useCallback(() => {
+    const el = dialogRef.current;
+    if (closingRef.current) return;
+    closingRef.current = true;
+    const done = () => {
+      setOpen(false);
+      setExpanded(false);
+    };
+    if (!el || reducedMotion()) return done();
+    const box = el.getBoundingClientRect();
+    const to = originRef.current;
+    const tl = gsap.timeline({ onComplete: done });
+    tl.to(el.querySelectorAll('[data-fb-rise]'), { opacity: 0, y: 8, duration: 0.18, stagger: 0.02 }, 0);
+    if (to) {
+      tl.to(el, { clipPath: clipTo(to, box, 26), duration: 0.5, ease: 'expo.inOut' }, 0.05);
+    } else {
+      tl.to(el, { opacity: 0, scale: 0.96, duration: 0.3, ease: 'power2.in' }, 0.05);
+    }
+  }, []);
+
+  const toggleExpanded = () => {
+    flipFrom.current = dialogRef.current?.getBoundingClientRect() ?? null;
+    setExpanded((v) => !v);
+  };
+
+  // Open: the window is revealed out of the launcher's rect with a clip-path,
+  // so nothing inside it is scaled or blurred; then its contents rise in.
+  useLayoutEffect(() => {
+    const el = dialogRef.current;
+    if (!open || !el || reducedMotion()) return;
+    const box = el.getBoundingClientRect();
+    const from = originRef.current;
+    const radius = parseFloat(getComputedStyle(el).borderRadius) || 0;
+    const tl = gsap.timeline({ onComplete: () => gsap.set(el, { clearProps: 'clipPath,opacity,scale' }) });
+    if (from) {
+      tl.fromTo(
+        el,
+        { clipPath: clipTo(from, box, 26), opacity: 1 },
+        { clipPath: `inset(0px 0px 0px 0px round ${radius}px)`, duration: 0.7, ease: 'expo.out' },
+        0
+      );
+    } else {
+      tl.fromTo(el, { opacity: 0, scale: 0.97 }, { opacity: 1, scale: 1, duration: 0.4, ease: 'power3.out' }, 0);
+    }
+    tl.fromTo(
+      el.querySelectorAll('[data-fb-rise]'),
+      { opacity: 0, y: 16, filter: 'blur(6px)' },
+      { opacity: 1, y: 0, filter: 'blur(0px)', duration: 0.55, stagger: 0.045, ease: 'power3.out', clearProps: 'filter' },
+      0.18
+    );
+    tl.fromTo(
+      el.querySelectorAll('[data-fb-word]'),
+      { opacity: 0, y: '0.6em', rotateX: -60 },
+      { opacity: 1, y: 0, rotateX: 0, duration: 0.6, stagger: 0.05, ease: 'back.out(1.6)' },
+      0.3
+    );
+    return () => {
+      tl.kill();
+    };
+  }, [open]);
+
+  // Expand / shrink: FLIP on the real geometry. The window is pinned at its
+  // old box and tweened to the new one, so the layout inside reflows as it
+  // grows (no stretched text), and the corners square off at fullscreen.
+  useLayoutEffect(() => {
+    const el = dialogRef.current;
+    const from = flipFrom.current;
+    flipFrom.current = null;
+    if (!el || !from || reducedMotion()) return;
+    const to = el.getBoundingClientRect();
+    const toRadius = getComputedStyle(el).borderRadius;
+    const tween = gsap.fromTo(
+      el,
+      { top: from.top, left: from.left, width: from.width, height: from.height, right: 'auto', bottom: 'auto', borderRadius: 16 },
+      {
+        top: to.top,
+        left: to.left,
+        width: to.width,
+        height: to.height,
+        borderRadius: toRadius,
+        duration: 0.65,
+        ease: 'expo.inOut',
+        onComplete: () => gsap.set(el, { clearProps: 'top,left,width,height,right,bottom,borderRadius' }),
+      }
+    );
+    if (expanded) {
+      gsap.fromTo(
+        el.querySelectorAll('[data-fb-rise]'),
+        { y: 10, opacity: 0.4 },
+        { y: 0, opacity: 1, duration: 0.5, stagger: 0.03, ease: 'power3.out', delay: 0.25 }
+      );
+    }
+    return () => {
+      tween.kill();
+    };
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (expanded) toggleExpanded();
+      else close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, expanded, close]);
 
   const newChat = () => {
     abortRef.current?.abort();
@@ -755,11 +892,12 @@ export function FuelBrain() {
     <>
       {open && (
         <div
+          ref={dialogRef}
           role="dialog"
           aria-label="FuelBrain"
-          className={`fixed z-[1250] flex overflow-hidden border-edge bg-canvas shadow-2xl ${
+          className={`fixed z-[1250] flex overflow-hidden border-edge bg-canvas shadow-2xl will-change-[clip-path] ${
             expanded
-              ? 'inset-0 md:inset-6 md:rounded-2xl md:border'
+              ? 'inset-0 rounded-none'
               : 'inset-0 md:inset-auto md:bottom-24 md:right-4 md:h-[min(720px,calc(100vh-8rem))] md:w-[min(960px,calc(100vw-2rem))] md:rounded-2xl md:border'
           }`}
         >
@@ -858,8 +996,10 @@ export function FuelBrain() {
           )}
 
           {/* Conversation */}
-          <section className="relative flex min-w-0 flex-1 flex-col">
-            <header className="flex items-center gap-1 px-3 py-2.5">
+          <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+            <div className={`fb-aurora ${expanded ? 'is-on' : ''}`} aria-hidden />
+            <div className={`fb-gridlines ${expanded && empty ? 'is-on' : ''}`} aria-hidden />
+            <header data-fb-rise className="relative flex items-center gap-1 px-3 py-2.5">
               {!sidebar && (
                 <>
                   <button
@@ -899,15 +1039,16 @@ export function FuelBrain() {
               </button>
               <button
                 type="button"
-                onClick={() => setExpanded((v) => !v)}
-                title={expanded ? 'Shrink' : 'Expand'}
+                onClick={toggleExpanded}
+                title={expanded ? 'Exit full screen (Esc)' : 'Full screen'}
+                aria-pressed={expanded}
                 className="hidden rounded-lg p-2 text-ink-dim hover:bg-ink/5 hover:text-ink md:block"
               >
                 {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
               </button>
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={close}
                 title="Close"
                 className="rounded-lg p-2 text-ink-dim hover:bg-ink/5 hover:text-ink"
               >
@@ -916,27 +1057,41 @@ export function FuelBrain() {
             </header>
 
             {empty ? (
-              <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 pb-10">
-                <div className="w-full max-w-2xl">
-                  <div className="mb-6 flex flex-col items-center gap-3 text-center">
-                    <BrainMark size="lg" />
-                    <h2 className="text-2xl font-semibold text-ink">
-                      {greeting()}
-                      {firstName ? `, ${firstName}` : ''}
+              <div className="relative flex flex-1 flex-col items-center justify-center overflow-y-auto px-4 pb-10">
+                <div className={`w-full ${expanded ? 'max-w-3xl' : 'max-w-2xl'}`}>
+                  <div className="mb-6 flex flex-col items-center gap-4 text-center">
+                    <span data-fb-rise>
+                      <BrainOrb thinking={streaming} />
+                    </span>
+                    <h2
+                      className={`font-semibold text-ink [perspective:600px] ${expanded ? 'text-4xl' : 'text-2xl'}`}
+                      aria-label={`${greeting()}${firstName ? `, ${firstName}` : ''}`}
+                    >
+                      {`${greeting()}${firstName ? `, ${firstName}` : ''}`.split(' ').map((w, i) => (
+                        <span key={i} data-fb-word aria-hidden className="mr-[0.25em] inline-block last:mr-0">
+                          {w}
+                        </span>
+                      ))}
                     </h2>
-                    <p className="text-sm text-ink-dim">
+                    <p data-fb-rise className="text-sm text-ink-dim">
                       Ask about your drivers, vehicles, fuel and alerts. I read your trackers and receipts.
                     </p>
                   </div>
-                  {composer}
+                  <div data-fb-rise>{composer}</div>
                   <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {STARTERS.map((s) => (
                       <button
                         key={s.title}
                         type="button"
+                        data-fb-rise
                         onClick={() => ask(s.prompt)}
+                        onPointerMove={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect();
+                          e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
+                          e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
+                        }}
                         disabled={!ready || outOfCredits}
-                        className="rounded-xl border border-edge bg-panel px-3.5 py-2.5 text-left transition hover:border-brand/40 disabled:opacity-50"
+                        className="fb-starter rounded-xl border border-edge bg-panel px-3.5 py-2.5 text-left transition duration-300 hover:-translate-y-0.5 hover:border-brand/40 disabled:opacity-50"
                       >
                         <p className="text-[13px] font-medium text-ink">{s.title}</p>
                         <p className="truncate text-xs text-ink-dim">{s.prompt}</p>
@@ -953,13 +1108,13 @@ export function FuelBrain() {
               </div>
             ) : (
               <>
-                <div ref={scroller} className="flex-1 overflow-y-auto">
-                  <div className="mx-auto w-full max-w-2xl space-y-6 px-4 pb-6 pt-2">
+                <div ref={scroller} className="relative flex-1 overflow-y-auto">
+                  <div className={`mx-auto w-full space-y-6 px-4 pb-6 pt-2 ${expanded ? 'max-w-3xl' : 'max-w-2xl'}`}>
                     {messages.map((m, i) => {
                       const isLast = i === messages.length - 1;
                       if (m.role === 'user') {
                         return (
-                          <div key={i} className="flex justify-end">
+                          <div key={i} className="fb-msg-in flex justify-end">
                             <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-ink/10 px-4 py-2.5 text-[15px] leading-6 text-ink">
                               {m.content}
                             </p>
@@ -967,7 +1122,7 @@ export function FuelBrain() {
                         );
                       }
                       return (
-                        <div key={i} className="flex gap-3">
+                        <div key={i} className="fb-msg-in flex gap-3">
                           <BrainMark />
                           <div className="min-w-0 flex-1 pt-0.5 text-[15px] text-ink-mid">
                             {isLast && streaming && activity && (
@@ -1006,7 +1161,7 @@ export function FuelBrain() {
                     })}
                   </div>
                 </div>
-                <div className="mx-auto w-full max-w-2xl px-4 pb-3">
+                <div className={`relative mx-auto w-full px-4 pb-3 ${expanded ? 'max-w-3xl' : 'max-w-2xl'}`}>
                   {error && (
                     <p className="mb-2 rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-xs text-bad">
                       {error}
@@ -1025,7 +1180,7 @@ export function FuelBrain() {
 
       {/* Hidden while the chat is open: the window has its own close button,
           and a button floating over the conversation would cover it. */}
-      {!open && <FuelBrainLauncher onOpen={toggleOpen} />}
+      {!open && <FuelBrainLauncher onOpen={openFrom} />}
     </>
   );
 }

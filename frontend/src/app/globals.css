@@ -702,6 +702,168 @@ input[type='time']::-webkit-calendar-picker-indicator {
   }
 }
 
+/* FuelBrain window. The open, expand and close motion is GSAP (FuelBrain.tsx);
+   these are the ambient pieces that loop: the aurora behind fullscreen, the
+   orb that stands in for the brand mark, the spotlight on starter cards and
+   the entrance of each new message. */
+.fb-aurora {
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms ease;
+  background:
+    radial-gradient(40% 35% at 25% 30%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 70%),
+    radial-gradient(35% 30% at 75% 65%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 70%),
+    radial-gradient(30% 25% at 60% 20%, rgba(57, 135, 229, 0.08), transparent 70%);
+  filter: blur(30px);
+  animation: fb-aurora 18s ease-in-out infinite alternate;
+}
+.fb-aurora.is-on {
+  opacity: 1;
+}
+.fb-gridlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 600ms ease;
+  background-image:
+    linear-gradient(color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--ink) 5%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(60% 55% at 50% 45%, #000 20%, transparent 75%);
+}
+.fb-gridlines.is-on {
+  opacity: 1;
+}
+@keyframes fb-aurora {
+  0% {
+    transform: translate3d(-3%, -2%, 0) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translate3d(3%, 2%, 0) rotate(8deg) scale(1.08);
+  }
+  100% {
+    transform: translate3d(-2%, 3%, 0) rotate(-6deg) scale(1.02);
+  }
+}
+
+.fb-orb {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+.fb-orb__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 45%, transparent);
+  animation: fb-orbit 14s linear infinite;
+}
+.fb-orb__ring--2 {
+  inset: 10px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--brand) 22%, transparent);
+  border-top-color: var(--brand);
+  animation-duration: 3.2s;
+}
+.fb-orb__ring--3 {
+  inset: -10px;
+  border-style: dotted;
+  border-color: color-mix(in srgb, var(--brand) 25%, transparent);
+  animation-duration: 22s;
+  animation-direction: reverse;
+}
+.fb-orb__dot {
+  position: absolute;
+  inset: -10px;
+  animation: fb-orbit 6s linear infinite;
+}
+.fb-orb__dot::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 9999px;
+  background: var(--brand);
+  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--brand) 70%, transparent);
+}
+.fb-orb__core {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--brand) 35%, transparent), color-mix(in srgb, var(--brand) 10%, transparent) 70%);
+  color: var(--brand);
+  box-shadow: 0 0 40px -6px color-mix(in srgb, var(--brand) 60%, transparent);
+  animation: fb-breathe 3.6s ease-in-out infinite;
+}
+.fb-orb.is-thinking .fb-orb__ring--2 {
+  animation-duration: 0.9s;
+}
+.fb-orb.is-thinking .fb-orb__dot {
+  animation-duration: 1.6s;
+}
+@keyframes fb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 40px -6px color-mix(in srgb, var(--brand) 55%, transparent);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 56px -2px color-mix(in srgb, var(--brand) 75%, transparent);
+  }
+}
+
+/* Starter cards: a soft light follows the pointer (--mx/--my set from JS). */
+.fb-starter {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.fb-starter::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  transition: opacity 250ms ease;
+  background: radial-gradient(220px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--brand) 14%, transparent), transparent 70%);
+}
+.fb-starter:hover::before {
+  opacity: 1;
+}
+
+.fb-msg-in {
+  animation: fb-msg-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes fb-msg-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-aurora,
+  .fb-orb__ring,
+  .fb-orb__dot,
+  .fb-orb__core,
+  .fb-msg-in {
+    animation: none;
+  }
+}
+
 /* FuelBrain chart series, in fixed order (never cycled). Validated with the
    dataviz palette checker against --canvas in each theme: dark passes every
    check; light passes with slots 4 and 6 under 3:1 on white, which is why

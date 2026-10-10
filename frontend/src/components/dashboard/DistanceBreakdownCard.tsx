@@ -5,6 +5,7 @@ import { Route } from 'lucide-react';
 import { DailyActivityResponse, DailyActivityRow, api, formatNgn } from '@/lib/api';
 import { IconTile } from '@/components/ui/chrome';
 import { SnapshotPeriod, periodQuery } from '@/lib/period';
+import { TripMiniCards } from '@/components/dashboard/TripMiniCards';
 
 /**
  * Where the fleet's kilometres actually went.
@@ -149,6 +150,8 @@ export function DistanceBreakdownCard({
               />
             )}
           </dl>
+
+          <TripMiniCards period={period} />
 
           <p className="mt-auto pt-4 text-[11px] leading-relaxed text-ink-dim">
             Distance is odometer-derived. A trip is a run of movement; a halt of
