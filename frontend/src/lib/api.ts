@@ -759,6 +759,9 @@ export interface FleetEfficiencySummary {
   total_harsh_events?: number;
   loss_reason?: LossReason;
   total_actual_cost_ngn: number;
+  /** Receipts only; total_actual_cost_ngn backfills modelled burn where none were filed. */
+  total_receipt_cost_ngn?: number;
+  total_receipt_liters?: number;
   total_telemetry_cost_ngn?: number;
   total_loss_ngn: number;
   total_savings_ngn: number;

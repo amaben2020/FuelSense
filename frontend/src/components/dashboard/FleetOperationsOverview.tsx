@@ -209,6 +209,10 @@ export function FleetOperationsOverview({
   /** The row whose full evidence is open. Null = queue view. */
   const [detailItem, setDetailItem] = useState<AttentionItem | null>(null);
   const [showFuelInputs, setShowFuelInputs] = useState(false);
+  // Receipts lead: they are the only fuel figure that is real money. The
+  // modelled burn is one click away for a manager who asks, and resets on
+  // every visit rather than becoming the default by accident.
+  const [fuelView, setFuelView] = useState<'receipts' | 'estimate'>('receipts');
 
   // Prefer what the API actually aggregated over what was asked for, so the
   // label never claims a window the data does not cover.
@@ -219,7 +223,10 @@ export function FleetOperationsOverview({
   // Only receipts are money that actually left someone's hands. The telemetry
   // figure is fuel *burned*, and falling back to it under a "paid at the pump"
   // caption reported ₦52 of idling as a pump purchase on a day with no receipts.
-  const pumpSpend = efficiencySummary?.total_actual_cost_ngn ?? 0;
+  // total_actual_cost_ngn is not that figure: it substitutes the modelled burn
+  // for any vehicle without a receipt.
+  const pumpSpend = efficiencySummary?.total_receipt_cost_ngn ?? 0;
+  const pumpLiters = efficiencySummary?.total_receipt_liters ?? 0;
   const fuelSpend =
     efficiencySummary?.total_actual_cost_ngn ??
     efficiencySummary?.total_telemetry_cost_ngn ??
@@ -754,149 +761,203 @@ export function FleetOperationsOverview({
             // taller than its only neighbour with nothing to fill the gap.
             className="flex flex-col p-5 sm:col-span-2 sm:p-6 lg:col-span-6"
           >
-            <div className="flex items-center gap-2.5 text-ink-dim">
-              <Fuel className="h-5 w-5" strokeWidth={1.75} />
-              <span className="text-xs font-semibold uppercase tracking-[0.12em]">
-                Fuel burned · {windowLabel}
-              </span>
-            </div>
-            {/* An em-dash read as "broken". A fleet that burned nothing burned
-                ₦0 — say so, and show the litres beside it so the figure has a
-                unit rather than being a bare currency amount. */}
-            <p className="mt-3 text-5xl font-bold leading-none tracking-tight tabular-nums text-ink sm:text-6xl">
-              {formatNgn(fuelContext?.burnedCost ?? 0)}
-            </p>
-            <p className="mt-1.5 text-sm text-ink-mid tabular-nums">
-              {(fuelContext?.liters ?? 0).toFixed(1)} L burned ·{' '}
-              {Math.round(fuelContext?.distanceKm ?? 0).toLocaleString()} km driven
-            </p>
-            {/* HIDDEN (2026-09-08): the blended ₦/L average is suppressed
-                until the rounding mismatch behind it is fixed.
-                
-                It divides `total_telemetry_cost_ngn` — priced in SQL off
-                unrounded litres — by `total_fuel_used_liters`, which has been
-                quantised to 0.1 L twice (telemetry.ts round1 at the vehicle
-                row and again on the total). The quotient is therefore not
-                bounded by the declared price range, and on a fleet burning
-                single-digit litres the 0.05 L per-vehicle loss is ~0.5%, or
-                ±₦7 at ₦1,310/L — which is how an average of ₦1,300/₦1,275/
-                ₦1,310 displayed as ₦1,312.
-                
-                The costing itself is correct; only this derived rate is
-                wrong. To restore: have /fleet-efficiency return the blended
-                price computed in SQL from the unrounded quantities, then put
-                the caption back. */}
-            <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
-                Efficiency metrics
-              </p>
-              {fuelContext && (
-                <button
-                  type="button"
-                  onClick={() => setShowFuelInputs(true)}
-                  className="text-xs font-medium text-accent underline decoration-dotted underline-offset-2"
-                >
-                  View all fuel inputs
-                </button>
-              )}
-            </div>
-            <p className="mt-1 text-sm text-ink-mid">
-              {fuelContext
-                ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
-                    fuelContext.distanceKm
-                  )} km`
-                : 'No distance in this window, so this is idling'}
-            </p>
-            {/* Bought and burned are different questions. The receipt total is
-                the one figure on this card that is real money, so it gets its
-                own labelled block rather than a grey footnote a manager reads
-                as part of the estimate. */}
-            <div className="mt-3 flex items-baseline gap-3 rounded-lg border border-edge bg-canvas px-3 py-2">
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-accent-y">
-                <ReceiptText className="h-3.5 w-3.5" /> Bought · receipts
-              </span>
-              {pumpSpend > 0 ? (
-                <>
-                  <span className="font-mono text-lg font-semibold text-ink">{formatNgn(pumpSpend)}</span>
-                  <span className="text-xs text-ink-dim">paid at the pump this period — the rest is still in the tank</span>
-                </>
-              ) : (
-                <span className="text-xs text-ink-dim">No receipts logged this period</span>
-              )}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 text-ink-dim">
+                {fuelView === 'receipts' ? (
+                  <ReceiptText className="h-5 w-5" strokeWidth={1.75} />
+                ) : (
+                  <Fuel className="h-5 w-5" strokeWidth={1.75} />
+                )}
+                <span className="text-xs font-semibold uppercase tracking-[0.12em]">
+                  {fuelView === 'receipts' ? 'Fuel bought' : 'Fuel burned · estimate'} · {windowLabel}
+                </span>
+              </div>
+              <div
+                role="group"
+                aria-label="Fuel figure"
+                className="inline-flex rounded-full border border-edge bg-canvas p-0.5 text-[11px] font-medium"
+              >
+                {(['receipts', 'estimate'] as const).map((view) => (
+                  <button
+                    key={view}
+                    type="button"
+                    onClick={() => setFuelView(view)}
+                    aria-pressed={fuelView === view}
+                    className={`rounded-full px-2.5 py-1 transition-colors ${
+                      fuelView === view ? 'bg-ink/10 text-ink' : 'text-ink-dim hover:text-ink'
+                    }`}
+                  >
+                    {view === 'receipts' ? 'Receipts' : 'Estimated burn'}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {fuelContext && (
-              <div className="mt-6 border-t border-edge pt-5">
-                {fuelContext.fuelComplete ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <Rate
-                      label="Cost per km"
-                      value={formatNgn(fuelContext.costPerKm)}
-                      benchmark={
-                        fuelContext.benchmarkCostPerKm != null
-                          // Names what the comparison is against. "typical"
-                          // alone left the manager guessing whether it meant
-                          // this fleet, this vehicle class, or an industry
-                          // figure — and the three would justify very
-                          // different reactions. It is the distance-weighted
-                          // rate of each vehicle's own configured baseline.
-                          ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} at each vehicle's configured baseline`
-                          : null
-                      }
-                      emphasis
-                    />
-                    {/* What idling is costing, rather than an economy figure
-                        that only ever restates the vehicle's own settings.
-                        Shown in km/L — every other rate on this dashboard is
-                        metric, and mpg was the one imperial figure in the app. */}
-                    {fuelContext.idleDragKmPerLiter != null &&
-                    fuelContext.ratedKmPerLiter != null ? (
-                      <Rate
-                        // "Idle drag  5.7 → 5.1 km/L" named neither number and
-                        // explained neither the arrow nor the units, so the one
-                        // figure a manager can act on — what idling costs —
-                        // was the hardest thing on the card to extract. Lead
-                        // with the money and the hours, and state the economy
-                        // comparison underneath in a full sentence.
-                        label="Idling cost"
-                        value={formatNgn(fuelContext.idleCost)}
-                        benchmark={`${formatHoursMins(fuelContext.idleHours)} parked with the engine on · ${fuelContext.idleLiters.toFixed(1)} L. Economy ${fuelContext.ratedKmPerLiter.toFixed(1)} km/L moving, ${fuelContext.kmPerLiter.toFixed(1)} km/L once idling is counted.`}
-                      />
+            {fuelView === 'receipts' ? (
+              <>
+                <p className="mt-3 text-5xl font-bold leading-none tracking-tight tabular-nums text-ink sm:text-6xl">
+                  {formatNgn(pumpSpend)}
+                </p>
+                <p className="mt-1.5 text-sm text-ink-mid">
+                  {pumpSpend > 0
+                    ? `${pumpLiters.toFixed(1)} L paid for at the pump this period, from filed receipts`
+                    : 'No receipts logged this period'}
+                </p>
+                {fuelContext && (
+                  <button
+                    type="button"
+                    onClick={() => setShowFuelInputs(true)}
+                    className="mt-3 self-start text-xs font-medium text-accent underline decoration-dotted underline-offset-2"
+                  >
+                    View all fuel inputs
+                  </button>
+                )}
+                <p className="mt-auto pt-6 text-[11px] leading-relaxed text-ink-dim">
+                  Receipts are what was paid. Fuel burned is modelled from distance and idle
+                  time; switch to Estimated burn to see it.
+                </p>
+              </>
+            ) : (
+              <>
+                {/* An em-dash read as "broken". A fleet that burned nothing burned
+                    ₦0 — say so, and show the litres beside it so the figure has a
+                    unit rather than being a bare currency amount. */}
+                <p className="mt-3 text-5xl font-bold leading-none tracking-tight tabular-nums text-ink sm:text-6xl">
+                  {formatNgn(fuelContext?.burnedCost ?? 0)}
+                </p>
+                <p className="mt-1.5 text-sm text-ink-mid tabular-nums">
+                  {(fuelContext?.liters ?? 0).toFixed(1)} L burned ·{' '}
+                  {Math.round(fuelContext?.distanceKm ?? 0).toLocaleString()} km driven
+                </p>
+                {/* HIDDEN (2026-09-08): the blended ₦/L average is suppressed
+                    until the rounding mismatch behind it is fixed.
+                
+                    It divides `total_telemetry_cost_ngn` — priced in SQL off
+                    unrounded litres — by `total_fuel_used_liters`, which has been
+                    quantised to 0.1 L twice (telemetry.ts round1 at the vehicle
+                    row and again on the total). The quotient is therefore not
+                    bounded by the declared price range, and on a fleet burning
+                    single-digit litres the 0.05 L per-vehicle loss is ~0.5%, or
+                    ±₦7 at ₦1,310/L — which is how an average of ₦1,300/₦1,275/
+                    ₦1,310 displayed as ₦1,312.
+                
+                    The costing itself is correct; only this derived rate is
+                    wrong. To restore: have /fleet-efficiency return the blended
+                    price computed in SQL from the unrounded quantities, then put
+                    the caption back. */}
+                <div className="mt-2.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
+                    Efficiency metrics
+                  </p>
+                  {fuelContext && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFuelInputs(true)}
+                      className="text-xs font-medium text-accent underline decoration-dotted underline-offset-2"
+                    >
+                      View all fuel inputs
+                    </button>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-ink-mid">
+                  {fuelContext
+                    ? `${fuelContext.liters.toFixed(1)} L over ${Math.round(
+                        fuelContext.distanceKm
+                      )} km`
+                    : 'No distance in this window, so this is idling'}
+                </p>
+                {/* Bought and burned are different questions. The receipt total is
+                    the one figure on this card that is real money, so it gets its
+                    own labelled block rather than a grey footnote a manager reads
+                    as part of the estimate. */}
+                <div className="mt-3 flex items-baseline gap-3 rounded-lg border border-edge bg-canvas px-3 py-2">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-accent-y">
+                    <ReceiptText className="h-3.5 w-3.5" /> Bought · receipts
+                  </span>
+                  {pumpSpend > 0 ? (
+                    <>
+                      <span className="font-mono text-lg font-semibold text-ink">{formatNgn(pumpSpend)}</span>
+                      <span className="text-xs text-ink-dim">paid at the pump this period — the rest is still in the tank</span>
+                    </>
+                  ) : (
+                    <span className="text-xs text-ink-dim">No receipts logged this period</span>
+                  )}
+                </div>
+
+                {fuelContext && (
+                  <div className="mt-6 border-t border-edge pt-5">
+                    {fuelContext.fuelComplete ? (
+                      <div className="grid grid-cols-2 gap-4">
+                        <Rate
+                          label="Cost per km"
+                          value={formatNgn(fuelContext.costPerKm)}
+                          benchmark={
+                            fuelContext.benchmarkCostPerKm != null
+                              // Names what the comparison is against. "typical"
+                              // alone left the manager guessing whether it meant
+                              // this fleet, this vehicle class, or an industry
+                              // figure — and the three would justify very
+                              // different reactions. It is the distance-weighted
+                              // rate of each vehicle's own configured baseline.
+                              ? `vs ${formatNgn(fuelContext.benchmarkCostPerKm)} at each vehicle's configured baseline`
+                              : null
+                          }
+                          emphasis
+                        />
+                        {/* What idling is costing, rather than an economy figure
+                            that only ever restates the vehicle's own settings.
+                            Shown in km/L — every other rate on this dashboard is
+                            metric, and mpg was the one imperial figure in the app. */}
+                        {fuelContext.idleDragKmPerLiter != null &&
+                        fuelContext.ratedKmPerLiter != null ? (
+                          <Rate
+                            // "Idle drag  5.7 → 5.1 km/L" named neither number and
+                            // explained neither the arrow nor the units, so the one
+                            // figure a manager can act on — what idling costs —
+                            // was the hardest thing on the card to extract. Lead
+                            // with the money and the hours, and state the economy
+                            // comparison underneath in a full sentence.
+                            label="Idling cost"
+                            value={formatNgn(fuelContext.idleCost)}
+                            benchmark={`${formatHoursMins(fuelContext.idleHours)} parked with the engine on · ${fuelContext.idleLiters.toFixed(1)} L. Economy ${fuelContext.ratedKmPerLiter.toFixed(1)} km/L moving, ${fuelContext.kmPerLiter.toFixed(1)} km/L once idling is counted.`}
+                          />
+                        ) : (
+                          <Rate
+                            label="Idling cost"
+                            value="—"
+                            benchmark="no idling recorded this period"
+                          />
+                        )}
+                      </div>
                     ) : (
-                      <Rate
-                        label="Idling cost"
-                        value="—"
-                        benchmark="no idling recorded this period"
-                      />
+                      /* Says which figure is missing and why, rather than dividing
+                         a full distance by a partial litre count and publishing a
+                         flattering number with nothing behind it. */
+                      <div className="grid grid-cols-2 gap-4">
+                        <Rate label="Cost per km" value="—" benchmark="not enough fuel data" />
+                        <Rate label="Idling cost" value="—" benchmark="not enough fuel data" />
+                      </div>
+                    )}
+                    {/* Stated once, plainly, wherever litres appear as money: this
+                        fleet's trackers carry no fuel sensor and no CAN link, so
+                        the litres are inferred from distance and idle time. */}
+                    <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+                      Litres are modelled from distance driven and idle time, not read
+                      from a fuel sensor. Money is valued at the price in force when
+                      each litre burned.
+                    </p>
+                    {!fuelContext.fuelComplete && (
+                      <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
+                        The model charges {fuelContext.liters.toFixed(1)} L over{' '}
+                        {Math.round(fuelContext.distanceKm)} km — about{' '}
+                        {Math.round((fuelContext.fuelCoverage ?? 0) * 100)}% of the{' '}
+                        {(fuelContext.benchmarkLiters ?? 0).toFixed(1)} L this distance should have
+                        burned. Too little of the fuel record is present for a rate to mean anything.
+                      </p>
                     )}
                   </div>
-                ) : (
-                  /* Says which figure is missing and why, rather than dividing
-                     a full distance by a partial litre count and publishing a
-                     flattering number with nothing behind it. */
-                  <div className="grid grid-cols-2 gap-4">
-                    <Rate label="Cost per km" value="—" benchmark="not enough fuel data" />
-                    <Rate label="Idling cost" value="—" benchmark="not enough fuel data" />
-                  </div>
                 )}
-                {/* Stated once, plainly, wherever litres appear as money: this
-                    fleet's trackers carry no fuel sensor and no CAN link, so
-                    the litres are inferred from distance and idle time. */}
-                <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
-                  Litres are modelled from distance driven and idle time, not read
-                  from a fuel sensor. Money is valued at the price in force when
-                  each litre burned.
-                </p>
-                {!fuelContext.fuelComplete && (
-                  <p className="mt-3 text-[11px] leading-relaxed text-ink-dim">
-                    The model charges {fuelContext.liters.toFixed(1)} L over{' '}
-                    {Math.round(fuelContext.distanceKm)} km — about{' '}
-                    {Math.round((fuelContext.fuelCoverage ?? 0) * 100)}% of the{' '}
-                    {(fuelContext.benchmarkLiters ?? 0).toFixed(1)} L this distance should have
-                    burned. Too little of the fuel record is present for a rate to mean anything.
-                  </p>
-                )}
-              </div>
+              </>
             )}
 
             {/* The benchmark comparison moved into the loss breakdown section.

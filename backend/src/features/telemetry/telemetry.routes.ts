@@ -1113,6 +1113,10 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
           harsh_event_estimated_cost_ngn: harshEstimatedCostNgn,
         },
         actual_cost_ngn: actualCostNgn,
+        // Receipts only. actual_cost_ngn falls back to the modelled burn for a
+        // vehicle with no receipts, so summing it labelled estimates as money paid.
+        receipt_cost_ngn: purchaseCostNgn,
+        receipt_liters: round1(Number(r.purchase_liters_declared) || 0),
         telemetry_cost_ngn: telemetryCostNgn,
         fuel_cost_ngn: actualCostNgn,
         savings_ngn: Math.round(savingsNgn),
@@ -1166,6 +1170,8 @@ router.get('/fleet-efficiency', async (req: Request, res: Response) => {
         ),
       },
       total_actual_cost_ngn: rows.reduce((s, r) => s + r.actual_cost_ngn, 0),
+      total_receipt_cost_ngn: rows.reduce((s, r) => s + r.receipt_cost_ngn, 0),
+      total_receipt_liters: round1(rows.reduce((s, r) => s + r.receipt_liters, 0)),
       total_telemetry_cost_ngn: rows.reduce((s, r) => s + r.telemetry_cost_ngn, 0),
       total_loss_ngn: rows.reduce((s, r) => s + r.total_loss_ngn, 0),
       total_savings_ngn: rows.reduce((s, r) => s + r.savings_ngn, 0),
