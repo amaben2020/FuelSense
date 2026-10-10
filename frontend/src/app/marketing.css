@@ -4046,19 +4046,19 @@
 
 /* ============================================================ flip book */
 .fb-bookwrap {
-  margin-top: 2.5rem;
+  margin-top: 1.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1.5rem;
 }
 .fb-book {
-  --pw: min(30rem, 44vw);
-  --ph: calc(var(--pw) * 1.12);
+  --pw: min(40rem, 47vw);
+  --ph: calc(var(--pw) * 1.02);
   position: relative;
   width: calc(var(--pw) * 2);
   height: var(--ph);
-  max-height: calc(100vh - 13rem);
+  max-height: calc(100vh - 9.5rem);
   perspective: 2600px;
   transform: translateX(calc(var(--shift) * -25%));
   transition: transform 0.1s linear;
@@ -4110,8 +4110,8 @@
     radial-gradient(120% 90% at 70% 10%, #f6f2e8, #ece6d8);
   color: #23211c;
   font-family: var(--font-sans, system-ui), sans-serif;
-  font-size: clamp(0.78rem, 1.05vw, 0.92rem);
-  line-height: 1.65;
+  font-size: clamp(0.85rem, 1.15vw, 1.05rem);
+  line-height: 1.7;
   border-radius: 0 10px 10px 0;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
@@ -4850,4 +4850,218 @@
 }
 .fs-cx__send--full {
   animation: fs-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.9s both;
+}
+/* the log as a live stream */
+.fs-log__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: 0.4rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid rgba(205, 224, 74, 0.3);
+  border-radius: 999px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.62rem;
+  color: #cde04a;
+  font-variant-numeric: tabular-nums;
+}
+.fs-log__conn i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #cde04a;
+}
+.fs-log__list {
+  min-height: 24rem;
+}
+.fs-log__item.is-live {
+  animation: fs-log-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.fs-log__item.is-newest::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 22%, transparent), transparent 70%);
+  animation: fs-log-flash 1.4s ease-out both;
+  pointer-events: none;
+}
+@keyframes fs-log-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+    filter: blur(3px);
+  }
+}
+@keyframes fs-log-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.fs-log__listen {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem 0.7rem calc(1rem + 4.6rem + 0.75rem);
+  font-size: 0.75rem;
+  color: var(--ink-dim);
+}
+.fs-log__dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.fs-log__dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  animation: fs-log-dot 1.2s ease-in-out infinite;
+}
+.fs-log__dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.fs-log__dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes fs-log-dot {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+/* hardware: live details */
+@media (min-width: 66rem) {
+  .fs-hw {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+}
+.fs-hw__stage {
+  min-height: 30rem;
+}
+.fs-hw__bar4 {
+  fill: #cde04a;
+  animation: fs-hw-bars 1.6s ease-in-out infinite;
+}
+@keyframes fs-hw-bars {
+  50% {
+    opacity: 0.25;
+  }
+}
+.fs-hw__rack {
+  fill: #0e0f12;
+  stroke: #2b2e36;
+}
+.fs-hw__rackbar {
+  fill: rgba(205, 224, 74, 0.35);
+}
+.fs-hw__led {
+  fill: #cde04a;
+  animation: fs-hw-led 1.2s steps(2) infinite;
+}
+@keyframes fs-hw-led {
+  50% {
+    fill: #2b2e36;
+  }
+}
+.fs-hw__pktlabel {
+  font: 700 7px ui-monospace, monospace;
+  fill: #cde04a;
+  letter-spacing: 0.08em;
+}
+.fs-hw__inspect {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  width: 15rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--edge);
+  border-radius: 0.8rem;
+  background: rgba(14, 15, 18, 0.88);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+}
+.fs-hw__inspecthead {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--edge);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.fs-hw__inspecthead i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #cde04a;
+  box-shadow: 0 0 8px #cde04a;
+}
+.fs-hw__inspect dl {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+}
+.fs-hw__inspect dl div {
+  display: flex;
+  justify-content: space-between;
+}
+.fs-hw__inspect dt {
+  color: var(--ink-dim);
+}
+.fs-hw__inspect dd {
+  margin: 0;
+  color: #cde04a;
+  font-variant-numeric: tabular-nums;
+  animation: fs-hw-val 0.6s ease-out;
+}
+@keyframes fs-hw-val {
+  from {
+    color: #fff;
+    text-shadow: 0 0 8px rgba(205, 224, 74, 0.8);
+  }
+}
+@media (max-width: 40rem) {
+  .fs-hw__inspect {
+    position: static;
+    width: auto;
+    margin: 0 1rem 1rem;
+  }
+}
+.fs-hw__stage {
+  display: flex !important;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.fs-hw__inspect {
+  position: static;
+  width: auto;
+  margin: 0 1rem 1rem;
+}
+.fs-hw__inspect dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem 1.25rem;
+}
+@media (min-width: 66rem) {
+  .fs-hw__inspect dl {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .fs-hw__inspect dl div {
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+}
+.fs-hw__stage {
+  align-items: stretch !important;
+}
+.fs-hw__chiptext {
+  font-size: 7px;
 }

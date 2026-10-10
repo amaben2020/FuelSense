@@ -58,6 +58,24 @@ export function HardwareSignal() {
     return () => window.clearInterval(id);
   }, [visible, animate]);
 
+  // A live record, advancing once a second while the section is on screen.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!visible || !animate) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [visible, animate]);
+  const rec = {
+    time: `07:12:${String(4 + (tick % 56)).padStart(2, '0')}`,
+    lat: (9.07701 + tick * 0.00021).toFixed(5),
+    lng: (7.40012 + tick * 0.00034).toFixed(5),
+    speed: 38 + Math.round(Math.abs(Math.sin(tick * 0.7)) * 24),
+    odo: (81802.4 + tick * 0.17).toFixed(1),
+    sats: 9 + (tick % 4),
+    ack: 1041 + tick,
+    km: (18.4 + tick * 0.17).toFixed(1),
+  };
+
   const on = (k: (typeof STEPS)[number]['key']) => (STEPS[step].key === k ? 'is-on' : '');
 
   return (
@@ -126,16 +144,20 @@ export function HardwareSignal() {
 
           {/* The tracker */}
           <circle cx="236" cy="214" r="34" fill="url(#hw-chip)" className="fs-hw__glow" />
-          <rect x="216" y="202" width="40" height="24" rx="5" className="fs-hw__chip" />
+          <rect x="208" y="202" width="56" height="24" rx="5" className="fs-hw__chip" />
           <text x="236" y="218" className="fs-hw__chiptext" textAnchor="middle">TRACKER</text>
 
           {/* The record's path out */}
           <path d={PATH} className="fs-hw__route" stroke="url(#hw-path)" />
           {animate &&
             [0, 1, 2].map((i) => (
-              <circle key={i} r="4" className="fs-hw__packet">
+              <g key={i}>
+                <circle r="4" className="fs-hw__packet" />
+                <text y="-9" className="fs-hw__pktlabel" textAnchor="middle">
+                  {['GPS', 'IO', 'ODO'][i]}
+                </text>
                 <animateMotion dur="2.6s" begin={`${i * 0.87}s`} repeatCount="indefinite" path={PATH} />
-              </circle>
+              </g>
             ))}
 
           {/* Tower */}
@@ -143,23 +165,54 @@ export function HardwareSignal() {
             <path d="M -14 44 L 0 -6 L 14 44 M -9 26 H 9 M -6 12 H 6" className="fs-hw__tower" />
             <path d="M -16 -14 A 22 22 0 0 1 16 -14 M -26 -22 A 34 34 0 0 1 26 -22" className="fs-hw__waves" />
             <text x="0" y="66" className="fs-hw__label" textAnchor="middle">LTE</text>
+            {[0, 1, 2, 3].map((b) => (
+              <rect key={b} x={22 + b * 6} y={34 - b * 5} width="4" height={8 + b * 5} rx="1" className="fs-hw__bar4" style={{ animationDelay: `${b * 0.15}s` }} />
+            ))}
           </g>
 
           {/* FuelSense */}
           <g className={`fs-hw__part ${on('land')}`} transform="translate(676 150)">
-            <rect x="-52" y="-30" width="104" height="60" rx="12" className="fs-hw__server" />
-            <text x="0" y="-6" className="fs-hw__servertitle" textAnchor="middle">FuelSense</text>
-            <text x="0" y="12" className="fs-hw__tiny" textAnchor="middle">ACK · stored</text>
+            <rect x="-58" y="-44" width="116" height="92" rx="12" className="fs-hw__server" />
+            <text x="0" y="-24" className="fs-hw__servertitle" textAnchor="middle">FuelSense</text>
+            {[0, 1, 2].map((r) => (
+              <g key={r} transform={`translate(-44 ${-14 + r * 16})`}>
+                <rect width="88" height="11" rx="3" className="fs-hw__rack" />
+                <circle cx="8" cy="5.5" r="2" className="fs-hw__led" style={{ animationDelay: `${r * 0.4}s` }} />
+                <rect x="16" y="4" width={30 + r * 8} height="3" rx="1.5" className="fs-hw__rackbar" />
+              </g>
+            ))}
+            <text x="0" y="62" className="fs-hw__tiny" textAnchor="middle">ACK #{rec.ack}</text>
           </g>
 
           {/* Dashboard tile */}
           <g className={`fs-hw__part ${on('land')}`} transform="translate(832 262)">
             <rect x="-56" y="-36" width="112" height="84" rx="10" className="fs-hw__tile" />
             <text x="-44" y="-16" className="fs-hw__tiny">TRIP · 07:12</text>
-            <text x="-44" y="6" className="fs-hw__tilebig">18.4 km</text>
+            <text x="-44" y="6" className="fs-hw__tilebig">{rec.km} km</text>
             <path d="M -44 30 L -24 22 L -6 27 L 14 14 L 44 18" className="fs-hw__spark" />
           </g>
         </svg>
+
+        <div className="fs-hw__inspect" aria-live="off">
+          <p className="fs-hw__inspecthead">
+            <i /> Record · {rec.time}
+          </p>
+          <dl>
+            {[
+              ['lat', rec.lat],
+              ['lng', rec.lng],
+              ['speed', `${rec.speed} km/h`],
+              ['ign', 'on'],
+              ['odometer', `${rec.odo} km`],
+              ['satellites', String(rec.sats)],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd key={v}>{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
 
       <ol className="fs-hw__steps">

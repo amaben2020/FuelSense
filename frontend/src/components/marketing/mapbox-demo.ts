@@ -33,6 +33,7 @@ export function useLazyMapbox(
     const el = container.current;
     if (!el || !MAPBOX_TOKEN) return;
     let map: mapboxgl.Map | null = null;
+    let ro: ResizeObserver | null = null;
     const io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((e) => e.isIntersecting) || map) return;
@@ -51,12 +52,17 @@ export function useLazyMapbox(
           onLoadRef.current(map!);
           setReady(true);
         });
+        // The container can change size after the map is made (a feed beside
+        // it grows, a font loads), and Mapbox only measures on creation.
+        ro = new ResizeObserver(() => map?.resize());
+        ro.observe(el);
       },
       { rootMargin: '300px 0px' }
     );
     io.observe(el);
     return () => {
       io.disconnect();
+      ro?.disconnect();
       map?.remove();
       mapRef.current = null;
     };

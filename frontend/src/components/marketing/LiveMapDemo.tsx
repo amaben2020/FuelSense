@@ -186,7 +186,11 @@ export function LiveMapDemo() {
     <div className="fs-trace" ref={root}>
       <div className="fs-trace__map">
         <div className="fs-mapframe">
-          <div ref={mapBox} className="fs-mapframe__map" />
+          {/* mapbox-gl sets position:relative on its container, so the map
+              gets an inner box inside the absolutely positioned frame. */}
+          <div className="fs-mapframe__map">
+            <div ref={mapBox} className="h-full w-full" />
+          </div>
 
           <div className="fs-mapbadge">
             <span className="fs-live">

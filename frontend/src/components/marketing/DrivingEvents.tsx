@@ -353,36 +353,46 @@ export function DrivingEvents() {
         <div className="fs-log">
           <div className="fs-log__head">
             <span className="fs-log__live" aria-hidden />
-            <span className="fs-log__title">Activity log</span>
-            <span className="fs-log__count">
-              {fired.length} of {shownEvents.length}
+            <span className="fs-log__title">Live stream</span>
+            <span className="fs-log__conn">
+              <i /> connected · {Math.round(38 + Math.abs(Math.sin(progress * 47)) * 41)} ms
             </span>
+            <span className="fs-log__count">{fired.length} msgs</span>
           </div>
-          <ol className="fs-log__list">
-            {shownEvents.map((e) => {
-              const shown = progress >= e.at;
+          <ol className="fs-log__list" aria-live="polite">
+            {fired.length < shownEvents.length && (
+              <li className="fs-log__listen">
+                <span className="fs-log__dots" aria-hidden>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                Listening for the next event…
+              </li>
+            )}
+            {[...fired].reverse().map((e, i) => {
               const sev = SEVERITY[e.tone];
               return (
-                <li key={e.type} className={`fs-log__item ${shown ? 'is-live' : 'is-pending'}`} style={{ ['--tone' as string]: TONE[e.tone] }}>
-                  <time className="fs-log__time">{shown ? e.clock : '--:--:--'}</time>
+                <li
+                  key={e.type}
+                  className={`fs-log__item is-live ${i === 0 ? 'is-newest' : ''}`}
+                  style={{ ['--tone' as string]: TONE[e.tone] }}
+                >
+                  <time className="fs-log__time">{e.clock}</time>
                   <span className="fs-log__node" aria-hidden />
                   <div className="fs-log__body">
                     <div className="fs-log__row">
                       <span className="fs-log__type">{e.type}</span>
-                      <span className={`fs-log__sev fs-log__sev--${sev.toLowerCase()}`}>{shown ? sev : 'Awaiting'}</span>
+                      <span className={`fs-log__sev fs-log__sev--${sev.toLowerCase()}`}>{sev}</span>
                     </div>
-                    {shown && (
-                      <>
-                        <div className="fs-log__chips">
-                          {e.detail.split(' · ').map((d) => (
-                            <span key={d}>{d}</span>
-                          ))}
-                        </div>
-                        <p className="fs-log__method">
-                          <span>Method</span> {e.source}
-                        </p>
-                      </>
-                    )}
+                    <div className="fs-log__chips">
+                      {e.detail.split(' · ').map((d) => (
+                        <span key={d}>{d}</span>
+                      ))}
+                    </div>
+                    <p className="fs-log__method">
+                      <span>Method</span> {e.source}
+                    </p>
                   </div>
                 </li>
               );
