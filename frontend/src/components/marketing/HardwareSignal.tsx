@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 /**
  * The hardware, as the path a single record travels.
  *
- * A blueprint of the vehicle with the FMC150 behind the dash, wired to power
+ * A blueprint of the vehicle with the tracker behind the dash, wired to power
  * and ignition; satellites giving it a fix; the record leaving over the mobile
  * network, reaching FuelSense and landing on a dashboard tile. Four steps
  * play in turn while the section is on screen. Everything named is what the
@@ -127,7 +127,7 @@ export function HardwareSignal() {
           {/* The tracker */}
           <circle cx="236" cy="214" r="34" fill="url(#hw-chip)" className="fs-hw__glow" />
           <rect x="216" y="202" width="40" height="24" rx="5" className="fs-hw__chip" />
-          <text x="236" y="218" className="fs-hw__chiptext" textAnchor="middle">FMC150</text>
+          <text x="236" y="218" className="fs-hw__chiptext" textAnchor="middle">TRACKER</text>
 
           {/* The record's path out */}
           <path d={PATH} className="fs-hw__route" stroke="url(#hw-path)" />

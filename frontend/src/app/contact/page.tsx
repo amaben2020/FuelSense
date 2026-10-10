@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
 import { ArrowRight, Check, Loader2, Mail } from 'lucide-react';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
@@ -20,7 +20,7 @@ const SIZES = ['1–5', '6–20', '21–50', '50+'];
 const NEXT = [
   { title: 'We read it and reply', body: 'A person answers, by email or a call if you leave a number.' },
   { title: 'We scope your fleet', body: 'Vehicles, routes, drivers, and whether you already run trackers.' },
-  { title: 'Hardware, configured', body: 'Teltonika FMC150 set up for your vehicles before it ships, or your existing units connected.' },
+  { title: 'Hardware, configured', body: 'Professional-grade trackers set up for your vehicles before they ship, or your existing units connected.' },
   { title: 'First vehicle reporting', body: 'Account, drivers and fuel price set up with you. You see the first trip the same day it is driven.' },
 ];
 
@@ -44,12 +44,49 @@ export default function ContactPage() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [topic, setTopic] = useState('trackers');
   const [size, setSize] = useState<string | null>(null);
+  const [filled, setFilled] = useState({ name: false, email: false, message: false });
+  const card = useRef<HTMLDivElement>(null);
+  const ready = [true, filled.name, filled.email, filled.message].filter(Boolean).length;
+
+  // Pills lean toward the pointer, then spring back.
+  useEffect(() => {
+    const el = card.current;
+    if (!el || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const pills = Array.from(el.querySelectorAll<HTMLElement>('.fs-cx__pill'));
+    const off = pills.map((pill) => {
+      const qx = gsap.quickTo(pill, 'x', { duration: 0.4, ease: 'power3.out' });
+      const qy = gsap.quickTo(pill, 'y', { duration: 0.4, ease: 'power3.out' });
+      const move = (e: PointerEvent) => {
+        const r = pill.getBoundingClientRect();
+        qx((e.clientX - (r.left + r.width / 2)) * 0.25);
+        qy((e.clientY - (r.top + r.height / 2)) * 0.35);
+      };
+      const leave = () => {
+        qx(0);
+        qy(0);
+      };
+      pill.addEventListener('pointermove', move);
+      pill.addEventListener('pointerleave', leave);
+      return () => {
+        pill.removeEventListener('pointermove', move);
+        pill.removeEventListener('pointerleave', leave);
+      };
+    });
+    return () => off.forEach((f) => f());
+  }, [status.kind]);
+
+  // The completion meter eases to its new length.
+  useEffect(() => {
+    const bar = card.current?.querySelector<HTMLElement>('[data-cx-meter]');
+    if (bar) gsap.to(bar, { scaleX: ready / 4, duration: 0.6, ease: 'expo.out' });
+  }, [ready]);
 
   const scope = useGsapScope(() => {
     gsap.from('[data-contact-line] > span', { yPercent: 115, duration: 1, ease: 'expo.out', stagger: 0.08 });
     gsap.from('[data-contact-reveal]', { opacity: 0, y: 24, duration: 0.8, ease: 'power3.out', delay: 0.3, stagger: 0.08 });
     gsap.from('[data-cx-step]', { opacity: 0, x: -16, duration: 0.6, ease: 'power3.out', delay: 0.55, stagger: 0.1 });
     gsap.from('[data-cx-rail]', { scaleY: 0, transformOrigin: 'top center', duration: 1.2, ease: 'power3.inOut', delay: 0.5 });
+    gsap.from('[data-cx-in]', { opacity: 0, y: 18, filter: 'blur(6px)', duration: 0.7, ease: 'power3.out', delay: 0.45, stagger: 0.07, clearProps: 'filter' });
   });
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -136,7 +173,8 @@ export default function ContactPage() {
             </a>
           </div>
 
-          <div className="fs-cx__card" data-contact-reveal>
+          <div className="fs-cx__card" ref={card} data-contact-reveal>
+            <span className="fs-cx__orbit" aria-hidden />
             {status.kind === 'sent' ? (
               <div className="fs-cx__done" role="status">
                 <span className="fs-cx__check">
@@ -157,8 +195,29 @@ export default function ContactPage() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={submit} noValidate={false}>
-                <fieldset className="fs-cx__group">
+              <form
+                onSubmit={submit}
+                onInput={(e) => {
+                  const f = e.currentTarget;
+                  const val = (n: string) => (f.elements.namedItem(n) as HTMLInputElement | null)?.value.trim() ?? '';
+                  setFilled({
+                    name: val('name').length > 1,
+                    email: /.+@.+\..+/.test(val('email')),
+                    message: val('message').length > 9,
+                  });
+                }}
+              >
+                <div className="fs-cx__meterrow" data-cx-in>
+                  <span>Your enquiry</span>
+                  <span className="fs-cx__meternum">{ready} of 4 ready</span>
+                </div>
+                <div className="fs-cx__meter" data-cx-in>
+                  <i data-cx-meter />
+                  {[1, 2, 3].map((n) => (
+                    <b key={n} style={{ left: `${n * 25}%` }} />
+                  ))}
+                </div>
+                <fieldset className="fs-cx__group" data-cx-in>
                   <legend>What do you need?</legend>
                   <div className="fs-cx__pills">
                     {TOPICS.map((t) => (
@@ -175,7 +234,7 @@ export default function ContactPage() {
                   </div>
                 </fieldset>
 
-                <fieldset className="fs-cx__group">
+                <fieldset className="fs-cx__group" data-cx-in>
                   <legend>How many vehicles?</legend>
                   <div className="fs-cx__pills">
                     {SIZES.map((s) => (
@@ -192,7 +251,7 @@ export default function ContactPage() {
                   </div>
                 </fieldset>
 
-                <div className="fs-cx__grid">
+                <div className="fs-cx__grid" data-cx-in>
                   {[
                     { name: 'name', label: 'Your name', required: true, max: 120 },
                     { name: 'email', label: 'Work email', type: 'email', required: true },
@@ -216,7 +275,7 @@ export default function ContactPage() {
                   ))}
                 </div>
 
-                <label className="fs-cx__field fs-cx__field--area">
+                <label className="fs-cx__field fs-cx__field--area" data-cx-in>
                   <textarea name="message" required maxLength={4000} placeholder=" " className="fs-cx__input" rows={5} />
                   <span className="fs-cx__label">What do you run, and what are you trying to find out? *</span>
                 </label>
@@ -227,7 +286,11 @@ export default function ContactPage() {
                   </p>
                 )}
 
-                <button type="submit" className="fs-cx__send fs-cx__send--full" disabled={status.kind === 'sending'}>
+                <button
+                  type="submit"
+                  className={`fs-cx__send fs-cx__send--full ${status.kind === 'sending' ? 'is-sending' : ''}`}
+                  disabled={status.kind === 'sending'}
+                >
                   {status.kind === 'sending' ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" /> Sending

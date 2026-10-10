@@ -48,7 +48,7 @@ const TIERS: Tier[] = [
     featured: true,
     features: [
       'Everything in Essential Sense',
-      'Fuel used from GNSS telemetry (AVL 12)',
+      'Fuel modelled from distance and idling',
       'Live burn rate and cost per kilometre (AVL 13)',
       'Idling measured to the minute and priced in naira',
       'Harsh braking, acceleration and cornering events',
@@ -84,7 +84,7 @@ const COMMERCIALS = [
   },
   {
     title: 'Bring your own trackers, or take them from us',
-    body: 'If you already run FMC150s we configure them and charge software only. If you do not, we supply the hardware configured for your vehicles. Either way the subscription is the same.',
+    body: 'If you already run compatible trackers we configure them and charge software only. If you do not, we supply the hardware configured for your vehicles. Either way the subscription is the same.',
   },
 ];
 

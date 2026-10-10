@@ -103,6 +103,16 @@ const EVENTS: Event[] = [
   },
 ];
 
+/** How loud each event is in the log. */
+const SEVERITY: Record<Tone, 'High' | 'Medium' | 'Low' | 'Info'> = {
+  brake: 'High',
+  over: 'High',
+  corner: 'Medium',
+  slow: 'Low',
+  mid: 'Info',
+  fast: 'Info',
+};
+
 /** Live readout beside the map, interpolated as the scrubber moves. */
 function readoutAt(t: number) {
   const speed = Math.round(
@@ -340,31 +350,45 @@ export function DrivingEvents() {
           ))}
         </div>
 
-        <div className="fs-events__feedhead">
-          <span className="fs-events__dot" />
-          Event feed
-          <span className="fs-events__count">{fired.length}/{shownEvents.length}</span>
+        <div className="fs-log">
+          <div className="fs-log__head">
+            <span className="fs-log__live" aria-hidden />
+            <span className="fs-log__title">Activity log</span>
+            <span className="fs-log__count">
+              {fired.length} of {shownEvents.length}
+            </span>
+          </div>
+          <ol className="fs-log__list">
+            {shownEvents.map((e) => {
+              const shown = progress >= e.at;
+              const sev = SEVERITY[e.tone];
+              return (
+                <li key={e.type} className={`fs-log__item ${shown ? 'is-live' : 'is-pending'}`} style={{ ['--tone' as string]: TONE[e.tone] }}>
+                  <time className="fs-log__time">{shown ? e.clock : '--:--:--'}</time>
+                  <span className="fs-log__node" aria-hidden />
+                  <div className="fs-log__body">
+                    <div className="fs-log__row">
+                      <span className="fs-log__type">{e.type}</span>
+                      <span className={`fs-log__sev fs-log__sev--${sev.toLowerCase()}`}>{shown ? sev : 'Awaiting'}</span>
+                    </div>
+                    {shown && (
+                      <>
+                        <div className="fs-log__chips">
+                          {e.detail.split(' · ').map((d) => (
+                            <span key={d}>{d}</span>
+                          ))}
+                        </div>
+                        <p className="fs-log__method">
+                          <span>Method</span> {e.source}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
         </div>
-
-        <ul className="fs-events__feed">
-          {shownEvents.map((e) => {
-            const shown = progress >= e.at;
-            return (
-              <li
-                key={e.type}
-                className={`fs-events__event${shown ? ' is-live' : ''}`}
-                style={{ borderLeftColor: TONE[e.tone] }}
-              >
-                <div className="fs-events__eventtop">
-                  <span className="fs-events__clock">{e.clock}</span>
-                  <span className="fs-events__type">{e.type}</span>
-                </div>
-                <p className="fs-events__detail">{e.detail}</p>
-                <p className="fs-events__source">{e.source}</p>
-              </li>
-            );
-          })}
-        </ul>
 
         <p className="fs-events__disclaimer">
           Scripted demonstration, not a live vehicle. The detection method,

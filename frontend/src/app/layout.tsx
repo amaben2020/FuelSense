@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   keywords: [
     'fleet fuel monitoring Nigeria',
     'GPS fuel tracking',
-    'Teltonika FMC150',
+    'GPS fleet tracker',
     'fleet management software Nigeria',
     'fuel consumption tracking',
     'vehicle tracking Lagos Abuja',
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     template: '%s · FuelSense',
   },
   description:
-    'Fuel intelligence for Nigerian fleets. Live tracking, trip and idling detection, and fuel cost you can audit, built on Teltonika telemetry.',
+    'Fuel intelligence for Nigerian fleets. Live tracking, trip and idling detection, and fuel cost you can audit, built on GPS telemetry.',
   openGraph: {
     url: SITE,
     locale: 'en_NG',

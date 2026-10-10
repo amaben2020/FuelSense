@@ -20,7 +20,7 @@ const GRAPH = {
       email: 'uzochukwubenamara@gmail.com',
       areaServed: { '@type': 'Country', name: 'Nigeria' },
       description:
-        'Fleet fuel intelligence for Nigerian operators, built on Teltonika GPS telemetry.',
+        'Fleet fuel intelligence for Nigerian operators, built on GPS telemetry.',
     },
     {
       '@type': 'WebSite',
@@ -40,12 +40,12 @@ const GRAPH = {
       url: SITE,
       publisher: { '@id': `${SITE}/#organization` },
       description:
-        'FuelSense turns Teltonika FMC150 telemetry into auditable fuel cost: distance, engine hours, idling, fuel burned and what it cost in naira. It requires no fuel-level sensor and no CAN adapter.',
+        'FuelSense turns GPS tracker telemetry into auditable fuel cost: distance, engine hours, idling, fuel burned and what it cost in naira. It requires no fuel-level sensor and no CAN adapter.',
       featureList: [
         'Live GPS tracking with automatic trip segmentation',
         'Stop detection with real addresses',
         'Idling time measured to the minute and priced in naira',
-        'Fuel consumption from GNSS telemetry (AVL 12 and AVL 13)',
+        'Fuel modelled from distance and idling, priced in naira',
         'Driver receipt upload with OCR and reconciliation against measured burn',
         'Effective-dated fuel pricing so past periods keep their own price',
         'Driving behaviour events and per-driver scoring',
@@ -69,7 +69,7 @@ const GRAPH = {
           name: 'Does FuelSense need a fuel-level sensor in the tank?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'No. The Teltonika FMC150 computes fuel consumption in firmware from satellite-measured movement against the vehicle’s configured consumption profile, reported as AVL 12 (fuel used) and AVL 13 (burn rate). Nothing is fitted to the tank or spliced into the fuel line.',
+            text: 'No. Fuel is modelled from what the tracker measures well: odometer-validated distance against the vehicle’s rated economy, plus engine-on idling at an idle burn rate. Nothing is fitted to the tank or spliced into the fuel line, and every litre shown as money is labelled as modelled.',
           },
         },
         {
@@ -77,7 +77,7 @@ const GRAPH = {
           name: 'How accurate is GPS-derived fuel measurement?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'It is a model, not a measurement, and its accuracy depends on the consumption profile configured on the device. FuelSense cross-checks the device’s two fuel elements against each other and calibrates the result against litres actually paid for on receipts, then reports a confidence figure rather than claiming certainty.',
+            text: 'It is a model, not a measurement, and FuelSense says so wherever litres appear as money. Accuracy depends on the vehicle’s rated economy and on clean tracker data, so every trip carries a confidence score with its reasons. Receipts are the only fuel figures treated as fact, and they are shown beside the model rather than mixed into it.',
           },
         },
         {

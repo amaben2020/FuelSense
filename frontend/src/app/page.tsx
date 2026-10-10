@@ -5,9 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { gsap } from 'gsap';
 import { api, Customer, isAuthenticated } from '@/lib/api';
-import { HeroDashboard } from '@/components/marketing/HeroDashboard';
 import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
-import { FuelMath } from '@/components/marketing/FuelMath';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
 import { DrivingEvents } from '@/components/marketing/DrivingEvents';
 import { FuelBrainShowcase } from '@/components/marketing/FuelBrainShowcase';
@@ -15,6 +13,8 @@ import { BlindSpot } from '@/components/marketing/BlindSpot';
 import { HardwareSignal } from '@/components/marketing/HardwareSignal';
 import { ReceiptJourney } from '@/components/marketing/ReceiptJourney';
 import { DashboardShowcase } from '@/components/marketing/DashboardShowcase';
+import { FlipBook } from '@/components/marketing/FlipBook';
+import { FuelBrainScene } from '@/components/dashboard/FuelBrainScene';
 import { BellRing, Clock3, MapPinned, Route as RouteIcon } from 'lucide-react';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
@@ -138,47 +138,43 @@ export default function LandingPage() {
       <MarketingNav />
 
       {/* 01. hero ------------------------------------------------------ */}
-      <section className="fs-shell fs-hero">
-        <div className="fs-hero__grid">
-          <div>
-            <span className="fs-eyebrow" data-hero-tail>
-              Fleet fuel intelligence · Nigeria
+      <section className="fs-shell fs-hero fs-hero--center" id="top">
+        <span className="fs-eyebrow" data-hero-tail>
+          Fleet fuel intelligence · Nigeria
+        </span>
+
+        <h1 className="fs-display fs-hero__title">
+          <span className="fs-reveal" data-hero-line>
+            <span>See where your</span>
+          </span>
+          <span className="fs-reveal" data-hero-line>
+            <span>
+              fuel <em>actually</em> goes.
             </span>
+          </span>
+        </h1>
 
-            <h1 className="fs-display" style={{ marginTop: '1.5rem' }}>
-              <span className="fs-reveal" data-hero-line>
-                <span>See where your</span>
-              </span>
-              <span className="fs-reveal" data-hero-line>
-                <span>
-                  fuel <em>actually</em> goes.
-                </span>
-              </span>
-            </h1>
+        <p className="fs-lede fs-hero__lede" data-hero-tail>
+          One tracker per vehicle and the receipts your drivers already collect. FuelSense turns
+          them into every trip, every idle minute, a fuel cost you can audit, and the gap between
+          what was bought and what was burned.
+        </p>
 
-            <p className="fs-lede" style={{ marginTop: '1.75rem' }} data-hero-tail>
-              Fit a tracker to your vehicle and FuelSense shows you how far it drove, how long
-              it sat idling with the engine running, roughly how much fuel that used, and what it
-              cost in naira.
-            </p>
+        <div className="fs-hero__actions" data-hero-tail>
+          <Link href="/register" className="fs-nav__cta fs-hero__primary">
+            Start tracking
+          </Link>
+          <Link href="/contact" className="fs-btn fs-btn--ghost">
+            Talk to us
+          </Link>
+        </div>
 
-            <div className="fs-hero__actions" data-hero-tail>
-              <Link href="/register" className="fs-btn fs-btn--primary">
-                Start tracking
-              </Link>
-              <Link href="/contact" className="fs-btn fs-btn--ghost">
-                Talk to us about trackers
-              </Link>
-            </div>
+        <p className="fs-small fs-hero__fine" data-hero-tail>
+          Professional-grade GPS trackers, fitted in an hour. Nothing in the fuel line or tank.
+        </p>
 
-            <p className="fs-small" style={{ marginTop: '1.25rem' }} data-hero-tail>
-              Works with the Teltonika FMC150. No fuel sensor to install.
-            </p>
-          </div>
-
-          <div data-readout>
-            <HeroDashboard />
-          </div>
+        <div className="fs-hero__product" data-readout id="dashboard">
+          <DashboardShowcase />
         </div>
       </section>
 
@@ -186,7 +182,7 @@ export default function LandingPage() {
       <section className="fs-shell">
         <div className="fs-trust" data-reveal>
           {[
-            ['Hardware', 'Teltonika FMC150, fitted in an hour'],
+            ['Hardware', 'Professional-grade GPS trackers'],
             ['Hosting', 'AWS eu-north-1, encrypted at rest'],
             ['Access', 'Manager and read-only viewer roles'],
             ['Method', 'Every figure shows its working'],
@@ -296,14 +292,21 @@ export default function LandingPage() {
       {/* 04. FuelBrain -------------------------------------------------- */}
       <section className="fs-shell fs-section" id="fuelbrain">
         <Marker num="04" label="FuelBrain" />
-        <h2 className="fs-h2" data-reveal>
-          Ask your fleet a <em>question</em>.
-        </h2>
-        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
-          FuelBrain is an assistant that works over your own fleet data. Ask in plain English who
+        <div className="fs-fbhead">
+          <div>
+            <h2 className="fs-h2" data-reveal>
+              Ask your fleet a <em>question</em>.
+            </h2>
+            <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+              FuelBrain is an assistant that works over your own fleet data. Ask in plain English who
           idled the most, what fuel cost last month, or which alerts need you today, and get an
           answer with the figures behind it.
-        </p>
+            </p>
+          </div>
+          <div className="fs-fbhead__mark" data-reveal>
+            <FuelBrainScene size={150} />
+          </div>
+        </div>
 
         <FuelBrainShowcase />
       </section>
@@ -314,100 +317,13 @@ export default function LandingPage() {
         <h2 className="fs-h2" data-reveal>
           A tracker, satellites, and <em>arithmetic</em> you can audit.
         </h2>
-        <p className="fs-body" style={{ marginTop: '1.25rem', marginBottom: '2.5rem' }} data-reveal>
+        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
           Nothing is spliced into the fuel line and there is no sensor in the tank. The work is done
-          by a Teltonika FMC150 fitted to the vehicle, and by the satellite fixes it already
+          by a professional-grade GPS tracker fitted to the vehicle, and by the satellite fixes it already
           collects.
         </p>
 
-        <div className="fs-steps">
-          <article className="fs-step" data-step>
-            <span className="fs-step__index">Step 01</span>
-            <h3 className="fs-h3">The tracker is fitted</h3>
-            <p className="fs-small">
-              An FMC150 wires into the vehicle&rsquo;s power and ignition. From that moment it
-              reports position, speed, ignition and movement over the mobile network: every few
-              seconds while driving, hourly at rest.
-            </p>
-            <div className="fs-step__figure">
-              <p className="fs-small fs-mono" style={{ color: 'var(--green-700)' }}>
-                AVL 239 · ignition
-                <br />
-                AVL 240 · movement
-                <br />
-                AVL 16 · odometer
-              </p>
-            </div>
-          </article>
-
-          <article className="fs-step" data-step>
-            <span className="fs-step__index">Step 02</span>
-            <h3 className="fs-h3">Distance and idling become litres</h3>
-            <p className="fs-small">
-              Odometer-validated distance is divided by the vehicle&rsquo;s rated economy: the
-              official city figure for its model and year, or the rate you set. Engine-on minutes
-              standing still are added at an idle burn rate.
-            </p>
-            <div className="fs-step__figure">
-              <p className="fs-small fs-mono" style={{ color: 'var(--green-700)' }}>
-                km ÷ km/L + idle h × L/h
-                <br />
-                AVL 16 · AVL 239 · AVL 24
-              </p>
-            </div>
-          </article>
-
-          <article className="fs-step" data-step>
-            <span className="fs-step__index">Step 03</span>
-            <h3 className="fs-h3">Litres become naira</h3>
-            <p className="fs-small">
-              Each litre is priced at the fuel price in force the day it burned. Receipts your
-              drivers file are the money actually paid, kept separate from the estimate so the
-              two can be compared, never blended.
-            </p>
-            <div className="fs-step__figure">
-              <p className="fs-small fs-mono" style={{ color: 'var(--green-700)' }}>
-                30.4 km ÷ 9.8 km/L = 3.1 L
-                <br />3.1 L × ₦1,300 = ₦4,030
-              </p>
-            </div>
-          </article>
-        </div>
-
-        {/* The AVL 12 explanation, stated plainly, beside the device itself */}
-        <div
-          className="fs-step"
-          style={{ marginTop: '1.5rem', background: 'var(--paper-sunk)' }}
-          data-reveal
-        >
-          <div className="fs-avl">
-            <div>
-              <span className="fs-step__index">Why we say &ldquo;modelled&rdquo;</span>
-              <h3 className="fs-h3" style={{ maxWidth: '28ch', marginBlock: '0.5rem 0.875rem' }}>
-                An estimate that admits it is one.
-              </h3>
-              <p className="fs-body">
-                These trackers have no fuel sensor and no link to the engine computer. The
-                device&rsquo;s own GNSS fuel counter was tested against real receipts and fell far
-                short, so FuelSense does not rely on it. Litres are modelled from what the tracker
-                does measure well: how far the vehicle went and how long the engine ran while it
-                stood still.
-              </p>
-              <p className="fs-body">
-                That is stated wherever litres appear as money. The only fuel figure treated as
-                fact is a receipt, and receipts are shown as what was paid rather than folded into
-                the estimate.
-              </p>
-              <p className="fs-body">
-                Every trip also carries a <strong>confidence score</strong> with its reasons:
-                sparse fixes, reporting gaps or a cold start without a GPS lock lower it. A manager
-                can see at a glance which figures are solid and which are worth a second look.
-              </p>
-            </div>
-
-            <FuelMath />
-          </div>
-        </div>
+        <FlipBook />
       </section>
 
       {/* hardware -------------------------------------------------------- */}
@@ -417,7 +333,7 @@ export default function LandingPage() {
           One device. Every record, <em>accounted</em> for.
         </h2>
         <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
-          A Teltonika FMC150 behind the dash, wired to power and ignition. This is the path one
+          A professional-grade tracker behind the dash, wired to power and ignition. This is the path one
           record takes, from the vehicle to the screen.
         </p>
 
@@ -458,24 +374,6 @@ export default function LandingPage() {
         <ReceiptJourney />
       </section>
 
-      {/* 07. dashboard -------------------------------------------------- */}
-      <section className="fs-shell fs-section" id="dashboard">
-        <Marker num="08" label="Inside the dashboard" />
-        <h2 className="fs-h2" data-reveal>
-          The numbers, and <em>how</em> they were reached.
-        </h2>
-        <p className="fs-body" style={{ marginTop: '1.25rem', marginBottom: '2.5rem' }} data-reveal>
-          Every figure shows its working. This is the screen a manager lands on each morning.
-        </p>
-
-        <DashboardShowcase />
-
-        <p className="fs-small" style={{ marginTop: '1.5rem' }} data-reveal>
-          Also inside: trip history with exact date ranges, fuel-level charts with idling shaded,
-          event replay, driver receipt uploads read by OCR, and email alerts you choose.
-        </p>
-      </section>
-
       {/* 08. cta -------------------------------------------------------- */}
       <section className="fs-shell fs-section" style={{ borderTop: 0 }}>
         <div className="fs-cta" data-reveal>
@@ -483,7 +381,7 @@ export default function LandingPage() {
             Find out what your fleet <em>actually</em> costs.
           </h2>
           <p className="fs-lede" style={{ marginTop: '1.25rem' }}>
-            Start with one vehicle. We supply and configure the Teltonika hardware, or work with
+            Start with one vehicle. We supply and configure the tracking hardware, or work with
             trackers you already run.
           </p>
           <div className="fs-hero__actions">
