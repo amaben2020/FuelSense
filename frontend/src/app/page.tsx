@@ -7,12 +7,15 @@ import { gsap } from 'gsap';
 import { api, Customer, isAuthenticated } from '@/lib/api';
 import { HeroDashboard } from '@/components/marketing/HeroDashboard';
 import { LiveMapDemo } from '@/components/marketing/LiveMapDemo';
-import { ReconcileFlow } from '@/components/marketing/ReconcileFlow';
 import { FuelMath } from '@/components/marketing/FuelMath';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
-import { HaulixShowcase } from '@/components/marketing/HaulixShowcase';
 import { DrivingEvents } from '@/components/marketing/DrivingEvents';
 import { FuelBrainShowcase } from '@/components/marketing/FuelBrainShowcase';
+import { BlindSpot } from '@/components/marketing/BlindSpot';
+import { HardwareSignal } from '@/components/marketing/HardwareSignal';
+import { ReceiptJourney } from '@/components/marketing/ReceiptJourney';
+import { DashboardShowcase } from '@/components/marketing/DashboardShowcase';
+import { BellRing, Clock3, MapPinned, Route as RouteIcon } from 'lucide-react';
 import { countUp, revealOnScroll, useGsapScope } from '@/components/marketing/useScrollReveal';
 import './marketing.css';
 
@@ -200,52 +203,52 @@ export default function LandingPage() {
       <section className="fs-shell fs-section" id="problem">
         <Marker num="01" label="The problem" />
         <div className="fs-split">
+          <h2 className="fs-h2" data-reveal>
+            Between two fill-ups, a fleet runs <em>blind</em>.
+          </h2>
           <div>
-            <h2 className="fs-h2" data-reveal>
-              Between two fill-ups, a fleet runs <em>blind</em>.
-            </h2>
-            <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+            <p className="fs-body" data-reveal>
               You know what you paid at the pump. You do not know how far that fuel took the
               vehicle, how much of it burned standing still with the engine running, or which
               driver&rsquo;s day it went into. Every argument becomes one person&rsquo;s word against
               another&rsquo;s.
             </p>
             <p className="fs-body" style={{ marginTop: '1rem' }} data-reveal>
-              FuelSense replaces that with a record: every trip, stop and idle minute from the
-              tracker, set against the receipts your drivers file.
+              FuelSense replaces that with a record. Scroll, and watch the week between two receipts
+              fill in.
             </p>
           </div>
+        </div>
 
-          <div className="fs-stats fs-stats--stack" data-reveal>
-            <div className="fs-stat">
-              <p className="fs-stat__value fs-mono" data-count="1300" data-prefix="₦">
-                ₦0
-              </p>
-              <p className="fs-stat__label">Per litre, and moving</p>
-              <p className="fs-stat__note">
-                Pump prices change faster than receipts accumulate. Each litre is valued at the
-                price in force the day it burned, so last month never changes when today&rsquo;s
-                price does.
-              </p>
-            </div>
-            <div className="fs-stat">
-              <p className="fs-stat__value fs-mono" data-count="0.9" data-decimals="1" data-suffix=" L/h">
-                0 L/h
-              </p>
-              <p className="fs-stat__label">Burned going nowhere</p>
-              <p className="fs-stat__note">
-                A typical petrol engine idling. Twenty minutes at a gate is fuel spent on zero
-                kilometres, and invisible on a fuel card statement.
-              </p>
-            </div>
-            <div className="fs-stat">
-              <p className="fs-stat__value fs-mono">0</p>
-              <p className="fs-stat__label">Sensors in the fuel line or tank</p>
-              <p className="fs-stat__note">
-                Nothing is spliced or drilled. Everything comes from one tracker wired to power and
-                ignition, and the receipts you already collect.
-              </p>
-            </div>
+        <BlindSpot />
+
+        <div className="fs-stats fs-stats--row" data-reveal>
+          <div className="fs-stat">
+            <p className="fs-stat__value fs-mono" data-count="1300" data-prefix="₦">
+              ₦0
+            </p>
+            <p className="fs-stat__label">Per litre, and moving</p>
+            <p className="fs-stat__note">
+              Each litre is valued at the price in force the day it burned, so last month never
+              changes when today&rsquo;s price does.
+            </p>
+          </div>
+          <div className="fs-stat">
+            <p className="fs-stat__value fs-mono" data-count="0.9" data-decimals="1" data-suffix=" L/h">
+              0 L/h
+            </p>
+            <p className="fs-stat__label">Burned going nowhere</p>
+            <p className="fs-stat__note">
+              A typical petrol engine idling: fuel spent on zero kilometres, invisible on a fuel card
+              statement.
+            </p>
+          </div>
+          <div className="fs-stat">
+            <p className="fs-stat__value fs-mono">0</p>
+            <p className="fs-stat__label">Sensors in the fuel line or tank</p>
+            <p className="fs-stat__note">
+              One tracker wired to power and ignition, and the receipts you already collect.
+            </p>
           </div>
         </div>
       </section>
@@ -407,172 +410,65 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <HaulixShowcase />
+      {/* hardware -------------------------------------------------------- */}
+      <section className="fs-shell fs-section" id="hardware">
+        <Marker num="06" label="The hardware" />
+        <h2 className="fs-h2" data-reveal>
+          One device. Every record, <em>accounted</em> for.
+        </h2>
+        <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
+          A Teltonika FMC150 behind the dash, wired to power and ignition. This is the path one
+          record takes, from the vehicle to the screen.
+        </p>
 
-      <section className="fs-shell">
+        <HardwareSignal />
 
-        <div className="fs-featgrid" style={{ marginTop: '3rem' }}>
+        <ol className="fs-rj__steps" style={{ marginTop: '1.5rem' }}>
           {[
-            {
-              name: 'Trips, segmented automatically',
-              body: 'A trip opens when the ignition turns and closes after 30 minutes at rest. Distance is odometer-validated, with GPS jitter and impossible hops rejected.',
-            },
-            {
-              name: 'Stops that have names',
-              body: 'Any halt over three minutes becomes a stop with a real address, so a route reads as a sequence of places rather than coordinates.',
-            },
-            {
-              name: 'Idling, measured in naira',
-              body: 'Engine on and stationary is tracked to the minute and priced. It is the most common invisible cost in a fleet, and the easiest to fix.',
-            },
-            {
-              name: 'Alerts that stay honest',
-              body: 'Low fuel, tracker unplugged, movement without ignition. Each is a flag for investigation with the evidence attached, never a verdict.',
-            },
-          ].map((feature) => (
-            <div className="fs-feat" key={feature.name} data-reveal>
-              <h3 className="fs-feat__name">{feature.name}</h3>
-              <p className="fs-small">{feature.body}</p>
-            </div>
+            { icon: RouteIcon, name: 'Trips, segmented automatically', body: 'A trip opens with the ignition and closes after 30 minutes at rest. Distance is odometer-validated; GPS jitter and impossible hops are rejected.' },
+            { icon: MapPinned, name: 'Stops that have names', body: 'Any halt over three minutes becomes a stop with a place name, so a route reads as a sequence of places rather than coordinates.' },
+            { icon: Clock3, name: 'Idling, in naira', body: 'Engine on and standing still, counted to the minute and priced. The most common invisible cost in a fleet, and the easiest to fix.' },
+            { icon: BellRing, name: 'Alerts that stay honest', body: 'Tracker unplugged, movement without ignition, a stop at a fuel station. Each is a flag with the evidence attached, never a verdict.' },
+          ].map(({ icon: Icon, name, body }, i) => (
+            <li key={name} data-reveal>
+              <span className="fs-rj__stepicon">
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="fs-rj__stepnum">{String(i + 1).padStart(2, '0')}</span>
+              <p className="fs-rj__steptitle">{name}</p>
+              <p className="fs-small">{body}</p>
+            </li>
           ))}
-        </div>
+        </ol>
       </section>
 
       {/* 06. receipts and reconciliation -------------------------------- */}
       <section className="fs-shell fs-section" id="receipts">
-        <Marker num="06" label="Receipts and reconciliation" />
+        <Marker num="07" label="Receipts and reconciliation" />
         <h2 className="fs-h2" data-reveal>
           What was burned, against what was <em>bought</em>.
         </h2>
         <p className="fs-body" style={{ marginTop: '1.25rem' }} data-reveal>
           There is no sensor in your tank, so FuelSense never claims to have watched fuel leave it.
-          What it can do is measure the burn from the vehicle&rsquo;s own movement and set it beside
-          the receipts your drivers upload. Where the two disagree, you have a specific number and a
+          A receipt is the one fuel figure that is fact. It is credited as money paid and set beside
+          the burn modelled from the vehicle&rsquo;s movement, so a gap is a specific number on a
           specific day to ask about.
         </p>
 
-        <ReconcileFlow />
-
-        <div className="fs-featgrid" style={{ marginTop: '3rem' }}>
-          {[
-            {
-              name: 'Drivers upload from their phone',
-              body: 'A photo of the pump slip at the forecourt. OCR reads the merchant, litres and amount, so nobody types figures into a spreadsheet a week later.',
-            },
-            {
-              name: 'Matched to the tank automatically',
-              body: 'A logged purchase is matched against the refuel the tracker saw at that time, then credited to the vehicle’s virtual tank.',
-            },
-            {
-              name: 'The price you actually paid',
-              body: 'Receipts set the real naira-per-litre for the day they cover, and every cost figure for that period is valued at it.',
-            },
-            {
-              name: 'Calibration that improves with use',
-              body: 'Each verified fill-up sharpens the vehicle’s consumption model, so the estimate stops being a class average and becomes this vehicle.',
-            },
-          ].map((feature) => (
-            <div className="fs-feat" key={feature.name} data-reveal>
-              <h3 className="fs-feat__name">{feature.name}</h3>
-              <p className="fs-small">{feature.body}</p>
-            </div>
-          ))}
-        </div>
+        <ReceiptJourney />
       </section>
 
       {/* 07. dashboard -------------------------------------------------- */}
       <section className="fs-shell fs-section" id="dashboard">
-        <Marker num="07" label="Inside the dashboard" />
+        <Marker num="08" label="Inside the dashboard" />
         <h2 className="fs-h2" data-reveal>
           The numbers, and <em>how</em> they were reached.
         </h2>
         <p className="fs-body" style={{ marginTop: '1.25rem', marginBottom: '2.5rem' }} data-reveal>
-          Every figure shows its working. These are the panels you land on.
+          Every figure shows its working. This is the screen a manager lands on each morning.
         </p>
 
-        <div style={{ display: 'grid', gap: '1.5rem' }}>
-          <div className="fs-panel" data-panel>
-            <p className="fs-panel__title">Operational snapshot</p>
-            <p className="fs-panel__sub">What was paid, and the distance it bought</p>
-            <div className="fs-panelgrid">
-              <div className="fs-tile">
-                <p className="fs-tile__label">Distance · 7d</p>
-                <p className="fs-tile__value">286 km</p>
-                <p className="fs-tile__note">14 trips over 6 days</p>
-              </div>
-              <div className="fs-tile">
-                <p className="fs-tile__label">Bought · receipts</p>
-                <p className="fs-tile__value fs-tile__value--good">₦52,000</p>
-                <p className="fs-tile__note">40 L paid at the pump</p>
-              </div>
-              <div className="fs-tile">
-                <p className="fs-tile__label">Idling</p>
-                <p className="fs-tile__value fs-tile__value--warn">3h 40m</p>
-                <p className="fs-tile__note">7.9 L burned</p>
-              </div>
-              <div className="fs-tile">
-                <p className="fs-tile__label">Cost per km</p>
-                <p className="fs-tile__value">₦133</p>
-                <p className="fs-tile__note">modelled, at ₦1,300/L</p>
-              </div>
-            </div>
-            <p className="fs-panel__sub" style={{ marginTop: '0.875rem' }}>
-              Receipts lead: ₦52,000 is money that left someone&rsquo;s hands. The modelled burn
-              (286 km ÷ 9.8 km/L plus 3h 40m idling, about 32.5 L) sits one click behind it.
-            </p>
-          </div>
-
-          <div className="fs-panel" data-panel>
-            <p className="fs-panel__title">Vehicle data</p>
-            <p className="fs-panel__sub">
-              Every signal the tracker sends, named and explained in plain words
-            </p>
-            <div style={{ marginTop: '0.875rem' }}>
-              {[
-                ['Total odometer', '81,802 km', '16'],
-                ['Speed', '54 km/h', '24'],
-                ['GNSS status', 'Fix · good', '69'],
-                ['Ignition', 'On', '239'],
-                ['Movement', 'Moving', '240'],
-                ['GSM signal strength', '4 / 5 · MTN', '21'],
-              ].map(([label, value, avl]) => (
-                <div className="fs-row" key={avl}>
-                  <span>{label}</span>
-                  <span>
-                    <span className="fs-row__value">{value}</span>{' '}
-                    <span className="fs-row__muted fs-mono" style={{ fontSize: '0.6875rem' }}>
-                      AVL {avl}
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="fs-panel" data-panel>
-            <p className="fs-panel__title">Efficiency and driving behaviour</p>
-            <p className="fs-panel__sub">Per vehicle and per driver, against a realistic baseline</p>
-            <div style={{ marginTop: '0.875rem' }}>
-              {[
-                { label: 'LAG-001-FS · Benneth', mid: '286 km · 14 trips', right: '₦133/km', warn: false },
-                { label: 'Harsh braking', mid: 'this week', right: '4 events', warn: true },
-                { label: 'Idling', mid: '3h 40m engine-on, stationary', right: '₦10,500', warn: true },
-                { label: 'Driver score', mid: 'against fleet baseline', right: '92 / 100', warn: false },
-              ].map((row) => (
-                <div className="fs-row" key={row.label}>
-                  <span>{row.label}</span>
-                  <span className="fs-row__muted">{row.mid}</span>
-                  <span
-                    className="fs-row__value"
-                    style={{ color: row.warn ? '#ffb95f' : '#00e599' }}
-                  >
-                    {row.right}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <DashboardShowcase />
 
         <p className="fs-small" style={{ marginTop: '1.5rem' }} data-reveal>
           Also inside: trip history with exact date ranges, fuel-level charts with idling shaded,

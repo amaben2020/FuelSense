@@ -1,46 +1,61 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { gsap } from 'gsap';
+import { ArrowRight, Check, Loader2, Mail } from 'lucide-react';
 import { MarketingFooter, MarketingNav } from '@/components/marketing/MarketingChrome';
 import { useGsapScope } from '@/components/marketing/useScrollReveal';
 import { api } from '@/lib/api';
 import '../marketing.css';
 
 const TOPICS = [
-  { value: 'trackers', label: 'Buy Teltonika trackers' },
+  { value: 'trackers', label: 'Buy trackers' },
   { value: 'setup', label: 'Set up my fleet' },
   { value: 'demo', label: 'See a demo' },
   { value: 'other', label: 'Something else' },
 ];
 
-type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'sent' } | { kind: 'error'; message: string };
+const SIZES = ['1–5', '6–20', '21–50', '50+'];
+
+const NEXT = [
+  { title: 'We read it and reply', body: 'A person answers, by email or a call if you leave a number.' },
+  { title: 'We scope your fleet', body: 'Vehicles, routes, drivers, and whether you already run trackers.' },
+  { title: 'Hardware, configured', body: 'Teltonika FMC150 set up for your vehicles before it ships, or your existing units connected.' },
+  { title: 'First vehicle reporting', body: 'Account, drivers and fuel price set up with you. You see the first trip the same day it is driven.' },
+];
+
+const CONTACT_EMAIL = 'uzochukwubenamara@gmail.com';
+
+type Status = { kind: 'idle' } | { kind: 'sending' } | { kind: 'sent'; name: string } | { kind: 'error'; message: string };
+
+function AbujaClock() {
+  const [now, setNow] = useState<string | null>(null);
+  useEffect(() => {
+    const tick = () =>
+      setNow(new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos' }));
+    tick();
+    const id = window.setInterval(tick, 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <span className="fs-cx__clock">{now ?? '--:--'} in Abuja (WAT)</span>;
+}
 
 export default function ContactPage() {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+  const [topic, setTopic] = useState('trackers');
+  const [size, setSize] = useState<string | null>(null);
 
   const scope = useGsapScope(() => {
-    gsap.from('[data-contact-line] > span', {
-      yPercent: 115,
-      duration: 1,
-      ease: 'expo.out',
-      stagger: 0.08,
-    });
-    gsap.from('[data-contact-reveal]', {
-      opacity: 0,
-      y: 24,
-      duration: 0.8,
-      ease: 'power3.out',
-      delay: 0.3,
-      stagger: 0.08,
-    });
+    gsap.from('[data-contact-line] > span', { yPercent: 115, duration: 1, ease: 'expo.out', stagger: 0.08 });
+    gsap.from('[data-contact-reveal]', { opacity: 0, y: 24, duration: 0.8, ease: 'power3.out', delay: 0.3, stagger: 0.08 });
+    gsap.from('[data-cx-step]', { opacity: 0, x: -16, duration: 0.6, ease: 'power3.out', delay: 0.55, stagger: 0.1 });
+    gsap.from('[data-cx-rail]', { scaleY: 0, transformOrigin: 'top center', duration: 1.2, ease: 'power3.inOut', delay: 0.5 });
   });
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-
     setStatus({ kind: 'sending' });
     try {
       await api('/contact', {
@@ -51,18 +66,17 @@ export default function ContactPage() {
           email: data.get('email'),
           company: data.get('company'),
           phone: data.get('phone'),
-          fleet_size: data.get('fleet_size'),
-          topic: data.get('topic'),
+          fleet_size: size ? `${size} vehicles` : '',
+          topic,
           message: data.get('message'),
         }),
       });
+      setStatus({ kind: 'sent', name: String(data.get('name') ?? '').split(' ')[0] });
       form.reset();
-      setStatus({ kind: 'sent' });
     } catch (error) {
       setStatus({
         kind: 'error',
-        message:
-          error instanceof Error ? error.message : 'Could not send your message. Please try again.',
+        message: error instanceof Error ? error.message : 'Could not send your message. Please try again.',
       });
     }
   };
@@ -72,13 +86,13 @@ export default function ContactPage() {
       <MarketingNav />
 
       <section className="fs-shell fs-hero">
-        <div className="fs-contact">
-          <div>
+        <div className="fs-cx">
+          <div className="fs-cx__left">
             <span className="fs-eyebrow" data-contact-reveal>
               Contact
             </span>
 
-            <h1 className="fs-display" style={{ marginTop: '1.5rem', fontSize: 'clamp(2.5rem, 6vw, 4.5rem)' }}>
+            <h1 className="fs-display" style={{ marginTop: '1.5rem', fontSize: 'clamp(2.5rem, 6vw, 4.75rem)' }}>
               <span className="fs-reveal" data-contact-line>
                 <span>Let&rsquo;s get your</span>
               </span>
@@ -90,103 +104,144 @@ export default function ContactPage() {
             </h1>
 
             <p className="fs-lede" style={{ marginTop: '1.5rem' }} data-contact-reveal>
-              Tell us what you run and what you need. We supply and configure Teltonika hardware,
-              set up your account, and get the first vehicle reporting.
+              Tell us what you run and what you need. We supply and configure the hardware, set up
+              your account, and stay until the first vehicle is reporting.
             </p>
 
-            <div className="fs-contactfacts" data-contact-reveal>
-              {[
-                ['Hardware', 'Teltonika FMC150, configured for your vehicles before it ships'],
-                ['Setup', 'Account, vehicles, drivers and fuel price configured with you'],
-                ['Support', 'We stay on until the numbers match your receipts'],
-              ].map(([title, body]) => (
-                <div className="fs-feat" key={title}>
-                  <h3 className="fs-feat__name" style={{ fontSize: '1.0625rem' }}>
-                    {title}
-                  </h3>
-                  <p className="fs-small">{body}</p>
-                </div>
-              ))}
+            <div className="fs-cx__next" data-contact-reveal>
+              <p className="fs-cx__nexthead">What happens next</p>
+              <ol>
+                <span className="fs-cx__rail" data-cx-rail aria-hidden />
+                {NEXT.map((step, i) => (
+                  <li key={step.title} data-cx-step>
+                    <span className="fs-cx__dot">{i + 1}</span>
+                    <div>
+                      <p className="fs-cx__steptitle">{step.title}</p>
+                      <p className="fs-small">{step.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
+
+            <a href={`mailto:${CONTACT_EMAIL}`} className="fs-cx__direct" data-contact-reveal>
+              <span className="fs-cx__directicon">
+                <Mail className="h-4 w-4" />
+              </span>
+              <span>
+                <span className="fs-cx__directlabel">Prefer email?</span>
+                <span className="fs-cx__directvalue">{CONTACT_EMAIL}</span>
+              </span>
+              <AbujaClock />
+            </a>
           </div>
 
-          <form className="fs-form" onSubmit={submit} data-contact-reveal>
-            <div className="fs-form__grid">
-              <label className="fs-field">
-                <span className="fs-field__label">Your name *</span>
-                <input className="fs-input" name="name" required maxLength={120} />
-              </label>
+          <div className="fs-cx__card" data-contact-reveal>
+            {status.kind === 'sent' ? (
+              <div className="fs-cx__done" role="status">
+                <span className="fs-cx__check">
+                  <Check className="h-7 w-7" />
+                </span>
+                <h2 className="fs-h3">Thank you{status.name ? `, ${status.name}` : ''}.</h2>
+                <p className="fs-body">
+                  Your message has reached us and a person will reply. While you wait, the
+                  documentation shows exactly how every figure is worked out.
+                </p>
+                <div className="fs-cx__doneactions">
+                  <a href="/documentation" className="fs-cx__send">
+                    Read the method <ArrowRight className="h-4 w-4" />
+                  </a>
+                  <button type="button" className="fs-cx__ghost" onClick={() => setStatus({ kind: 'idle' })}>
+                    Send another
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={submit} noValidate={false}>
+                <fieldset className="fs-cx__group">
+                  <legend>What do you need?</legend>
+                  <div className="fs-cx__pills">
+                    {TOPICS.map((t) => (
+                      <button
+                        key={t.value}
+                        type="button"
+                        aria-pressed={topic === t.value}
+                        onClick={() => setTopic(t.value)}
+                        className="fs-cx__pill"
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
 
-              <label className="fs-field">
-                <span className="fs-field__label">Email *</span>
-                <input className="fs-input" name="email" type="email" required />
-              </label>
+                <fieldset className="fs-cx__group">
+                  <legend>How many vehicles?</legend>
+                  <div className="fs-cx__pills">
+                    {SIZES.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        aria-pressed={size === s}
+                        onClick={() => setSize(size === s ? null : s)}
+                        className="fs-cx__pill fs-cx__pill--mono"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
 
-              <label className="fs-field">
-                <span className="fs-field__label">Company</span>
-                <input className="fs-input" name="company" maxLength={120} />
-              </label>
-
-              <label className="fs-field">
-                <span className="fs-field__label">Phone</span>
-                <input className="fs-input" name="phone" type="tel" maxLength={40} />
-              </label>
-
-              <label className="fs-field">
-                <span className="fs-field__label">Fleet size</span>
-                <input className="fs-input" name="fleet_size" placeholder="e.g. 6 vehicles" />
-              </label>
-
-              <label className="fs-field">
-                <span className="fs-field__label">What do you need?</span>
-                <select className="fs-select" name="topic" defaultValue="trackers">
-                  {TOPICS.map((topic) => (
-                    <option key={topic.value} value={topic.value}>
-                      {topic.label}
-                    </option>
+                <div className="fs-cx__grid">
+                  {[
+                    { name: 'name', label: 'Your name', required: true, max: 120 },
+                    { name: 'email', label: 'Work email', type: 'email', required: true },
+                    { name: 'company', label: 'Company', max: 120 },
+                    { name: 'phone', label: 'Phone', type: 'tel', max: 40 },
+                  ].map((f) => (
+                    <label key={f.name} className="fs-cx__field">
+                      <input
+                        name={f.name}
+                        type={f.type ?? 'text'}
+                        required={f.required}
+                        maxLength={f.max}
+                        placeholder=" "
+                        className="fs-cx__input"
+                      />
+                      <span className="fs-cx__label">
+                        {f.label}
+                        {f.required ? ' *' : ''}
+                      </span>
+                    </label>
                   ))}
-                </select>
-              </label>
-            </div>
+                </div>
 
-            <label className="fs-field" style={{ marginTop: '1rem' }}>
-              <span className="fs-field__label">Message *</span>
-              <textarea
-                className="fs-textarea"
-                name="message"
-                required
-                maxLength={4000}
-                placeholder="What do you run, and what are you trying to find out?"
-              />
-            </label>
+                <label className="fs-cx__field fs-cx__field--area">
+                  <textarea name="message" required maxLength={4000} placeholder=" " className="fs-cx__input" rows={5} />
+                  <span className="fs-cx__label">What do you run, and what are you trying to find out? *</span>
+                </label>
 
-            {status.kind === 'sent' && (
-              <p className="fs-note fs-note--ok" style={{ marginTop: '1rem' }} role="status">
-                Thank you. Your message is on its way, and we reply to every enquiry.
-              </p>
+                {status.kind === 'error' && (
+                  <p className="fs-note fs-note--bad" style={{ marginTop: '1rem' }} role="alert">
+                    {status.message}
+                  </p>
+                )}
+
+                <button type="submit" className="fs-cx__send fs-cx__send--full" disabled={status.kind === 'sending'}>
+                  {status.kind === 'sending' ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Sending
+                    </>
+                  ) : (
+                    <>
+                      Send enquiry <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </button>
+                <p className="fs-cx__fine">We use your details only to reply to this enquiry.</p>
+              </form>
             )}
-            {status.kind === 'error' && (
-              <p className="fs-note fs-note--bad" style={{ marginTop: '1rem' }} role="alert">
-                {status.message}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              className="fs-btn fs-btn--primary"
-              style={{ marginTop: '1.25rem', width: '100%', justifyContent: 'center' }}
-              disabled={status.kind === 'sending'}
-            >
-              {status.kind === 'sending' ? 'Sending…' : 'Send enquiry'}
-            </button>
-
-            <p className="fs-small" style={{ marginTop: '0.875rem', textAlign: 'center' }}>
-              Or email us directly at{' '}
-              <a href="mailto:uzochukwubenamara@gmail.com" className="fs-em">
-                uzochukwubenamara@gmail.com
-              </a>
-            </p>
-          </form>
+          </div>
         </div>
       </section>
 
