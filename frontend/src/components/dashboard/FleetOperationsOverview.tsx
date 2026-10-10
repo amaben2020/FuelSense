@@ -26,6 +26,7 @@ import {
   formatNgn,
 } from '@/lib/api';
 import { DistanceBreakdownCard } from '@/components/dashboard/DistanceBreakdownCard';
+import { ReceiptsChart } from '@/components/dashboard/ReceiptsChart';
 import { DetailSection } from '@/components/dashboard/DetailSection';
 import { FleetStatusCard } from '@/components/dashboard/FleetStatusCard';
 import { FuelInputsDrillDown } from '@/components/dashboard/FuelInputsDrillDown';
@@ -812,6 +813,7 @@ export function FleetOperationsOverview({
                     View all fuel inputs
                   </button>
                 )}
+                {pumpSpend > 0 && <ReceiptsChart period={period} />}
                 <p className="mt-auto pt-6 text-[11px] leading-relaxed text-ink-dim">
                   Receipts are what was paid. Fuel burned is modelled from distance and idle
                   time; switch to Estimated burn to see it.

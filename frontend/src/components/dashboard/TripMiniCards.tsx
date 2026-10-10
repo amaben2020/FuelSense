@@ -5,8 +5,8 @@ import { createPortal } from 'react-dom';
 import { gsap } from 'gsap';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { Clock, Gauge, MapPin, Pause, Play, Route, X } from 'lucide-react';
-import { ServerTrip, TripsResponse, api } from '@/lib/api';
+import { Clock, Gauge, MapPin, Pause, Play, Route, UserRound, X } from 'lucide-react';
+import { ServerTrip, TripStop, TripsResponse, api } from '@/lib/api';
 import { SnapshotPeriod } from '@/lib/period';
 import { MAPBOX_TOKEN } from '@/components/maps/ReplayMap3D';
 
@@ -211,6 +211,14 @@ function TripExpanded({
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // Origin, every halt in order, destination. Brief traffic halts are kept: a
+  // manager reading a slow trip wants to see where it crawled.
+  const timeline = useMemo(
+    () =>
+      [...trip.stops].sort((a, b) => new Date(a.arrived_at).getTime() - new Date(b.arrived_at).getTime()),
+    [trip.stops]
+  );
+
   const coords = useMemo(() => trip.path.map(([lat, lng]) => [lng, lat] as [number, number]), [trip.path]);
   const cumulative = useMemo(() => {
     const out = [0];
@@ -263,6 +271,17 @@ function TripExpanded({
         'width:16px;height:16px;border-radius:50%;background:#cde04a;border:2px solid #0b1220;box-shadow:0 0 0 6px rgba(205,224,74,.2),0 0 18px rgba(205,224,74,.6)';
       markerRef.current = new mapboxgl.Marker({ element: el }).setLngLat(coords[0]).addTo(map);
 
+      // Numbered pins for the stops listed beside the map, so a row and its
+      // place on the route can be matched at a glance.
+      timeline.forEach((stop, n) => {
+        if (stop.kind === 'origin' || stop.kind === 'destination') return;
+        const pin = document.createElement('div');
+        pin.textContent = String(n);
+        pin.style.cssText =
+          'width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:600 10px/1 ui-monospace,monospace;color:#0b0d10;background:#f0a63a;border:2px solid #0b0d10;box-shadow:0 2px 8px rgba(0,0,0,.5)';
+        new mapboxgl.Marker({ element: pin }).setLngLat([stop.lng, stop.lat]).addTo(map);
+      });
+
       setMapReady(true);
       if (routeLayer.current) gsap.to(routeLayer.current, { opacity: 0, duration: 0.5, ease: 'power2.out' });
       // The route draws itself along the road.
@@ -282,7 +301,7 @@ function TripExpanded({
       };
       requestAnimationFrame(draw);
     });
-  }, [coords]);
+  }, [coords, timeline]);
 
   // Shared-element open: the panel starts exactly where the card was and grows
   // into place, then the detail rises in. The SVG route scales cleanly during
@@ -402,9 +421,12 @@ function TripExpanded({
     playFrame.current = requestAnimationFrame(step);
   };
 
-  const origin = trip.stops.find((s) => s.kind === 'origin')?.place_label;
-  const destination = trip.stops.find((s) => s.kind === 'destination')?.place_label;
   const stopCount = trip.stops.filter((s) => s.kind === 'stop').length;
+  const flyTo = (stop: TripStop) => {
+    cancelAnimationFrame(playFrame.current);
+    setPlaying(false);
+    mapRef.current?.flyTo({ center: [stop.lng, stop.lat], zoom: 15.5, duration: 1200, essential: true });
+  };
 
   return createPortal(
     <div className="fixed inset-0 z-[1200] flex items-center justify-center p-3 sm:p-6">
@@ -450,10 +472,7 @@ function TripExpanded({
         <aside className="flex w-full shrink-0 flex-col gap-4 overflow-y-auto border-t border-edge p-5 md:w-[320px] md:border-l md:border-t-0">
           <div data-rise className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-dim">
-                {trip.licensePlate}
-                {trip.driverName ? ` · ${trip.driverName}` : ''}
-              </p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-dim">{trip.licensePlate}</p>
               <p className="mt-1 text-4xl font-bold tabular-nums text-ink">
                 {trip.distance_km.toFixed(1)} <span className="text-lg font-semibold text-ink-mid">km</span>
               </p>
@@ -464,6 +483,16 @@ function TripExpanded({
             </button>
           </div>
 
+          <div data-rise className="flex items-center gap-3 rounded-xl border border-edge bg-panel px-3 py-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent">
+              {trip.driverName ? initials(trip.driverName) : <UserRound className="h-4 w-4" />}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] text-ink-dim">Driver</p>
+              <p className="truncate text-sm font-medium text-ink">{trip.driverName ?? 'No driver assigned'}</p>
+            </div>
+          </div>
+
           <dl data-rise className="grid grid-cols-2 gap-3">
             <Stat icon={Clock} label="Duration" value={formatMinutes(trip.duration_minutes)} />
             <Stat icon={Gauge} label="Avg / max" value={`${Math.round(trip.avg_speed_kph)} / ${Math.round(trip.max_speed_kph)} km/h`} />
@@ -471,23 +500,53 @@ function TripExpanded({
             <Stat icon={Route} label="Engine idling" value={formatMinutes(trip.idle_minutes)} />
           </dl>
 
-          {(origin || destination) && (
-            <ol data-rise className="space-y-2 border-t border-edge pt-4 text-sm">
-              {origin && (
-                <li className="flex gap-2.5">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full border border-accent" />
-                  <span className="text-ink-mid">{origin}</span>
-                </li>
-              )}
-              {destination && (
-                <li className="flex gap-2.5">
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
-                  <span className="text-ink-mid">{destination}</span>
-                </li>
-              )}
-            </ol>
+          {timeline.length > 0 && (
+            <div data-rise className="border-t border-edge pt-4">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-dim">Stops</p>
+              <ol className="relative space-y-1">
+                <span className="absolute bottom-3 left-[9px] top-3 w-px bg-edge" aria-hidden />
+                {timeline.map((stop, n) => {
+                  const ends = stop.kind === 'origin' || stop.kind === 'destination';
+                  return (
+                    <li key={`${stop.arrived_at}-${n}`}>
+                      <button
+                        type="button"
+                        onClick={() => flyTo(stop)}
+                        disabled={!mapReady}
+                        className="relative flex w-full gap-3 rounded-lg py-1.5 pl-0 pr-2 text-left transition hover:bg-ink/5"
+                      >
+                        <span
+                          className={`relative z-[1] mt-0.5 flex h-[19px] w-[19px] shrink-0 items-center justify-center rounded-full font-mono text-[9px] font-semibold ${
+                            stop.kind === 'origin'
+                              ? 'border-2 border-accent bg-canvas'
+                              : stop.kind === 'destination'
+                                ? 'bg-accent'
+                                : 'bg-[#f0a63a] text-[#0b0d10]'
+                          }`}
+                        >
+                          {ends ? '' : n}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm text-ink">
+                            {stop.place_label ?? STOP_LABEL[stop.kind]}
+                          </span>
+                          <span className="block font-mono text-[11px] tabular-nums text-ink-dim">
+                            {stopTime(stop)}
+                            {!ends || stop.kind === 'destination'
+                              ? ` · ${STOP_LABEL[stop.kind].toLowerCase()}${
+                                  stop.duration_minutes >= 1 ? ` ${formatMinutes(stop.duration_minutes)}` : ''
+                                }${stop.ongoing ? ' so far' : ''}`
+                              : ''}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+              <p className="mt-2 text-[11px] text-ink-dim">Tap a stop to fly the map to it.</p>
+            </div>
           )}
-
         </aside>
       </div>
     </div>,
@@ -504,6 +563,31 @@ function Stat({ icon: Icon, label, value }: { icon: typeof Clock; label: string;
       <dd className="mt-0.5 font-mono text-sm tabular-nums text-ink">{value}</dd>
     </div>
   );
+}
+
+const STOP_LABEL: Record<TripStop['kind'], string> = {
+  origin: 'Start',
+  stop: 'Stop',
+  pause: 'Pause',
+  traffic: 'Traffic',
+  destination: 'Parked',
+};
+
+function stopTime(stop: TripStop) {
+  const t = (iso: string) =>
+    new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: LAGOS });
+  if (stop.kind === 'origin') return `Left ${t(stop.departed_at)}`;
+  if (stop.kind === 'destination') return `Arrived ${t(stop.arrived_at)}`;
+  return `${t(stop.arrived_at)}–${t(stop.departed_at)}`;
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join('');
 }
 
 function formatMinutes(min: number) {

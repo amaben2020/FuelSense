@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { gsap } from 'gsap';
+import { FuelBrainScene } from '@/components/dashboard/FuelBrainScene';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -290,26 +291,6 @@ function BrainMark({ size = 'sm' }: { size?: 'sm' | 'lg' }) {
       }`}
     >
       <Brain className={size === 'lg' ? 'h-6 w-6' : 'h-4 w-4'} />
-    </span>
-  );
-}
-
-/**
- * The large mark on the welcome screen: rings and an orbiting spark around
- * the brain, all CSS so it costs no main-thread time. It spins up while an
- * answer is being worked out. (A Rive file could replace this later; there is
- * no .riv asset to load today, and this keeps the bundle free of a runtime.)
- */
-function BrainOrb({ thinking = false }: { thinking?: boolean }) {
-  return (
-    <span className={`fb-orb h-20 w-20 ${thinking ? 'is-thinking' : ''}`} aria-hidden>
-      <span className="fb-orb__ring fb-orb__ring--3" />
-      <span className="fb-orb__ring" />
-      <span className="fb-orb__ring fb-orb__ring--2" />
-      <span className="fb-orb__dot" />
-      <span className="fb-orb__core h-12 w-12">
-        <Brain className="h-6 w-6" />
-      </span>
     </span>
   );
 }
@@ -1061,7 +1042,7 @@ export function FuelBrain() {
                 <div className={`w-full ${expanded ? 'max-w-3xl' : 'max-w-2xl'}`}>
                   <div className="mb-6 flex flex-col items-center gap-4 text-center">
                     <span data-fb-rise>
-                      <BrainOrb thinking={streaming} />
+                      <FuelBrainScene thinking={streaming} size={expanded ? 208 : 164} />
                     </span>
                     <h2
                       className={`font-semibold text-ink [perspective:600px] ${expanded ? 'text-4xl' : 'text-2xl'}`}

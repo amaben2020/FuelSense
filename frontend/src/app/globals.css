@@ -704,7 +704,7 @@ input[type='time']::-webkit-calendar-picker-indicator {
 
 /* FuelBrain window. The open, expand and close motion is GSAP (FuelBrain.tsx);
    these are the ambient pieces that loop: the aurora behind fullscreen, the
-   orb that stands in for the brand mark, the spotlight on starter cards and
+   glowing core of the brain badge, the spotlight on starter cards and
    the entrance of each new message. */
 .fb-aurora {
   position: absolute;
@@ -749,49 +749,6 @@ input[type='time']::-webkit-calendar-picker-indicator {
   }
 }
 
-.fb-orb {
-  position: relative;
-  display: grid;
-  place-items: center;
-}
-.fb-orb__ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  border: 1px dashed color-mix(in srgb, var(--brand) 45%, transparent);
-  animation: fb-orbit 14s linear infinite;
-}
-.fb-orb__ring--2 {
-  inset: 10px;
-  border-style: solid;
-  border-color: color-mix(in srgb, var(--brand) 22%, transparent);
-  border-top-color: var(--brand);
-  animation-duration: 3.2s;
-}
-.fb-orb__ring--3 {
-  inset: -10px;
-  border-style: dotted;
-  border-color: color-mix(in srgb, var(--brand) 25%, transparent);
-  animation-duration: 22s;
-  animation-direction: reverse;
-}
-.fb-orb__dot {
-  position: absolute;
-  inset: -10px;
-  animation: fb-orbit 6s linear infinite;
-}
-.fb-orb__dot::after {
-  content: '';
-  position: absolute;
-  top: -3px;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  margin-left: -3px;
-  border-radius: 9999px;
-  background: var(--brand);
-  box-shadow: 0 0 12px 2px color-mix(in srgb, var(--brand) 70%, transparent);
-}
 .fb-orb__core {
   position: relative;
   display: grid;
@@ -802,12 +759,6 @@ input[type='time']::-webkit-calendar-picker-indicator {
   box-shadow: 0 0 40px -6px color-mix(in srgb, var(--brand) 60%, transparent);
   animation: fb-breathe 3.6s ease-in-out infinite;
 }
-.fb-orb.is-thinking .fb-orb__ring--2 {
-  animation-duration: 0.9s;
-}
-.fb-orb.is-thinking .fb-orb__dot {
-  animation-duration: 1.6s;
-}
 @keyframes fb-breathe {
   0%,
   100% {
@@ -817,6 +768,93 @@ input[type='time']::-webkit-calendar-picker-indicator {
   50% {
     transform: scale(1.06);
     box-shadow: 0 0 56px -2px color-mix(in srgb, var(--brand) 75%, transparent);
+  }
+}
+
+/* FuelBrain scene: the map lens with the car, the brain above it. */
+.fb-scene {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.fb-scene__brain {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border-radius: 9999px;
+  background: var(--canvas);
+}
+.fb-scene__pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid var(--brand);
+  animation: fb-pulse 2.4s ease-out infinite;
+}
+.fb-scene__lens {
+  position: relative;
+  margin-top: 22px;
+  overflow: hidden;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--brand) 6%, transparent),
+    0 0 60px -10px color-mix(in srgb, var(--brand) 45%, transparent),
+    inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+.fb-scene__sweep {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, transparent 0deg 300deg, color-mix(in srgb, var(--brand) 22%, transparent) 350deg, color-mix(in srgb, var(--brand) 45%, transparent) 360deg);
+  mix-blend-mode: screen;
+  animation: fb-orbit 6s linear infinite;
+}
+.fb-scene__vignette {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: radial-gradient(circle, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+  pointer-events: none;
+}
+.fb-scene__trail {
+  animation: fb-trail linear infinite;
+}
+.fb-scene.is-thinking .fb-scene__sweep {
+  animation-duration: 1.4s;
+}
+.fb-scene.is-thinking .fb-scene__pulse {
+  animation-duration: 0.9s;
+}
+@keyframes fb-trail {
+  from {
+    stroke-dashoffset: 22;
+  }
+  to {
+    stroke-dashoffset: -78;
+  }
+}
+@keyframes fb-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-scene__pulse,
+  .fb-scene__sweep,
+  .fb-scene__trail {
+    animation: none;
   }
 }
 
@@ -856,8 +894,6 @@ input[type='time']::-webkit-calendar-picker-indicator {
 }
 @media (prefers-reduced-motion: reduce) {
   .fb-aurora,
-  .fb-orb__ring,
-  .fb-orb__dot,
   .fb-orb__core,
   .fb-msg-in {
     animation: none;
