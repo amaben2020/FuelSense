@@ -1,0 +1,163 @@
+name: Terraform
+
+# infra/terraform describes every AWS resource production runs on. This
+# workflow plans on every change and applies only when asked:
+#
+#   pull request   plan, shown in the job summary, so the diff is reviewed with the code
+#   push to main   plan again against the merged code
+#   Monday 06:00   plan as drift detection; fails if someone changed AWS by hand
+#   manual run     with apply ticked: plan, then apply after the production
+#                  environment's reviewer approves
+#
+# Nothing applies on push. The box, database and Elastic IP carry
+# prevent_destroy, so a plan that would replace them fails rather than running.
+on:
+  pull_request:
+    paths:
+      - 'infra/terraform/**'
+      - 'backend/ops/*.service'
+      - 'backend/ops/*.timer'
+      - '.github/workflows/terraform.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+      - 'backend/ops/*.service'
+      - 'backend/ops/*.timer'
+      - '.github/workflows/terraform.yml'
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply the plan (needs approval in the production environment)'
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  # Two applies, or a plan racing an apply, would fight over the state lock.
+  group: terraform
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: 'false'
+  # Which env/<name>.tfvars + env/<name>.backend.hcl pair to use. Moving
+  # accounts means adding a new pair and pointing this variable at it.
+  TF_ENV: ${{ vars.TF_ENV || 'prod' }}
+
+defaults:
+  run:
+    working-directory: infra/terraform
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.3
+          terraform_wrapper: false
+
+      - name: Check required repository variables
+        env:
+          ROLE: ${{ vars.AWS_TF_PLAN_ROLE_ARN }}
+          REGION: ${{ vars.AWS_REGION }}
+        run: |
+          [ -n "$ROLE" ]   || { echo "::error::repository variable AWS_TF_PLAN_ROLE_ARN is not set"; exit 1; }
+          [ -n "$REGION" ] || { echo "::error::repository variable AWS_REGION is not set"; exit 1; }
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Format
+        run: terraform fmt -check -recursive -diff ..
+
+      - name: Init
+        run: terraform init -backend-config="env/$TF_ENV.backend.hcl"
+
+      - name: Validate
+        run: terraform validate
+
+      # -detailed-exitcode: 0 no changes, 2 changes, 1 error.
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -var-file="env/$TF_ENV.tfvars" -lock-timeout=5m -no-color -detailed-exitcode -out=tfplan > plan.txt 2>&1
+          CODE=$?
+          set -e
+          cat plan.txt
+          echo "exitcode=$CODE" >> "$GITHUB_OUTPUT"
+          [ "$CODE" = "1" ] && exit 1
+          exit 0
+
+      - name: Summarise
+        if: always() && steps.plan.outputs.exitcode != ''
+        run: |
+          {
+            echo "### Terraform plan (\`$TF_ENV\`)"
+            echo
+            if [ "${{ steps.plan.outputs.exitcode }}" = "0" ]; then
+              echo "No changes. AWS matches the code."
+            else
+              grep -E '^Plan:|^  # ' plan.txt || true
+              echo
+              echo "<details><summary>Full plan</summary>"
+              echo
+              echo '```'
+              sed -n '/Terraform will perform/,$p' plan.txt
+              echo '```'
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # On the weekly run a non-empty plan means AWS was changed outside
+      # Terraform. Failing the job makes GitHub email about it.
+      - name: Fail on drift
+        if: github.event_name == 'schedule' && steps.plan.outputs.exitcode == '2'
+        run: |
+          echo "::error::AWS differs from infra/terraform. Someone changed it by hand; see the plan above."
+          exit 1
+
+  apply:
+    name: Apply
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && inputs.apply && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The environment holds the approval gate and is the only thing the
+    # apply role trusts (repo:...:environment:production).
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.16.3
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_TF_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Init
+        run: terraform init -backend-config="env/$TF_ENV.backend.hcl"
+
+      # Planned again here rather than shipped from the plan job: a saved plan
+      # contains the generated database password, and artifacts on a public
+      # repository are downloadable.
+      - name: Plan
+        run: terraform plan -var-file="env/$TF_ENV.tfvars" -lock-timeout=5m -no-color -out=tfplan
+
+      - name: Apply
+        run: terraform apply -lock-timeout=5m -no-color tfplan

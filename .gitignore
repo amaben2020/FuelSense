@@ -14,3 +14,12 @@ ops/observability/.prod-tunnel.pid
 .claude/hillclimb/**/report.html
 .claude/hillclimb/**/state.json
 .claude/hillclimb/**/errors.jsonl
+
+# Terraform: providers and state never go in git (state lives in S3); the
+# provider lock file does.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt

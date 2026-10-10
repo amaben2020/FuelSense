@@ -1,0 +1,19 @@
+[Unit]
+Description=FuelSense backend (API + Teltonika TCP ingest)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/backend
+EnvironmentFile=/home/ec2-user/backend/.env
+ExecStart=/usr/bin/node-18 --require /home/ec2-user/backend/node_modules/tsx/dist/preflight.cjs --import file:///home/ec2-user/backend/node_modules/tsx/dist/loader.mjs src/server.ts
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fuelsense
+
+[Install]
+WantedBy=multi-user.target

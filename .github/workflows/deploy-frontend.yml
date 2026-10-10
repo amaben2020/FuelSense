@@ -30,15 +30,34 @@ permissions:
   id-token: write
   contents: read
 
+# Repository variables, set from `terraform output github_variables` in
+# infra/terraform. Nothing account-specific is written in this file, so moving
+# AWS accounts means changing the variables, not the workflow.
 env:
-  AWS_REGION: eu-north-1
-  BUCKET: fuelsense-frontend
-  DISTRIBUTION_ID: EMLYMQX2321Z2
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  BUCKET: ${{ vars.FRONTEND_BUCKET }}
+  DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Check required repository variables
+        env:
+          ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          DOMAIN: ${{ vars.CLOUDFRONT_DOMAIN }}
+        run: |
+          MISSING=""
+          [ -n "$AWS_REGION" ]      || MISSING="$MISSING AWS_REGION"
+          [ -n "$BUCKET" ]          || MISSING="$MISSING FRONTEND_BUCKET"
+          [ -n "$DISTRIBUTION_ID" ] || MISSING="$MISSING CLOUDFRONT_DISTRIBUTION_ID"
+          [ -n "$ROLE" ]            || MISSING="$MISSING AWS_DEPLOY_ROLE_ARN"
+          [ -n "$DOMAIN" ]          || MISSING="$MISSING CLOUDFRONT_DOMAIN"
+          if [ -n "$MISSING" ]; then
+            echo "::error::missing repository variable(s):$MISSING (see terraform output github_variables)"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -78,7 +97,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::006291942168:role/FuelSenseDeployRole
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       # Two passes, because the right cache header differs. Asset filenames are
@@ -111,7 +130,7 @@ jobs:
 
       - name: Confirm the site answers
         run: |
-          BASE="https://${{ secrets.SITE_TEST_HOST || 'dtz4lvqdpmzcy.cloudfront.net' }}"
+          BASE="https://${{ secrets.SITE_TEST_HOST || vars.CLOUDFRONT_DOMAIN }}"
           FAILED=0
           for path in / /pricing /contact /login /dashboard; do
             CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE$path")
